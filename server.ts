@@ -2,11 +2,19 @@ import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import mongoose from 'mongoose';
+import dns from 'dns';
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
 
 dotenv.config();
+
+// Ensure MongoDB Atlas SRV DNS resolution succeeds on Windows/local networks
+try {
+  dns.setServers(['8.8.8.8', '1.1.1.1']);
+} catch (e) {
+  // Ignore if custom DNS cannot be set
+}
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
