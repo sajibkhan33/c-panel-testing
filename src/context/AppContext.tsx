@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useMemo, useRef } from 'react';
-import { CompanyProfile, ProductItem, Customer, Supplier, SalesInvoice, Quotation, PurchaseOrder, AccountingTransaction, StockMovement, Language, LocationType, AccountBalances, StaffMember, AuditLogEntry, ChartOfAccount, ExpenseHead, ProductCategory, UserRole, RolePermission, JournalEntry, Project, ProjectExpenseItem, ProjectSalesItem, PaymentMethodConfig, } from '../types';
+import { CompanyProfile, ProductItem, Customer, Supplier, SalesInvoice, Quotation, PurchaseOrder, AccountingTransaction, StockMovement, Language, LocationType, AccountBalances, StaffMember, StaffRole, AuditLogEntry, ChartOfAccount, ExpenseHead, ProductCategory, UserRole, RolePermission, JournalEntry, Project, ProjectExpenseItem, ProjectSalesItem, PaymentMethodConfig, } from '../types';
 import { INITIAL_COMPANY_PROFILE, INITIAL_PRODUCTS, INITIAL_CUSTOMERS, INITIAL_SUPPLIERS, INITIAL_INVOICES, INITIAL_PURCHASE_ORDERS, INITIAL_TRANSACTIONS, INITIAL_QUOTATIONS, INITIAL_STOCK_MOVEMENTS, INITIAL_STAFF_MEMBERS, INITIAL_AUDIT_LOGS, } from '../data/initialData';
 import { INITIAL_CHART_OF_ACCOUNTS, INITIAL_EXPENSE_HEADS, INITIAL_PRODUCT_CATEGORIES, INITIAL_USER_ROLES, INITIAL_JOURNAL_ENTRIES, INITIAL_PROJECTS, ALL_SYSTEM_PERMISSIONS, INITIAL_PAYMENT_METHODS, } from '../data/accountingAndConfigData';
 const STORAGE_KEY = 'DOT_COLOR_ERP_V1_STATE';
@@ -218,6 +218,16 @@ export const AppProvider: React.FC<{
                 return fallback;
             if (Array.isArray(fallback) && !Array.isArray(parsed))
                 return fallback;
+            if (Array.isArray(parsed)) {
+                // Filter out any legacy dummy records by known mock IDs
+                const isDummy = (item: any) => {
+                    if (!item || typeof item !== 'object' || !item.id) return false;
+                    const id = String(item.id);
+                    return /^(prod-dp-|prod-sm-|prod-bg-|prod-pkg-|prod-rm-|cust-0\d|sup-0\d|inv-100\d|po-500\d|tx-0\d|qt-200\d|sm-0\d$|audit-0\d|jnl-0\d|prj-1791312899418|prj-1791313243039|prj-1791286609909)/.test(id) ||
+                        (/^staff-0[2-6]$/.test(id));
+                };
+                return parsed.filter((item: any) => !isDummy(item)) as unknown as T;
+            }
             return parsed;
         }
         catch {
@@ -343,8 +353,7 @@ export const AppProvider: React.FC<{
         return safeGetLocalStorage<JournalEntry[]>(`${STORAGE_KEY}_JOURNALS`, INITIAL_JOURNAL_ENTRIES);
     });
     const [projects, setProjects] = useState<Project[]>(() => {
-        const list = safeGetLocalStorage<Project[]>(`${STORAGE_KEY}_PROJECTS`, INITIAL_PROJECTS);
-        return Array.isArray(list) && list.length > 0 ? list : INITIAL_PROJECTS;
+        return safeGetLocalStorage<Project[]>(`${STORAGE_KEY}_PROJECTS`, []);
     });
     const [paymentMethods, setPaymentMethods] = useState<PaymentMethodConfig[]>(() => {
         return safeGetLocalStorage<PaymentMethodConfig[]>(`${STORAGE_KEY}_PAYMENT_METHODS`, INITIAL_PAYMENT_METHODS);
@@ -3089,218 +3098,60 @@ export const AppProvider: React.FC<{
                 }
                 setProfile(data.profile);
             }
-            if (data.products) {
-                if (isCloudSync && Array.isArray(data.products)) {
-                    setProducts((prev) => {
-                        const map = new Map<string, ProductItem>();
-                        data.products.forEach((p: ProductItem) => map.set(p.id, p));
-                        prev.forEach((p) => { if (!map.has(p.id))
-                            map.set(p.id, p); });
-                        return Array.from(map.values());
-                    });
-                }
-                else {
-                    setProducts(data.products);
-                }
+            if (data.products && Array.isArray(data.products)) {
+                setProducts(data.products);
             }
-            if (data.customers) {
-                if (isCloudSync && Array.isArray(data.customers)) {
-                    setCustomers((prev) => {
-                        const map = new Map<string, Customer>();
-                        data.customers.forEach((c: Customer) => map.set(c.id, c));
-                        prev.forEach((c) => { if (!map.has(c.id))
-                            map.set(c.id, c); });
-                        return Array.from(map.values());
-                    });
-                }
-                else {
-                    setCustomers(data.customers);
-                }
+            if (data.customers && Array.isArray(data.customers)) {
+                setCustomers(data.customers);
             }
-            if (data.suppliers) {
-                if (isCloudSync && Array.isArray(data.suppliers)) {
-                    setSuppliers((prev) => {
-                        const map = new Map<string, Supplier>();
-                        data.suppliers.forEach((s: Supplier) => map.set(s.id, s));
-                        prev.forEach((s) => { if (!map.has(s.id))
-                            map.set(s.id, s); });
-                        return Array.from(map.values());
-                    });
-                }
-                else {
-                    setSuppliers(data.suppliers);
-                }
+            if (data.suppliers && Array.isArray(data.suppliers)) {
+                setSuppliers(data.suppliers);
             }
-            if (data.invoices) {
-                if (isCloudSync && Array.isArray(data.invoices)) {
-                    setInvoices((prev) => {
-                        const map = new Map<string, SalesInvoice>();
-                        data.invoices.forEach((inv: SalesInvoice) => map.set(inv.id, inv));
-                        prev.forEach((inv) => { if (!map.has(inv.id))
-                            map.set(inv.id, inv); });
-                        return Array.from(map.values());
-                    });
-                }
-                else {
-                    setInvoices(data.invoices);
-                }
+            if (data.invoices && Array.isArray(data.invoices)) {
+                setInvoices(data.invoices);
             }
-            if (data.quotations) {
-                if (isCloudSync && Array.isArray(data.quotations)) {
-                    setQuotations((prev) => {
-                        const map = new Map<string, Quotation>();
-                        data.quotations.forEach((q: Quotation) => map.set(q.id, q));
-                        prev.forEach((q) => { if (!map.has(q.id))
-                            map.set(q.id, q); });
-                        return Array.from(map.values());
-                    });
-                }
-                else {
-                    setQuotations(data.quotations);
-                }
+            if (data.quotations && Array.isArray(data.quotations)) {
+                setQuotations(data.quotations);
             }
-            if (data.purchaseOrders) {
-                if (isCloudSync && Array.isArray(data.purchaseOrders)) {
-                    setPurchaseOrders((prev) => {
-                        const map = new Map<string, PurchaseOrder>();
-                        data.purchaseOrders.forEach((po: PurchaseOrder) => map.set(po.id, po));
-                        prev.forEach((po) => { if (!map.has(po.id))
-                            map.set(po.id, po); });
-                        return Array.from(map.values());
-                    });
-                }
-                else {
-                    setPurchaseOrders(data.purchaseOrders);
-                }
+            if (data.purchaseOrders && Array.isArray(data.purchaseOrders)) {
+                setPurchaseOrders(data.purchaseOrders);
             }
-            if (data.transactions) {
-                if (isCloudSync && Array.isArray(data.transactions)) {
-                    setTransactions((prev) => {
-                        const map = new Map<string, AccountingTransaction>();
-                        data.transactions.forEach((tx: AccountingTransaction) => map.set(tx.id, tx));
-                        prev.forEach((tx) => { if (!map.has(tx.id))
-                            map.set(tx.id, tx); });
-                        return ensureUniqueTransactions(Array.from(map.values()));
-                    });
-                }
-                else {
-                    setTransactions(ensureUniqueTransactions(data.transactions));
-                }
+            if (data.transactions && Array.isArray(data.transactions)) {
+                setTransactions(ensureUniqueTransactions(data.transactions));
             }
-            if (data.stockMovements) {
-                if (isCloudSync && Array.isArray(data.stockMovements)) {
-                    setStockMovements((prev) => {
-                        const map = new Map<string, StockMovement>();
-                        data.stockMovements.forEach((sm: StockMovement) => map.set(sm.id, sm));
-                        prev.forEach((sm) => { if (!map.has(sm.id))
-                            map.set(sm.id, sm); });
-                        return Array.from(map.values());
-                    });
-                }
-                else {
-                    setStockMovements(data.stockMovements);
-                }
+            if (data.stockMovements && Array.isArray(data.stockMovements)) {
+                setStockMovements(data.stockMovements);
             }
-            if (data.auditLogs) {
-                if (isCloudSync && Array.isArray(data.auditLogs)) {
-                    setAuditLogs((prev) => {
-                        const map = new Map<string, AuditLogEntry>();
-                        data.auditLogs.forEach((a: AuditLogEntry) => map.set(a.id, a));
-                        prev.forEach((a) => { if (!map.has(a.id))
-                            map.set(a.id, a); });
-                        return Array.from(map.values());
-                    });
-                }
-                else {
-                    setAuditLogs(data.auditLogs);
-                }
+            if (data.auditLogs && Array.isArray(data.auditLogs)) {
+                setAuditLogs(data.auditLogs);
             }
             if (data.staffMembers && Array.isArray(data.staffMembers) && data.staffMembers.length > 0) {
-                if (isCloudSync) {
-                    setStaffMembers((prevLocal) => {
-                        const cloudList: StaffMember[] = data.staffMembers;
-                        const mergedMap = new Map<string, StaffMember>();
-                        cloudList.forEach((s) => mergedMap.set(s.id, s));
-                        let hasLocalUnsynced = false;
-                        prevLocal.forEach((s) => {
-                            if (!mergedMap.has(s.id)) {
-                                mergedMap.set(s.id, s);
-                                hasLocalUnsynced = true;
-                            }
-                        });
-                        const merged = Array.from(mergedMap.values());
-                        if (hasLocalUnsynced) {
-                            setTimeout(() => {
-                                syncWithCloud();
-                            }, 400);
-                        }
-                        return merged;
-                    });
-                }
-                else {
-                    setStaffMembers(data.staffMembers);
-                }
+                setStaffMembers(data.staffMembers);
                 setActiveStaff((prev) => {
                     if (prev?.id) {
                         const found = data.staffMembers.find((s: StaffMember) => s.id === prev.id);
                         if (found)
                             return found;
                     }
-                    return prev;
+                    return data.staffMembers[0];
                 });
             }
-            if (data.userRoles) {
-                const incomingSanitized = sanitizeUserRoles(data.userRoles);
-                if (isCloudSync && Array.isArray(incomingSanitized)) {
-                    setUserRoles((prev) => {
-                        const map = new Map<string, UserRole>();
-                        incomingSanitized.forEach((r: UserRole) => map.set(r.id, r));
-                        prev.forEach((r) => { if (!map.has(r.id))
-                            map.set(r.id, r); });
-                        return sanitizeUserRoles(Array.from(map.values()));
-                    });
-                }
-                else {
-                    setUserRoles(incomingSanitized);
-                }
+            if (data.userRoles && Array.isArray(data.userRoles)) {
+                setUserRoles(sanitizeUserRoles(data.userRoles));
             }
             if (data.chartOfAccounts && Array.isArray(data.chartOfAccounts) && data.chartOfAccounts.length > 0)
                 setChartOfAccounts(data.chartOfAccounts);
             if (data.expenseHeads && Array.isArray(data.expenseHeads) && data.expenseHeads.length > 0)
                 setExpenseHeads(data.expenseHeads);
-            if (data.productCategories)
+            if (data.productCategories && Array.isArray(data.productCategories))
                 setProductCategories(data.productCategories);
-            if (data.journalEntries)
+            if (data.journalEntries && Array.isArray(data.journalEntries))
                 setJournalEntries(data.journalEntries);
-            if (data.projects) {
-                if (isCloudSync && Array.isArray(data.projects)) {
-                    if (data.projects.length > 0) {
-                        setProjects((prev) => {
-                            const map = new Map<string, Project>();
-                            data.projects.forEach((p: Project) => map.set(p.id, p));
-                            prev.forEach((p) => {
-                                if (!map.has(p.id)) map.set(p.id, p);
-                            });
-                            return Array.from(map.values());
-                        });
-                    }
-                } else {
-                    setProjects(data.projects);
-                }
+            if (data.projects && Array.isArray(data.projects)) {
+                setProjects(data.projects);
             }
             if (data.paymentMethods && Array.isArray(data.paymentMethods) && data.paymentMethods.length > 0) {
-                if (isCloudSync) {
-                    setPaymentMethods((prev) => {
-                        const map = new Map<string, PaymentMethodConfig>();
-                        data.paymentMethods.forEach((p: PaymentMethodConfig) => map.set(p.id, p));
-                        prev.forEach((p) => { if (!map.has(p.id))
-                            map.set(p.id, p); });
-                        return Array.from(map.values());
-                    });
-                }
-                else {
-                    setPaymentMethods(data.paymentMethods);
-                }
+                setPaymentMethods(data.paymentMethods);
             }
             return true;
         }
@@ -3376,9 +3227,6 @@ export const AppProvider: React.FC<{
         try {
             setCloudSyncStatus('syncing');
             const payload = { ...latestStateRef.current };
-            if (!payload.projects || payload.projects.length === 0) {
-                payload.projects = INITIAL_PROJECTS;
-            }
             const res = await fetch('/api/state', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
