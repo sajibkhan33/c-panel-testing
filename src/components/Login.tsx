@@ -1,15 +1,27 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useApp } from '../context/AppContext';
+import { INITIAL_STAFF_MEMBERS } from '../data/initialData';
 import { BrandLogo } from './BrandLogo';
 import { Lock, Eye, EyeOff, AlertCircle, CheckCircle, ArrowRight, Languages } from 'lucide-react';
+
 export const Login: React.FC = () => {
     const { staffMembers = [], activeStaff, login, language, setLanguage } = useApp();
+    const effectiveStaffMembers = (staffMembers && staffMembers.length > 0) ? staffMembers : INITIAL_STAFF_MEMBERS;
     const [selectedStaffId, setSelectedStaffId] = useState<string>(() => {
-        if (activeStaff?.id && staffMembers.some((s) => s.id === activeStaff.id)) {
+        if (activeStaff?.id && effectiveStaffMembers.some((s) => s.id === activeStaff.id)) {
             return activeStaff.id;
         }
-        return staffMembers?.[0]?.id || 'staff-01';
+        return effectiveStaffMembers[0]?.id || 'staff-01';
     });
+
+    useEffect(() => {
+        if (effectiveStaffMembers.length > 0) {
+            if (!selectedStaffId || !effectiveStaffMembers.some((s) => s.id === selectedStaffId)) {
+                setSelectedStaffId(effectiveStaffMembers[0].id);
+            }
+        }
+    }, [effectiveStaffMembers, selectedStaffId]);
+
     const [password, setPassword] = useState<string>('');
     const [showPassword, setShowPassword] = useState<boolean>(false);
     const [error, setError] = useState<string>('');
@@ -66,7 +78,7 @@ export const Login: React.FC = () => {
             {'SELECT USER'}
           </label>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            {staffMembers.map((staff) => {
+            {effectiveStaffMembers.map((staff) => {
             const isSelected = staff.id === selectedStaffId;
             return (<button key={staff.id} type="button" onClick={() => handleQuickSelect(staff.id)} className={`flex items-center gap-3 p-3 rounded-2xl text-left border transition-all duration-200 cursor-pointer ${isSelected
                     ? 'border-2 border-amber-500 bg-amber-50/20 ring-2 ring-amber-500/10 shadow-2xs'
@@ -97,7 +109,7 @@ export const Login: React.FC = () => {
               <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none">
                 <Lock className="h-4 w-4 text-slate-400"/>
               </div>
-              <input id="password" name="password" type={showPassword ? 'text' : 'password'} required value={password} onChange={(e) => setPassword(e.target.value)} placeholder={'Default PIN: 1234'} className="block w-full pl-10 pr-10 py-3.5 bg-slate-50/50 border border-slate-200 rounded-2xl text-slate-950 placeholder-slate-400 focus:outline-hidden focus:ring-2 focus:ring-amber-500 focus:bg-white text-sm font-medium transition-all"/>
+              <input id="password" name="password" type={showPassword ? 'text' : 'password'} required value={password} onChange={(e) => setPassword(e.target.value)} placeholder={'Enter PIN (e.g. 240777 or 100826 or 1234)'} className="block w-full pl-10 pr-10 py-3.5 bg-slate-50/50 border border-slate-200 rounded-2xl text-slate-950 placeholder-slate-400 focus:outline-hidden focus:ring-2 focus:ring-amber-500 focus:bg-white text-sm font-medium transition-all"/>
               <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute inset-y-0 right-0 pr-3.5 flex items-center text-slate-400 hover:text-slate-600 transition-colors cursor-pointer">
                 {showPassword ? <EyeOff className="h-4 w-4"/> : <Eye className="h-4 w-4"/>}
               </button>
@@ -128,7 +140,7 @@ export const Login: React.FC = () => {
         {/* Footer info note */}
         <div className="mt-6 pt-5 border-t border-slate-100 text-center">
           <p className="text-xs text-slate-400 font-normal">
-            {'Use default PIN code "1234" for authorized system access.'}
+            PIN: Javed Reza (240777) • Super Admin (100826) • Sajib Khan (1998) • Cashier (1234)
           </p>
         </div>
       </div>

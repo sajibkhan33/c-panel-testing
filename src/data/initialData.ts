@@ -155,6 +155,64 @@ export const INITIAL_QUOTATIONS: Quotation[] = [];
 
 export const INITIAL_STOCK_MOVEMENTS: StockMovement[] = [];
 
-export const INITIAL_STAFF_MEMBERS: StaffMember[] = [];
+export const INITIAL_STAFF_MEMBERS: StaffMember[] = [
+    {
+        id: 'staff-01',
+        name: 'Javed Reza',
+        nameBn: 'জাভেদ রেজা',
+        role: 'Managing Director',
+        roleBn: 'ব্যবস্থাপনা পরিচালক',
+        location: 'Both',
+        phone: '01730-581687',
+        avatarColor: 'bg-purple-600',
+        password: '240777',
+        email: 'info.dotcolor@gmail.com',
+        customRoleId: 'role-md',
+        isActive: true,
+    },
+    {
+        id: 'staff-1791359602009',
+        name: 'Super Admin',
+        nameBn: 'সুপার এডমিন',
+        role: 'Super Admin',
+        roleBn: 'সিস্টেম সুপার এডমিন',
+        location: 'Both',
+        phone: '01846100900',
+        email: 'bdhostterp@gmail.com',
+        password: '100826',
+        avatarColor: 'bg-blue-600',
+        customRoleId: 'role-superadmin',
+        isActive: true,
+    },
+    {
+        id: 'staff-1791359211774',
+        name: 'Sajib Khan',
+        nameBn: 'সজিব খান',
+        role: 'Sales Executive',
+        roleBn: 'বিক্রয় প্রতিনিধি',
+        location: 'Both',
+        phone: '01571354254',
+        email: 'sajib@gmail.com',
+        password: '1998',
+        avatarColor: 'bg-indigo-600',
+        customRoleId: 'role-sales',
+        isActive: true,
+    },
+    {
+        id: 'staff-1791372884047',
+        name: 'Casher',
+        nameBn: 'ক্যাশিয়ার',
+        role: 'Cashier',
+        roleBn: 'ক্যাশিয়ার ও কাউন্টার ইনচার্জ',
+        location: 'Both',
+        phone: '23456478647878',
+        email: '',
+        password: '1234',
+        avatarColor: 'bg-indigo-600',
+        customRoleId: 'role-cashier',
+        isActive: true,
+    },
+];
 
 export const INITIAL_AUDIT_LOGS: AuditLogEntry[] = [];
+

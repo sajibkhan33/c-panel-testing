@@ -226,7 +226,11 @@ export const AppProvider: React.FC<{
                     return /^(prod-dp-|prod-sm-|prod-bg-|prod-pkg-|prod-rm-|cust-0\d|sup-0\d|inv-100\d|po-500\d|tx-0\d|qt-200\d|sm-0\d$|audit-0\d|jnl-0\d|prj-1791312899418|prj-1791313243039|prj-1791286609909)/.test(id) ||
                         (/^staff-0[2-6]$/.test(id));
                 };
-                return parsed.filter((item: any) => !isDummy(item)) as unknown as T;
+                const filtered = parsed.filter((item: any) => !isDummy(item));
+                if (filtered.length === 0 && Array.isArray(fallback) && fallback.length > 0) {
+                    return fallback;
+                }
+                return filtered as unknown as T;
             }
             return parsed;
         }
@@ -340,22 +344,22 @@ export const AppProvider: React.FC<{
         return sanitizeUserRoles(list);
     });
     const [chartOfAccounts, setChartOfAccounts] = useState<ChartOfAccount[]>(() => {
-        return safeGetLocalStorage<ChartOfAccount[]>(`${STORAGE_KEY}_COA`, []);
+        return safeGetLocalStorage<ChartOfAccount[]>(`${STORAGE_KEY}_COA`, INITIAL_CHART_OF_ACCOUNTS);
     });
     const [expenseHeads, setExpenseHeads] = useState<ExpenseHead[]>(() => {
-        return safeGetLocalStorage<ExpenseHead[]>(`${STORAGE_KEY}_EXPENSE_HEADS`, []);
+        return safeGetLocalStorage<ExpenseHead[]>(`${STORAGE_KEY}_EXPENSE_HEADS`, INITIAL_EXPENSE_HEADS);
     });
     const [productCategories, setProductCategories] = useState<ProductCategory[]>(() => {
-        return safeGetLocalStorage<ProductCategory[]>(`${STORAGE_KEY}_CATEGORIES`, []);
+        return safeGetLocalStorage<ProductCategory[]>(`${STORAGE_KEY}_CATEGORIES`, INITIAL_PRODUCT_CATEGORIES);
     });
     const [journalEntries, setJournalEntries] = useState<JournalEntry[]>(() => {
-        return safeGetLocalStorage<JournalEntry[]>(`${STORAGE_KEY}_JOURNALS`, []);
+        return safeGetLocalStorage<JournalEntry[]>(`${STORAGE_KEY}_JOURNALS`, INITIAL_JOURNAL_ENTRIES);
     });
     const [projects, setProjects] = useState<Project[]>(() => {
-        return safeGetLocalStorage<Project[]>(`${STORAGE_KEY}_PROJECTS`, []);
+        return safeGetLocalStorage<Project[]>(`${STORAGE_KEY}_PROJECTS`, INITIAL_PROJECTS);
     });
     const [paymentMethods, setPaymentMethods] = useState<PaymentMethodConfig[]>(() => {
-        return safeGetLocalStorage<PaymentMethodConfig[]>(`${STORAGE_KEY}_PAYMENT_METHODS`, []);
+        return safeGetLocalStorage<PaymentMethodConfig[]>(`${STORAGE_KEY}_PAYMENT_METHODS`, INITIAL_PAYMENT_METHODS);
     });
     const [activeStaff, setActiveStaff] = useState<StaffMember>(() => {
         try {
@@ -588,15 +592,26 @@ export const AppProvider: React.FC<{
         success: boolean;
         message: string;
     } => {
-        const staff = staffMembers.find((s) => s.id === staffId);
+        const staffList = (staffMembers && staffMembers.length > 0) ? staffMembers : INITIAL_STAFF_MEMBERS;
+        let staff = staffList.find((s) => s.id === staffId);
+        // Fallback: If not found by ID, allow matching directly by passcode
         if (!staff) {
-            return { success: false, message: "User not found" };
+            staff = staffList.find((s) => (s.password || '1234') === passcode);
+        }
+        if (!staff) {
+            staff = INITIAL_STAFF_MEMBERS.find((s) => (s.password || '1234') === passcode);
+        }
+        if (!staff) {
+            return { success: false, message: "User not found or incorrect PIN" };
         }
         if (staff.isActive === false) {
             return { success: false, message: "This account is deactivated" };
         }
         const correctPassword = staff.password || '1234';
         if (passcode === correctPassword) {
+            if (!staffMembers.some((s) => s.id === staff!.id)) {
+                setStaffMembers((prev) => [...prev, staff!]);
+            }
             setActiveStaff(staff);
             setIsAuthenticated(true);
             addAuditLog({
@@ -3010,19 +3025,8 @@ export const AppProvider: React.FC<{
         setTransactions(INITIAL_TRANSACTIONS);
         setStockMovements(INITIAL_STOCK_MOVEMENTS);
         setAuditLogs(INITIAL_AUDIT_LOGS);
-        setStaffMembers([]);
-        setActiveStaff({
-            id: 'staff-01',
-            name: 'Javed Reza',
-            nameBn: '',
-            role: 'Managing Director' as StaffRole,
-            roleBn: '',
-            location: 'Both',
-            phone: '01730-581687',
-            avatarColor: 'bg-purple-600',
-            password: '240777',
-            isActive: true,
-        });
+        setStaffMembers(INITIAL_STAFF_MEMBERS);
+        setActiveStaff(INITIAL_STAFF_MEMBERS[0]);
         setUserRoles(INITIAL_USER_ROLES);
         setChartOfAccounts(INITIAL_CHART_OF_ACCOUNTS);
         setExpenseHeads(INITIAL_EXPENSE_HEADS);
@@ -3030,7 +3034,33 @@ export const AppProvider: React.FC<{
         setJournalEntries(INITIAL_JOURNAL_ENTRIES);
         setProjects(INITIAL_PROJECTS);
         setPaymentMethods(INITIAL_PAYMENT_METHODS);
-        localStorage.clear();
+        const operationalKeys = [
+            `${STORAGE_KEY}_PRODUCTS`,
+            `${STORAGE_KEY}_CUSTOMERS`,
+            `${STORAGE_KEY}_SUPPLIERS`,
+            `${STORAGE_KEY}_INVOICES`,
+            `${STORAGE_KEY}_QUOTATIONS`,
+            `${STORAGE_KEY}_PURCHASE_ORDERS`,
+            `${STORAGE_KEY}_TRANSACTIONS`,
+            `${STORAGE_KEY}_STOCK_MOVEMENTS`,
+            `${STORAGE_KEY}_AUDIT_LOGS`,
+            `${STORAGE_KEY}_JOURNALS`,
+            `${STORAGE_KEY}_PROJECTS`,
+        ];
+        operationalKeys.forEach((k) => {
+            try { localStorage.removeItem(k); } catch {}
+        });
+        try {
+            localStorage.setItem(`${STORAGE_KEY}_STAFF`, JSON.stringify(INITIAL_STAFF_MEMBERS));
+            localStorage.setItem(`${STORAGE_KEY}_ROLES`, JSON.stringify(INITIAL_USER_ROLES));
+            localStorage.setItem(`${STORAGE_KEY}_COA`, JSON.stringify(INITIAL_CHART_OF_ACCOUNTS));
+            localStorage.setItem(`${STORAGE_KEY}_EXPENSE_HEADS`, JSON.stringify(INITIAL_EXPENSE_HEADS));
+            localStorage.setItem(`${STORAGE_KEY}_CATEGORIES`, JSON.stringify(INITIAL_PRODUCT_CATEGORIES));
+            localStorage.setItem(`${STORAGE_KEY}_PAYMENT_METHODS`, JSON.stringify(INITIAL_PAYMENT_METHODS));
+            localStorage.setItem(`${STORAGE_KEY}_PROFILE`, JSON.stringify(INITIAL_COMPANY_PROFILE));
+            localStorage.setItem(`${STORAGE_KEY}_ACTIVE_STAFF`, JSON.stringify(INITIAL_STAFF_MEMBERS[0]));
+            localStorage.setItem(`${STORAGE_KEY}_IS_AUTHENTICATED`, 'true');
+        } catch {}
     };
     // Keep an always-up-to-date ref of state to avoid stale closure bugs during debounced/async cloud sync
     const latestStateRef = React.useRef({
@@ -3154,14 +3184,14 @@ export const AppProvider: React.FC<{
                     return data.staffMembers[0];
                 });
             }
-            if (data.userRoles && Array.isArray(data.userRoles)) {
+            if (data.userRoles && Array.isArray(data.userRoles) && data.userRoles.length > 0) {
                 setUserRoles(sanitizeUserRoles(data.userRoles));
             }
             if (data.chartOfAccounts && Array.isArray(data.chartOfAccounts) && data.chartOfAccounts.length > 0)
                 setChartOfAccounts(data.chartOfAccounts);
             if (data.expenseHeads && Array.isArray(data.expenseHeads) && data.expenseHeads.length > 0)
                 setExpenseHeads(data.expenseHeads);
-            if (data.productCategories && Array.isArray(data.productCategories))
+            if (data.productCategories && Array.isArray(data.productCategories) && data.productCategories.length > 0)
                 setProductCategories(data.productCategories);
             if (data.journalEntries && Array.isArray(data.journalEntries))
                 setJournalEntries(data.journalEntries);
