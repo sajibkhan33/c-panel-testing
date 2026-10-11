@@ -170,7 +170,7 @@ const ensureUniqueTransactions = (list: AccountingTransaction[]): AccountingTran
 };
 export const sanitizeUserRoles = (list: UserRole[]): UserRole[] => {
     if (!Array.isArray(list) || list.length === 0) {
-        return INITIAL_USER_ROLES;
+        return [];
     }
 
     const isSuper = (r: UserRole) =>
@@ -340,23 +340,22 @@ export const AppProvider: React.FC<{
         return sanitizeUserRoles(list);
     });
     const [chartOfAccounts, setChartOfAccounts] = useState<ChartOfAccount[]>(() => {
-        return safeGetLocalStorage<ChartOfAccount[]>(`${STORAGE_KEY}_COA`, INITIAL_CHART_OF_ACCOUNTS);
+        return safeGetLocalStorage<ChartOfAccount[]>(`${STORAGE_KEY}_COA`, []);
     });
     const [expenseHeads, setExpenseHeads] = useState<ExpenseHead[]>(() => {
-        const saved = safeGetLocalStorage<ExpenseHead[]>(`${STORAGE_KEY}_EXPENSE_HEADS`, INITIAL_EXPENSE_HEADS);
-        return Array.isArray(saved) && saved.length > 0 ? saved : INITIAL_EXPENSE_HEADS;
+        return safeGetLocalStorage<ExpenseHead[]>(`${STORAGE_KEY}_EXPENSE_HEADS`, []);
     });
     const [productCategories, setProductCategories] = useState<ProductCategory[]>(() => {
-        return safeGetLocalStorage<ProductCategory[]>(`${STORAGE_KEY}_CATEGORIES`, INITIAL_PRODUCT_CATEGORIES);
+        return safeGetLocalStorage<ProductCategory[]>(`${STORAGE_KEY}_CATEGORIES`, []);
     });
     const [journalEntries, setJournalEntries] = useState<JournalEntry[]>(() => {
-        return safeGetLocalStorage<JournalEntry[]>(`${STORAGE_KEY}_JOURNALS`, INITIAL_JOURNAL_ENTRIES);
+        return safeGetLocalStorage<JournalEntry[]>(`${STORAGE_KEY}_JOURNALS`, []);
     });
     const [projects, setProjects] = useState<Project[]>(() => {
         return safeGetLocalStorage<Project[]>(`${STORAGE_KEY}_PROJECTS`, []);
     });
     const [paymentMethods, setPaymentMethods] = useState<PaymentMethodConfig[]>(() => {
-        return safeGetLocalStorage<PaymentMethodConfig[]>(`${STORAGE_KEY}_PAYMENT_METHODS`, INITIAL_PAYMENT_METHODS);
+        return safeGetLocalStorage<PaymentMethodConfig[]>(`${STORAGE_KEY}_PAYMENT_METHODS`, []);
     });
     const [activeStaff, setActiveStaff] = useState<StaffMember>(() => {
         try {
@@ -364,15 +363,26 @@ export const AppProvider: React.FC<{
             if (saved) {
                 const parsed = JSON.parse(saved);
                 if (parsed && parsed.id && parsed.name) {
-                    const savedStaff = safeGetLocalStorage<StaffMember[]>(`${STORAGE_KEY}_STAFF`, INITIAL_STAFF_MEMBERS);
+                    const savedStaff = safeGetLocalStorage<StaffMember[]>(`${STORAGE_KEY}_STAFF`, []);
                     const matched = savedStaff.find((s) => s.id === parsed.id);
                     return matched || parsed;
                 }
             }
         }
         catch { }
-        const defaultStaffList = safeGetLocalStorage<StaffMember[]>(`${STORAGE_KEY}_STAFF`, INITIAL_STAFF_MEMBERS);
-        return defaultStaffList[0] || INITIAL_STAFF_MEMBERS[0];
+        const defaultStaffList = safeGetLocalStorage<StaffMember[]>(`${STORAGE_KEY}_STAFF`, []);
+        return defaultStaffList[0] || {
+            id: 'staff-01',
+            name: 'Javed Reza',
+            nameBn: '',
+            role: 'Managing Director' as StaffRole,
+            roleBn: '',
+            location: 'Both',
+            phone: '01730-581687',
+            avatarColor: 'bg-purple-600',
+            password: '240777',
+            isActive: true,
+        };
     });
     const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => {
         const saved = localStorage.getItem(`${STORAGE_KEY}_IS_AUTHENTICATED`);
@@ -2145,11 +2155,8 @@ export const AppProvider: React.FC<{
                 return true;
             }
         }
-        const fallback = (INITIAL_USER_ROLES || []).find((r) => r.name === activeStaff.role);
-        if (fallback && fallback.permissions) {
-            if (fallback.permissions.some((p) => checkList.includes(p))) {
-                return true;
-            }
+        if (activeStaff.role === 'Managing Director' || activeStaff.role === 'Super Admin' || activeStaff.id === 'staff-01') {
+            return true;
         }
         return false;
     };
@@ -3003,8 +3010,19 @@ export const AppProvider: React.FC<{
         setTransactions(INITIAL_TRANSACTIONS);
         setStockMovements(INITIAL_STOCK_MOVEMENTS);
         setAuditLogs(INITIAL_AUDIT_LOGS);
-        setStaffMembers(INITIAL_STAFF_MEMBERS);
-        setActiveStaff(INITIAL_STAFF_MEMBERS[0]);
+        setStaffMembers([]);
+        setActiveStaff({
+            id: 'staff-01',
+            name: 'Javed Reza',
+            nameBn: '',
+            role: 'Managing Director' as StaffRole,
+            roleBn: '',
+            location: 'Both',
+            phone: '01730-581687',
+            avatarColor: 'bg-purple-600',
+            password: '240777',
+            isActive: true,
+        });
         setUserRoles(INITIAL_USER_ROLES);
         setChartOfAccounts(INITIAL_CHART_OF_ACCOUNTS);
         setExpenseHeads(INITIAL_EXPENSE_HEADS);

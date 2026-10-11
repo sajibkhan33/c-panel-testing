@@ -155,21 +155,6 @@ export const INITIAL_QUOTATIONS: Quotation[] = [];
 
 export const INITIAL_STOCK_MOVEMENTS: StockMovement[] = [];
 
-export const INITIAL_STAFF_MEMBERS: StaffMember[] = [
-    {
-        id: 'staff-01',
-        name: 'Javed Reza',
-        nameBn: '',
-        role: 'Managing Director',
-        roleBn: '',
-        location: 'Both',
-        phone: '01730-581687',
-        avatarColor: 'bg-purple-600',
-        password: '240777',
-        email: '',
-        customRoleId: 'role-md',
-        isActive: true,
-    },
-];
+export const INITIAL_STAFF_MEMBERS: StaffMember[] = [];
 
 export const INITIAL_AUDIT_LOGS: AuditLogEntry[] = [];
