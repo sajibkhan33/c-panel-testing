@@ -2939,6 +2939,21 @@ export const AppProvider: React.FC<{
     const deleteProject = (id: string) => {
         const target = projects.find(p => p.id === id);
         if (target) {
+            const targetJournals = (journalEntries || []).filter(j => j.refNo === target.code);
+            if (targetJournals.length > 0) {
+                setChartOfAccounts(prev => prev.map(acc => {
+                    let balChange = 0;
+                    targetJournals.forEach(j => {
+                        if (acc.id === j.debitAccountId) {
+                            balChange -= (acc.normalBalance === 'Debit' ? j.amount : -j.amount);
+                        }
+                        if (acc.id === j.creditAccountId) {
+                            balChange -= (acc.normalBalance === 'Credit' ? j.amount : -j.amount);
+                        }
+                    });
+                    return balChange !== 0 ? { ...acc, currentBalance: acc.currentBalance + balChange } : acc;
+                }));
+            }
             setJournalEntries(prev => prev.filter(j => j.refNo !== target.code));
             setTransactions(prev => prev.filter(t => t.refNo !== target.code));
         }
@@ -3164,6 +3179,21 @@ export const AppProvider: React.FC<{
         const refNo = itemToDelete?.invoiceNo || targetProj?.code;
 
         if (refNo) {
+            const matchingJournals = (journalEntries || []).filter(j => j.source === 'PROJECT_SALES' && j.refNo === refNo && (itemToDelete ? j.narration.includes(itemToDelete.description) || j.amount === Number(itemToDelete.amount) : true));
+            if (matchingJournals.length > 0) {
+                setChartOfAccounts(prev => prev.map(acc => {
+                    let balChange = 0;
+                    matchingJournals.forEach(j => {
+                        if (acc.id === j.debitAccountId) {
+                            balChange -= (acc.normalBalance === 'Debit' ? j.amount : -j.amount);
+                        }
+                        if (acc.id === j.creditAccountId) {
+                            balChange -= (acc.normalBalance === 'Credit' ? j.amount : -j.amount);
+                        }
+                    });
+                    return balChange !== 0 ? { ...acc, currentBalance: acc.currentBalance + balChange } : acc;
+                }));
+            }
             setJournalEntries(prev => prev.filter(j => !(j.source === 'PROJECT_SALES' && j.refNo === refNo && (itemToDelete ? j.narration.includes(itemToDelete.description) : true))));
             setTransactions(prev => prev.filter(t => !(t.type === 'INCOME' && t.refNo === refNo && (itemToDelete ? t.description.includes(itemToDelete.description) : true))));
         }
@@ -3183,6 +3213,21 @@ export const AppProvider: React.FC<{
         const code = targetProj?.code;
 
         if (code && itemToDelete) {
+            const matchingJournals = (journalEntries || []).filter(j => j.source === 'PROJECT_EXPENSE' && j.refNo === code && (j.narration.includes(itemToDelete.category) || j.amount === Number(itemToDelete.amount)));
+            if (matchingJournals.length > 0) {
+                setChartOfAccounts(prev => prev.map(acc => {
+                    let balChange = 0;
+                    matchingJournals.forEach(j => {
+                        if (acc.id === j.debitAccountId) {
+                            balChange -= (acc.normalBalance === 'Debit' ? j.amount : -j.amount);
+                        }
+                        if (acc.id === j.creditAccountId) {
+                            balChange -= (acc.normalBalance === 'Credit' ? j.amount : -j.amount);
+                        }
+                    });
+                    return balChange !== 0 ? { ...acc, currentBalance: acc.currentBalance + balChange } : acc;
+                }));
+            }
             setJournalEntries(prev => prev.filter(j => !(j.source === 'PROJECT_EXPENSE' && j.refNo === code && j.narration.includes(itemToDelete.category))));
             setTransactions(prev => prev.filter(t => !(t.type === 'EXPENSE' && t.refNo === code && t.category === itemToDelete.category)));
         }
@@ -3363,6 +3408,10 @@ export const AppProvider: React.FC<{
             // Dedicated Project Revenue (4002 / 4051 Project Sales)
             if (revAcc && acc.id === revAcc.id) {
                 return { ...acc, currentBalance: (acc.openingBalance || 0) + totalPrjSales };
+            }
+            // If there are no active project expenses, heal any asset accounts that became negative from orphaned project expenses
+            if (totalPrjExpenses === 0 && acc.classification === 'Asset' && acc.currentBalance < 0 && (acc.openingBalance === 0 || acc.openingBalance === undefined)) {
+                return { ...acc, currentBalance: acc.openingBalance || 0 };
             }
             return acc;
         }));
@@ -3576,13 +3625,29 @@ export const AppProvider: React.FC<{
             try {
                 localStorage.setItem(`${STORAGE_KEY}_PROJECTS`, JSON.stringify([]));
             } catch {}
-            // Also reset Project Expense (5206) and Project Revenue (4002/4051) in Chart of Accounts
+            // Also reset Project Expense (5206) and Project Revenue (4002/4051) and restore asset accounts in Chart of Accounts
+            const prjJournals = (latestStateRef.current.journalEntries || journalEntries).filter(
+                (j: JournalEntry) => j.source === 'PROJECT_EXPENSE' || j.source === 'PROJECT_SALES'
+            );
             const cleanedCOA = (latestStateRef.current.chartOfAccounts || chartOfAccounts).map((acc: ChartOfAccount) => {
                 const isPrj = acc.code === '5206' || acc.code === '4002' || acc.code === '4051' || acc.name.toLowerCase().includes('project');
                 if (isPrj) {
                     return { ...acc, currentBalance: acc.openingBalance || 0 };
                 }
-                return acc;
+                let balChange = 0;
+                prjJournals.forEach((j: JournalEntry) => {
+                    if (acc.id === j.debitAccountId) {
+                        balChange -= (acc.normalBalance === 'Debit' ? j.amount : -j.amount);
+                    }
+                    if (acc.id === j.creditAccountId) {
+                        balChange -= (acc.normalBalance === 'Credit' ? j.amount : -j.amount);
+                    }
+                });
+                const restoredBal = balChange !== 0 ? acc.currentBalance + balChange : acc.currentBalance;
+                if (acc.classification === 'Asset' && restoredBal < 0 && (acc.openingBalance === 0 || acc.openingBalance === undefined)) {
+                    return { ...acc, currentBalance: acc.openingBalance || 0 };
+                }
+                return balChange !== 0 ? { ...acc, currentBalance: restoredBal } : acc;
             });
             setChartOfAccounts(cleanedCOA);
             try {
@@ -4200,9 +4265,9 @@ export const AppProvider: React.FC<{
         let mobile = 0;
 
         assetAccounts.forEach(acc => {
-            const balance = (acc.openingBalance !== undefined && acc.openingBalance !== null && acc.openingBalance > 0)
-                ? acc.openingBalance
-                : (acc.currentBalance || 0);
+            const balance = (acc.openingBalance !== undefined && acc.openingBalance !== null)
+                ? (Number(acc.openingBalance) || 0)
+                : Math.max(0, Number(acc.currentBalance) || 0);
 
             if (isMobile(acc.name, acc.code)) {
                 mobile += balance;
@@ -4217,7 +4282,7 @@ export const AppProvider: React.FC<{
         if (bank === 0) {
             const bankAcc = assetAccounts.find(a => a.code === '1020' || isBank(a.name, a.code));
             if (bankAcc) {
-                bank = bankAcc.openingBalance || bankAcc.currentBalance || 0;
+                bank = bankAcc.openingBalance ?? bankAcc.currentBalance ?? 0;
             }
         }
 
