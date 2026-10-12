@@ -167,10 +167,27 @@ export const AccountingModule: React.FC = () => {
             (tx.refNo && tx.refNo.toLowerCase().includes(q));
         return matchType && matchAccount && matchDate && matchSearch;
     });
-    // Calculate totals from transactions
-    const totalIncome = filteredTransactions
+    // Calculate totals from transactions, with fallback for any unrecorded invoices
+    const recordedInvoiceRefs = new Set(
+        transactions
+            .filter((t) => t.type === 'INCOME' && t.refNo)
+            .map((t) => (t.refNo || '').toLowerCase().trim())
+    );
+
+    const unrecordedInvoiceIncome = (invoices || [])
+        .filter((inv) => {
+            const invRef = (inv.invoiceNo || '').toLowerCase().trim();
+            if (invRef && recordedInvoiceRefs.has(invRef)) return false;
+            const matchDate = (!startDate || inv.date >= startDate) && (!endDate || inv.date <= endDate);
+            return matchDate;
+        })
+        .reduce((acc, inv) => acc + (Number(inv.paidAmount) || 0), 0);
+
+    const txIncome = filteredTransactions
         .filter((tx) => tx.type === 'INCOME')
         .reduce((acc, tx) => acc + tx.amount, 0);
+
+    const totalIncome = txIncome + unrecordedInvoiceIncome;
     const totalExpense = filteredTransactions
         .filter((tx) => tx.type === 'EXPENSE')
         .reduce((acc, tx) => acc + tx.amount, 0);

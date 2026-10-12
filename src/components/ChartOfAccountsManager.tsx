@@ -36,6 +36,7 @@ export const ChartOfAccountsManager: React.FC = () => {
         const totalCustomerDue = Math.max(totalInvoiceCustomerDue, totalCustomerRecordDue);
         const totalProjectSales = (projects || []).reduce((s, p) => s + (p.totalSales || 0), 0);
         const totalProjectExpenses = (projects || []).reduce((s, p) => s + (p.totalExpenses || 0), 0);
+        const totalInvoiceSales = (invoices || []).reduce((s, inv) => s + (Number(inv.grandTotal) || (Number(inv.paidAmount) + Number(inv.dueAmount)) || 0), 0);
 
         // Dynamic detection of primary accounts that survives renaming or re-coding
         const nonProjectRevenueAccounts = chartOfAccounts.filter(a => 
@@ -101,7 +102,7 @@ export const ChartOfAccountsManager: React.FC = () => {
                 }
             } else if (acc.classification === 'Revenue') {
                 const isProjectRev = acc.id === 'coa-4002' || acc.code === '4002' || acc.code === '4051' || acc.code === '4060' || nameLower.includes('project') || nameBn.includes('প্রজেক্ট');
-                const isSalesRev = acc.id === primarySalesAccountId;
+                const isSalesRev = acc.id === primarySalesAccountId || acc.code === '4001' || acc.code === '4010' || nameLower.includes('sales') || nameBn.includes('বিক্রয়') || nameBn.includes('বিক্রয়');
 
                 const matching = (transactions || [])
                     .filter(t => t.type === 'INCOME' && (
@@ -125,7 +126,7 @@ export const ChartOfAccountsManager: React.FC = () => {
                     const otherRev = chartOfAccounts
                         .filter(a => a.classification === 'Revenue' && a.id !== acc.id && (a.code === '4002' || a.id === 'coa-4002' || a.name.toLowerCase().includes('project')))
                         .reduce((s, a) => s + (a.currentBalance || 0), 0);
-                    liveBal = Math.max(acc.currentBalance, matching, totalTxIncome - otherRev);
+                    liveBal = Math.max(acc.currentBalance, matching, totalInvoiceSales, totalTxIncome - otherRev);
                 } else if (matching > 0) {
                     liveBal = Math.max(acc.currentBalance, matching);
                 }
@@ -185,16 +186,17 @@ export const ChartOfAccountsManager: React.FC = () => {
         });
 
         const txRevenue = (transactions || []).filter(t => t.type === 'INCOME').reduce((s, t) => s + t.amount, 0);
+        const invoiceRevenue = (invoices || []).reduce((s, inv) => s + (Number(inv.grandTotal) || (Number(inv.paidAmount) + Number(inv.dueAmount)) || 0), 0);
         const txExpense = (transactions || []).filter(t => t.type === 'EXPENSE').reduce((s, t) => s + t.amount, 0);
 
         return { 
             totalAssets, 
             totalLiabilities, 
             totalEquity, 
-            totalRevenue: Math.max(totalRevenue, txRevenue), 
+            totalRevenue: Math.max(totalRevenue, txRevenue, invoiceRevenue), 
             totalExpenses: Math.max(totalExpenses, txExpense) 
         };
-    }, [liveAccounts, transactions]);
+    }, [liveAccounts, transactions, invoices]);
     const filteredAccounts = useMemo(() => {
         return liveAccounts.filter((acc) => {
             if (filterClassification !== 'ALL' && acc.classification !== filterClassification) {

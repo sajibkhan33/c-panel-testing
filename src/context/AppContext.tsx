@@ -169,9 +169,9 @@ const ensureUniqueTransactions = (list: AccountingTransaction[]): AccountingTran
         const tx = list[idx];
         if (!tx) continue;
 
-        // Deduplicate duplicate invoice payment entries for the same invoice & amount & date
+        // Deduplicate duplicate invoice payment entries for the same invoice & payment account & amount & date
         if (tx.type === 'INCOME' && tx.refNo && tx.refNo.startsWith('DCC-INV-')) {
-            const invoiceKey = `${tx.refNo}_${tx.amount}_${tx.date}`;
+            const invoiceKey = `${tx.refNo}_${tx.paymentAccount || tx.account || ''}_${tx.amount}_${tx.date}`;
             if (seenInvoiceKeys.has(invoiceKey)) {
                 continue; // Skip duplicate invoice income transaction
             }
@@ -693,6 +693,34 @@ export const AppProvider: React.FC<{
                     return { ...acc, currentBalance: totalCustomerDue };
                 }
             }
+
+            // 4. Sales Revenue Account (4001)
+            const isSalesRevenue = (
+                acc.classification === 'Revenue' && (
+                    acc.code === '4001' ||
+                    acc.code === '4010' ||
+                    acc.id === 'coa-4001' ||
+                    acc.name.toLowerCase().includes('sales revenue') ||
+                    acc.nameBn?.includes('বিক্রয়') ||
+                    acc.nameBn?.includes('বিক্রয়')
+                )
+            );
+            if (isSalesRevenue) {
+                const totalInvoiceSales = (invoices || []).reduce((s, inv) => s + (Number(inv.grandTotal) || (Number(inv.paidAmount) + Number(inv.dueAmount)) || 0), 0);
+                const txSalesRevenue = (transactions || []).filter(t => t.type === 'INCOME' && (
+                    t.category?.toLowerCase().includes('sales') ||
+                    t.category?.toLowerCase().includes('due collection') ||
+                    t.category?.toLowerCase().includes('pos') ||
+                    t.refNo?.startsWith('DCC-INV-') ||
+                    t.description?.toLowerCase().includes('invoice') ||
+                    t.description?.toLowerCase().includes('pos payment')
+                )).reduce((s, t) => s + t.amount, 0);
+                const targetSalesBal = Math.max(acc.openingBalance || 0, totalInvoiceSales, txSalesRevenue);
+                if (targetSalesBal > 0 && acc.currentBalance !== targetSalesBal) {
+                    coaNeedsUpdate = true;
+                    return { ...acc, currentBalance: targetSalesBal };
+                }
+            }
             return acc;
         });
 
@@ -756,6 +784,64 @@ export const AppProvider: React.FC<{
             };
         }
     }, [projects, chartOfAccounts, invoices, customers, purchaseOrders, suppliers]);
+
+    // Automatic real-time synchronization between Sales Invoices and Accounting Transactions
+    useEffect(() => {
+        if (!invoices || invoices.length === 0) return;
+
+        const recordedRefs = new Set(
+            (transactions || [])
+                .filter(t => t.type === 'INCOME' && t.refNo)
+                .map(t => (t.refNo || '').toLowerCase().trim())
+        );
+
+        const missingTxs: AccountingTransaction[] = [];
+        invoices.forEach(inv => {
+            const ref = (inv.invoiceNo || '').toLowerCase().trim();
+            if (!ref || recordedRefs.has(ref)) return;
+
+            if (inv.splitPayments && Object.keys(inv.splitPayments).length > 0) {
+                Object.entries(inv.splitPayments).forEach(([channel, amt]) => {
+                    const val = Number(amt) || 0;
+                    if (val <= 0 || channel.toLowerCase() === 'due') return;
+                    const matchedCoa = matchChannelToAccount(channel, chartOfAccounts, paymentMethods);
+                    const acctName = matchedCoa ? matchedCoa.name : channel;
+                    missingTxs.push({
+                        id: generateUniqueId('tx-auto-inv'),
+                        date: inv.date || new Date().toISOString().slice(0, 10),
+                        type: 'INCOME',
+                        category: 'Sales Revenue',
+                        amount: val,
+                        paymentAccount: acctName,
+                        accountHead: acctName,
+                        refNo: inv.invoiceNo,
+                        customerOrSupplier: inv.customerName,
+                        description: `Sales Invoice Payment: ${acctName} (${inv.paymentStatus || 'Paid'}) - ${inv.invoiceNo}`,
+                    });
+                });
+            } else if ((inv.paidAmount || 0) > 0) {
+                const matchedCoa = matchChannelToAccount(inv.paymentMethod || 'Cash', chartOfAccounts, paymentMethods);
+                const acctName = matchedCoa ? matchedCoa.name : (inv.paymentMethod || 'Office Cash');
+                missingTxs.push({
+                    id: generateUniqueId('tx-auto-inv'),
+                    date: inv.date || new Date().toISOString().slice(0, 10),
+                    type: 'INCOME',
+                    category: 'Sales Revenue',
+                    amount: inv.paidAmount,
+                    paymentAccount: acctName,
+                    accountHead: acctName,
+                    refNo: inv.invoiceNo,
+                    customerOrSupplier: inv.customerName,
+                    description: `Sales Invoice Payment: ${acctName} (${inv.paymentStatus || 'Paid'}) - ${inv.invoiceNo}`,
+                });
+            }
+        });
+
+        if (missingTxs.length > 0) {
+            setTransactions(prev => ensureUniqueTransactions([...missingTxs, ...prev]));
+        }
+    }, [invoices, chartOfAccounts, paymentMethods]);
+
     const login = (staffIdOrPasscode: string, passcode?: string): {
         success: boolean;
         message: string;
