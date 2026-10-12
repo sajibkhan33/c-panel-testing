@@ -34,37 +34,63 @@ export const ChartOfAccountsManager: React.FC = () => {
         const totalProjectSales = (projects || []).reduce((s, p) => s + (p.totalSales || 0), 0);
         const totalProjectExpenses = (projects || []).reduce((s, p) => s + (p.totalExpenses || 0), 0);
 
+        // Dynamic detection of primary accounts that survives renaming or re-coding
+        const nonProjectRevenueAccounts = chartOfAccounts.filter(a => 
+            a.classification === 'Revenue' && 
+            !a.name.toLowerCase().includes('project') && 
+            !a.nameBn?.includes('প্রজেক্ট') && 
+            a.code !== '4002' && 
+            a.id !== 'coa-4002'
+        );
+        const primarySalesAccountId = (
+            nonProjectRevenueAccounts.find(a => a.id === 'coa-4001') ||
+            nonProjectRevenueAccounts.find(a => a.isSystem) ||
+            nonProjectRevenueAccounts.find(a => a.name.toLowerCase().includes('sales') || a.nameBn?.includes('বিক্রয়') || a.nameBn?.includes('বিক্রয়')) ||
+            nonProjectRevenueAccounts.find(a => a.code === '4001' || a.code === '4010') ||
+            nonProjectRevenueAccounts[0]
+        )?.id;
+
         return chartOfAccounts.map(acc => {
             const nameLower = (acc.name || '').toLowerCase();
+            const nameBn = (acc.nameBn || '').toLowerCase();
             let liveBal = acc.currentBalance;
 
             if (acc.classification === 'Asset') {
-                if (nameLower.includes('cash') || acc.code === '1001' || acc.code === '1010') {
+                const isCash = acc.id === 'coa-1001' || acc.id === 'coa-1010' || acc.code === '1001' || acc.code === '1010' || nameLower.includes('cash') || nameBn.includes('নগদ');
+                const isBank = acc.id === 'coa-1002' || acc.id === 'coa-1020' || acc.code === '1002' || acc.code === '1020' || nameLower.includes('bank') || nameLower.includes('plc') || nameBn.includes('ব্যাংক');
+                const isMobile = acc.id === 'coa-1003' || acc.id === 'coa-1030' || acc.code === '1003' || acc.code === '1030' || nameLower.includes('bkash') || nameLower.includes('nagad') || nameBn.includes('বিকাশ') || nameBn.includes('নগদ');
+                const isReceivable = acc.id === 'coa-1004' || acc.id === 'coa-1050' || acc.code === '1003' || acc.code === '1050' || nameLower.includes('receivable') || nameBn.includes('পাওনা') || nameBn.includes('বকেয়া');
+
+                if (isCash) {
                     liveBal = accountBalances?.cash ?? acc.currentBalance;
-                } else if (nameLower.includes('bank') || nameLower.includes('plc') || acc.code === '1020') {
+                } else if (isBank) {
                     liveBal = accountBalances?.bank ?? acc.currentBalance;
-                } else if (nameLower.includes('bkash') || nameLower.includes('nagad') || acc.code === '1030') {
+                } else if (isMobile) {
                     liveBal = accountBalances?.mobile ?? acc.currentBalance;
-                } else if (nameLower.includes('receivable') || acc.code === '1003' || acc.code === '1050') {
+                } else if (isReceivable) {
                     liveBal = totalCustomerDue > 0 ? totalCustomerDue : acc.currentBalance;
                 }
             } else if (acc.classification === 'Liability') {
-                if (nameLower.includes('payable') || acc.code === '2001' || acc.code === '2010') {
+                const isPayable = acc.code === '2001' || acc.code === '2010' || nameLower.includes('payable') || nameBn.includes('দেনা');
+                if (isPayable) {
                     liveBal = totalSupplierDue > 0 ? totalSupplierDue : acc.currentBalance;
                 }
             } else if (acc.classification === 'Revenue') {
-                const isProjectRev = acc.code === '4002' || acc.code === '4051' || acc.code === '4060' || nameLower.includes('project');
-                const isSalesRev = acc.code === '4001' || acc.code === '4010' || (nameLower.includes('sales') && !nameLower.includes('project'));
+                const isProjectRev = acc.id === 'coa-4002' || acc.code === '4002' || acc.code === '4051' || acc.code === '4060' || nameLower.includes('project') || nameBn.includes('প্রজেক্ট');
+                const isSalesRev = acc.id === primarySalesAccountId;
+
                 const matching = (transactions || [])
                     .filter(t => t.type === 'INCOME' && (
-                        (t.category && nameLower.includes(t.category.toLowerCase())) ||
-                        (t.accountHead && nameLower.includes(t.accountHead.toLowerCase())) ||
+                        (t.category && (nameLower.includes(t.category.toLowerCase()) || (t.categoryBn && nameBn.includes(t.categoryBn.toLowerCase())))) ||
+                        (t.accountHead && (nameLower.includes(t.accountHead.toLowerCase()) || (t.accountHead && nameBn.includes(t.accountHead.toLowerCase())))) ||
                         (isProjectRev && (t.category?.toLowerCase().includes('project') || t.refNo?.startsWith('PRJ-'))) ||
                         (isSalesRev && (
                             t.category?.toLowerCase().includes('sales') ||
                             t.category?.toLowerCase().includes('due collection') ||
+                            t.category?.toLowerCase().includes('pos') ||
                             t.refNo?.startsWith('DCC-INV-') ||
-                            t.description?.toLowerCase().includes('invoice')
+                            t.description?.toLowerCase().includes('invoice') ||
+                            t.description?.toLowerCase().includes('pos payment')
                         ))
                     ))
                     .reduce((s, t) => s + t.amount, 0);
@@ -73,7 +99,7 @@ export const ChartOfAccountsManager: React.FC = () => {
                     liveBal = Math.max(acc.currentBalance, matching, totalProjectSales);
                 } else if (isSalesRev) {
                     const otherRev = chartOfAccounts
-                        .filter(a => a.classification === 'Revenue' && a.id !== acc.id && (a.code === '4002' || a.name.toLowerCase().includes('project')))
+                        .filter(a => a.classification === 'Revenue' && a.id !== acc.id && (a.code === '4002' || a.id === 'coa-4002' || a.name.toLowerCase().includes('project')))
                         .reduce((s, a) => s + (a.currentBalance || 0), 0);
                     liveBal = Math.max(acc.currentBalance, matching, totalTxIncome - otherRev);
                 } else if (matching > 0) {
