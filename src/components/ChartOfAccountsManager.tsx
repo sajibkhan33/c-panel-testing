@@ -39,38 +39,45 @@ export const ChartOfAccountsManager: React.FC = () => {
             let liveBal = acc.currentBalance;
 
             if (acc.classification === 'Asset') {
-                if (nameLower.includes('cash') || acc.code === '1010') {
+                if (nameLower.includes('cash') || acc.code === '1001' || acc.code === '1010') {
                     liveBal = accountBalances?.cash ?? acc.currentBalance;
                 } else if (nameLower.includes('bank') || nameLower.includes('plc') || acc.code === '1020') {
                     liveBal = accountBalances?.bank ?? acc.currentBalance;
                 } else if (nameLower.includes('bkash') || nameLower.includes('nagad') || acc.code === '1030') {
                     liveBal = accountBalances?.mobile ?? acc.currentBalance;
-                } else if (nameLower.includes('receivable') || acc.code === '1050') {
+                } else if (nameLower.includes('receivable') || acc.code === '1003' || acc.code === '1050') {
                     liveBal = totalCustomerDue > 0 ? totalCustomerDue : acc.currentBalance;
                 }
             } else if (acc.classification === 'Liability') {
-                if (nameLower.includes('payable') || acc.code === '2010') {
+                if (nameLower.includes('payable') || acc.code === '2001' || acc.code === '2010') {
                     liveBal = totalSupplierDue > 0 ? totalSupplierDue : acc.currentBalance;
                 }
             } else if (acc.classification === 'Revenue') {
-                const isProjectRev = acc.code === '4051' || acc.code === '4060' || nameLower.includes('project');
+                const isProjectRev = acc.code === '4002' || acc.code === '4051' || acc.code === '4060' || nameLower.includes('project');
+                const isSalesRev = acc.code === '4001' || acc.code === '4010' || (nameLower.includes('sales') && !nameLower.includes('project'));
                 const matching = (transactions || [])
                     .filter(t => t.type === 'INCOME' && (
                         (t.category && nameLower.includes(t.category.toLowerCase())) ||
                         (t.accountHead && nameLower.includes(t.accountHead.toLowerCase())) ||
-                        (isProjectRev && (t.category?.toLowerCase().includes('project') || t.refNo?.startsWith('PRJ-')))
+                        (isProjectRev && (t.category?.toLowerCase().includes('project') || t.refNo?.startsWith('PRJ-'))) ||
+                        (isSalesRev && (
+                            t.category?.toLowerCase().includes('sales') ||
+                            t.category?.toLowerCase().includes('due collection') ||
+                            t.refNo?.startsWith('DCC-INV-') ||
+                            t.description?.toLowerCase().includes('invoice')
+                        ))
                     ))
                     .reduce((s, t) => s + t.amount, 0);
 
                 if (isProjectRev) {
                     liveBal = Math.max(acc.currentBalance, matching, totalProjectSales);
+                } else if (isSalesRev) {
+                    const otherRev = chartOfAccounts
+                        .filter(a => a.classification === 'Revenue' && a.id !== acc.id && (a.code === '4002' || a.name.toLowerCase().includes('project')))
+                        .reduce((s, a) => s + (a.currentBalance || 0), 0);
+                    liveBal = Math.max(acc.currentBalance, matching, totalTxIncome - otherRev);
                 } else if (matching > 0) {
                     liveBal = Math.max(acc.currentBalance, matching);
-                } else if (acc.code === '4010') {
-                    const otherRev = chartOfAccounts
-                        .filter(a => a.classification === 'Revenue' && a.code !== '4010' && a.code !== '4051' && a.code !== '4060' && !a.name.toLowerCase().includes('project'))
-                        .reduce((s, a) => s + (a.currentBalance || 0), 0);
-                    liveBal = Math.max(0, totalTxIncome - otherRev);
                 }
             } else if (acc.classification === 'Expense') {
                 const isProjectExp = nameLower.includes('project') || acc.code === '5206';
