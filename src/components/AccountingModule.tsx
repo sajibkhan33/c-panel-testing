@@ -643,11 +643,23 @@ export const AccountingModule: React.FC = () => {
                     {'Category'}
                   </label>
                   <select value={incomeCategory} onChange={(e) => setIncomeCategory(e.target.value)} className="w-full px-3 py-2 border border-slate-200 rounded-xl font-medium">
-                    <option value="Sales Revenue">Sales Revenue</option>
-                    <option value="Direct Service Income">Direct Service Income</option>
-                    <option value="Advance Received">Advance Received</option>
-                    <option value="Interest & Investments">Interest & Investments</option>
-                    <option value="Other Non-Operating Income">Other Non-Operating</option>
+                    {(chartOfAccounts || []).filter((a) => a.classification === 'Revenue' && a.isActive).length > 0 ? (
+                      (chartOfAccounts || [])
+                        .filter((a) => a.classification === 'Revenue' && a.isActive)
+                        .map((a) => (
+                          <option key={a.id} value={a.name}>
+                            {a.name} {a.nameBn ? `(${a.nameBn})` : ''}
+                          </option>
+                        ))
+                    ) : (
+                      <>
+                        <option value="Sales Revenue">Sales Revenue</option>
+                        <option value="Direct Service Income">Direct Service Income</option>
+                        <option value="Advance Received">Advance Received</option>
+                        <option value="Interest & Investments">Interest & Investments</option>
+                        <option value="Other Non-Operating Income">Other Non-Operating</option>
+                      </>
+                    )}
                   </select>
                 </div>
 
