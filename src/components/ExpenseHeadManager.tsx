@@ -1,9 +1,9 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useApp } from '../context/AppContext';
 import { ExpenseHead } from '../types';
-import { Layers, Plus, Search, Edit2, Trash2, Eye, CheckCircle2, XCircle, TrendingDown, DollarSign, AlertCircle, Briefcase, Sliders, RefreshCw, } from 'lucide-react';
+import { Layers, Plus, Search, Edit2, Trash2, Eye, CheckCircle2, XCircle, TrendingDown, DollarSign, AlertCircle, Briefcase, Sliders, } from 'lucide-react';
 export const ExpenseHeadManager: React.FC = () => {
-    const { expenseHeads, chartOfAccounts, language, profile, addExpenseHead, updateExpenseHead, deleteExpenseHead, restoreDefaultExpenseHeads, checkPermission, } = useApp();
+    const { expenseHeads, chartOfAccounts, language, profile, addExpenseHead, updateExpenseHead, deleteExpenseHead, checkPermission, } = useApp();
     const [searchQuery, setSearchQuery] = useState('');
     const [filterCategory, setFilterCategory] = useState<string>('ALL');
     const [showAddModal, setShowAddModal] = useState(false);
@@ -16,34 +16,30 @@ export const ExpenseHeadManager: React.FC = () => {
         code: '',
         name: '',
         nameBn: '',
-        category: 'Factory Direct',
+        category: 'General',
         monthlyBudgetLimit: 10000,
         linkedAccountId: '',
         description: '',
         isActive: true,
     });
 
-    // Dynamic, unified expense categories matching all system and business heads
+    // Dynamic expense categories strictly derived from real existing expense heads
     const categories = useMemo(() => {
         const set = new Set<string>();
-        [
-            'Projects',
-            'Facility',
-            'Utilities',
-            'Payroll',
-            'Maintenance',
-            'Logistics',
-            'Marketing',
-            'Admin',
-            'Technology',
-            'Legal',
-            'Operations',
-        ].forEach((c) => set.add(c));
         (expenseHeads || []).forEach((h) => {
-            if (h.category) set.add(h.category);
+            if (h.category && h.category.trim()) {
+                set.add(h.category.trim());
+            }
         });
-        return Array.from(set);
+        return Array.from(set).sort();
     }, [expenseHeads]);
+
+    // Reset filter if active category was deleted
+    useEffect(() => {
+        if (filterCategory !== 'ALL' && !categories.includes(filterCategory)) {
+            setFilterCategory('ALL');
+        }
+    }, [categories, filterCategory]);
 
     const getHeadBudget = (h: ExpenseHead) => Number(h.monthlyBudgetLimit ?? h.budgetMonthly ?? 0);
 
@@ -114,7 +110,7 @@ export const ExpenseHeadManager: React.FC = () => {
             code: nextCode,
             name: '',
             nameBn: '',
-            category: 'Operations',
+            category: categories[0] || 'General',
             monthlyBudgetLimit: 15000,
             linkedAccountId: chartOfAccounts.find((c) => c.classification === 'Expense')?.id || '',
             description: '',
@@ -257,13 +253,8 @@ export const ExpenseHeadManager: React.FC = () => {
         </div>
 
         <div className="flex items-center gap-2 w-full sm:w-auto">
-          <button type="button" onClick={restoreDefaultExpenseHeads} title="Reset & Sync Standard 13 Expense Heads" className="flex items-center gap-1.5 px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl border border-slate-200 shadow-2xs transition-all">
-            <RefreshCw className="w-3.5 h-3.5"/>
-            <span>{'Reset Defaults'}</span>
-          </button>
-
-          {canManageExpenses && (<button type="button" id="btn-add-expense-head" onClick={handleOpenAdd} className="flex items-center gap-1.5 px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold rounded-xl shadow-2xs transition-all w-full sm:w-auto justify-center">
-              <Plus className="w-4 h-4"/>
+          {canManageExpenses && (<button type="button" id="btn-add-expense-head" onClick={handleOpenAdd} className="flex items-center gap-1.5 px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold rounded-xl shadow-2xs transition-all w-full sm:w-auto justify-center cursor-pointer">
+              <Plus className="w-4 h-4 text-amber-400"/>
               <span>{'Add New Expense Head'}</span>
             </button>)}
         </div>
@@ -295,12 +286,33 @@ export const ExpenseHeadManager: React.FC = () => {
                         {'No expense heads found'}
                       </h4>
                       <p className="text-xs text-slate-400">
-                        {'Standard expense heads like Factory Rent, Electricity, Salaries, and Maintenance can be loaded automatically.'}
+                        {filterCategory !== 'ALL' || searchQuery
+                          ? 'No expense heads match your filter criteria.'
+                          : 'Create your custom expense heads to organize and track business expenditures.'}
                       </p>
-                      <button type="button" onClick={restoreDefaultExpenseHeads} className="inline-flex items-center gap-1.5 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-xs transition-all">
-                        <RefreshCw className="w-3.5 h-3.5"/>
-                        <span>{'Restore Standard 13 Expense Heads'}</span>
-                      </button>
+                      {filterCategory !== 'ALL' || searchQuery ? (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setFilterCategory('ALL');
+                            setSearchQuery('');
+                          }}
+                          className="inline-flex items-center gap-1.5 px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl shadow-2xs transition-all cursor-pointer"
+                        >
+                          <span>Clear Filters</span>
+                        </button>
+                      ) : (
+                        canManageExpenses && (
+                          <button
+                            type="button"
+                            onClick={handleOpenAdd}
+                            className="inline-flex items-center gap-1.5 px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold rounded-xl shadow-xs transition-all cursor-pointer"
+                          >
+                            <Plus className="w-3.5 h-3.5 text-amber-400" />
+                            <span>Add New Expense Head</span>
+                          </button>
+                        )
+                      )}
                     </div>
                   </td>
                 </tr>) : (filteredHeads.map((head) => {
@@ -407,11 +419,20 @@ export const ExpenseHeadManager: React.FC = () => {
                   <label className="font-bold text-slate-700 block mb-1">
                     {'Category Group *'}
                   </label>
-                  <select value={formData.category} onChange={(e) => setFormData({ ...formData, category: e.target.value })} className="w-full px-3 py-2 border border-slate-200 rounded-xl font-semibold">
-                    {categories.map((c) => (<option key={c} value={c}>
-                        {c}
-                      </option>))}
-                  </select>
+                  <input
+                    type="text"
+                    required
+                    list="expense-category-suggestions"
+                    value={formData.category}
+                    onChange={(e) => setFormData({ ...formData, category: e.target.value })}
+                    placeholder="Enter or pick category (e.g. Operations, Office, Factory)"
+                    className="w-full px-3 py-2 border border-slate-200 rounded-xl font-semibold text-slate-800"
+                  />
+                  <datalist id="expense-category-suggestions">
+                    {categories.map((c) => (
+                      <option key={c} value={c} />
+                    ))}
+                  </datalist>
                 </div>
               </div>
 
