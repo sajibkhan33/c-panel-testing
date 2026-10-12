@@ -87,8 +87,8 @@ export const ProjectManagementModule: React.FC = () => {
     const [expenseRows, setExpenseRows] = useState<ExpenseBreakdownRow[]>([
         {
             id: 'exp-1',
-            category: 'Conveyance & Transport',
-            categorySearch: 'Conveyance & Transport',
+            category: '',
+            categorySearch: '',
             amount: '' as number | '',
             note: '',
             isDropdownOpen: false,
@@ -105,13 +105,19 @@ export const ProjectManagementModule: React.FC = () => {
         const list = (chartOfAccounts || []).filter(a => a.classification === 'Expense' && a.isActive !== false);
         if (list.length === 0) {
             return [
+                { id: 'coa-5206', code: '5206', name: 'Project Expense', nameBn: '' },
                 { id: 'coa-5100', code: '5100', name: 'Conveyance, Courier & Delivery Logistics', nameBn: '' },
                 { id: 'coa-5201', code: '5201', name: 'Staff Salaries, Wages & Overtime', nameBn: '' },
                 { id: 'coa-5001', code: '5001', name: 'Cost of Goods Sold - Raw Materials', nameBn: '' },
-                { id: 'coa-5206', code: '5206', name: 'Project Expense', nameBn: '' },
             ];
         }
-        return list;
+        return [...list].sort((a, b) => {
+            const isPrjA = a.code === '5206' || a.name.toLowerCase().includes('project');
+            const isPrjB = b.code === '5206' || b.name.toLowerCase().includes('project');
+            if (isPrjA && !isPrjB) return -1;
+            if (!isPrjA && isPrjB) return 1;
+            return a.code.localeCompare(b.code);
+        });
     }, [chartOfAccounts]);
 
     const availablePaymentAccounts = useMemo(() => {
@@ -129,126 +135,21 @@ export const ProjectManagementModule: React.FC = () => {
         return list;
     }, [chartOfAccounts]);
 
-    const defaultExpenseCategoryList = useMemo(() => {
-        const list: { id: string; nameEn: string; nameBn?: string; coaId?: string }[] = [];
-        const seen = new Set<string>();
 
-        // 1. All active Chart of Accounts Expense heads
-        (chartOfAccounts || []).filter(a => a.classification === 'Expense' && a.isActive !== false).forEach(acc => {
-            const key = acc.name.trim().toLowerCase();
-            if (!seen.has(key)) {
-                seen.add(key);
-                list.push({
-                    id: `coa-${acc.id}`,
-                    nameEn: acc.name,
-                    nameBn: acc.nameBn || '',
-                    coaId: acc.id,
-                });
-            }
-        });
-
-        // 2. All active Expense Heads
-        (expenseHeads || []).filter(h => h.isActive).forEach(h => {
-            const key = h.name.trim().toLowerCase();
-            if (!seen.has(key)) {
-                seen.add(key);
-                list.push({
-                    id: `eh-${h.id}`,
-                    nameEn: h.name,
-                    nameBn: h.nameBn || '',
-                    coaId: h.linkedAccountId,
-                });
-            }
-        });
-
-        // 3. Predefined popular project expenses
-        const builtInDefaults = [
-            { id: 'cat-1', nameEn: 'Conveyance & Transport', nameBn: 'যাতায়াত ও পরিবহন' },
-            { id: 'cat-2', nameEn: 'Labor Charge & Wages', nameBn: 'লেবার ও শ্রমিক মজুরি' },
-            { id: 'cat-3', nameEn: 'Entertainment & Refreshments', nameBn: 'আপ্যায়ন ও নাস্তা' },
-            { id: 'cat-4', nameEn: 'Raw Materials Purchase', nameBn: 'কাঁচামাল ক্রয়' },
-            { id: 'cat-5', nameEn: 'Fuel & Truck Transport', nameBn: 'জ্বালানি ও পরিবহন' },
-            { id: 'cat-6', nameEn: 'Site Installation & Setup', nameBn: 'সাইট ইনস্টলেশন' },
-            { id: 'cat-7', nameEn: 'Permit, Tax & Official Fee', nameBn: 'অনুমতি ও ফি' },
-            { id: 'cat-8', nameEn: 'Commission & Allowance', nameBn: 'কমিশন ও ভাতা' },
-            { id: 'cat-9', nameEn: 'Subcontract & Fabrication', nameBn: 'সাব-কন্ট্রাক্ট কাজ' },
-            { id: 'cat-10', nameEn: 'Printing & Banner', nameBn: 'প্রিন্টিং ও ব্যানার' },
-            { id: 'cat-11', nameEn: 'Generator Diesel & Power', nameBn: 'বিদ্যুৎ ও জেনারেটর' },
-            { id: 'cat-12', nameEn: 'Equipment & Crane Rental', nameBn: 'যন্ত্রপাতি ভাড়া' },
-            { id: 'cat-13', nameEn: 'Hotel & Food Allowance', nameBn: 'হোটেল ও খাবার ভাতা' },
-            { id: 'cat-14', nameEn: 'Site Security & Guard', nameBn: 'সিকিউরিটি গার্ড' },
-        ];
-        builtInDefaults.forEach(d => {
-            const key = d.nameEn.trim().toLowerCase();
-            if (!seen.has(key)) {
-                seen.add(key);
-                list.push(d);
-            }
-        });
-
-        return list;
-    }, [chartOfAccounts, expenseHeads]);
-    const getFilteredCategories = (termInput: string) => {
-        const term = (termInput || '').toLowerCase().trim();
-        if (!term)
-            return defaultExpenseCategoryList;
-        return defaultExpenseCategoryList.filter((item) => item.nameEn.toLowerCase().includes(term) ||
-            (item.nameBn && item.nameBn.toLowerCase().includes(term)));
-    };
 
     const projectRevAcc = useMemo(() => {
         return chartOfAccounts.find(a => a.classification === 'Revenue' && (a.code === '4051' || a.name.toLowerCase().includes('project') || a.code === '4060')) || { code: '4051', name: 'Project Sales Income', id: 'coa-4051' };
     }, [chartOfAccounts]);
 
     const projectExpAcc = useMemo(() => {
-        return chartOfAccounts.find(a => a.classification === 'Expense' && (a.code === '5100' || a.name.toLowerCase().includes('project'))) || { code: '5100', name: 'Project Expense', id: 'coa-5100' };
+        return chartOfAccounts.find(a => a.classification === 'Expense' && (a.code === '5206' || a.name.toLowerCase().includes('project'))) ||
+               chartOfAccounts.find(a => a.classification === 'Expense' && a.code === '5100' && a.name.toLowerCase().includes('project')) ||
+               chartOfAccounts.find(a => a.classification === 'Expense') ||
+               { code: '5206', name: 'Project Expense', id: 'coa-5206' };
     }, [chartOfAccounts]);
 
-    const getResolvedCOA = (categoryName: string, note?: string) => {
-        const query = `${categoryName || ''} ${note || ''}`.toLowerCase();
-        
-        // 1. Check if specific sub-accounts actually exist in chartOfAccounts
-        if (query.includes('conveyance') || query.includes('transport') || query.includes('fuel') || query.includes('truck') || query.includes('courier') || query.includes('delivery')) {
-            const acc = chartOfAccounts.find(a => a.classification === 'Expense' && (a.code === '5080' || a.name.toLowerCase().includes('conveyance')));
-            if (acc) return { code: acc.code, name: acc.name, id: acc.id };
-        }
-        if (query.includes('labor') || query.includes('labour') || query.includes('wage') || query.includes('worker') || query.includes('technician') || query.includes('installation') || query.includes('setup') || query.includes('amin vai') || query.includes('fabrication')) {
-            const acc = chartOfAccounts.find(a => a.classification === 'Expense' && (a.code === '5070' || a.name.toLowerCase().includes('wages') || a.name.toLowerCase().includes('salaries')));
-            if (acc) return { code: acc.code, name: acc.name, id: acc.id };
-        }
-        if (query.includes('entertainment') || query.includes('refreshment') || query.includes('tea') || query.includes('snack') || query.includes('food') || query.includes('lunch') || query.includes('hospitality') || query.includes('hotel')) {
-            const acc = chartOfAccounts.find(a => a.classification === 'Expense' && (a.code === '5090' || a.name.toLowerCase().includes('hospitality') || a.name.toLowerCase().includes('refreshment')));
-            if (acc) return { code: acc.code, name: acc.name, id: acc.id };
-        }
-        if (query.includes('electricity') || query.includes('generator') || query.includes('diesel') || query.includes('power')) {
-            const acc = chartOfAccounts.find(a => a.classification === 'Expense' && (a.code === '5040' || a.name.toLowerCase().includes('electricity')));
-            if (acc) return { code: acc.code, name: acc.name, id: acc.id };
-        }
-        if (query.includes('rent') || query.includes('lease') || query.includes('facility')) {
-            const acc = chartOfAccounts.find(a => a.classification === 'Expense' && (a.code === '5050' || a.name.toLowerCase().includes('rent')));
-            if (acc) return { code: acc.code, name: acc.name, id: acc.id };
-        }
-        if (query.includes('machine') || query.includes('servicing') || query.includes('equipment') || query.includes('crane') || query.includes('printer head')) {
-            const acc = chartOfAccounts.find(a => a.classification === 'Expense' && (a.code === '5030' || a.name.toLowerCase().includes('servicing')));
-            if (acc) return { code: acc.code, name: acc.name, id: acc.id };
-        }
-        if (query.includes('permit') || query.includes('tax') || query.includes('official fee') || query.includes('license')) {
-            const acc = chartOfAccounts.find(a => a.classification === 'Expense' && (a.code === '5120' || a.name.toLowerCase().includes('tax') || a.name.toLowerCase().includes('permit')));
-            if (acc) return { code: acc.code, name: acc.name, id: acc.id };
-        }
-
-        // 2. Primary Project Expense Head: Dedicated Project Expense account (5100 or 'project')
-        const projExpAcc = chartOfAccounts.find(a => a.classification === 'Expense' && (a.code === '5100' || a.name.toLowerCase().includes('project')));
-        if (projExpAcc) {
-            return { code: projExpAcc.code, name: projExpAcc.name, id: projExpAcc.id };
-        }
-
-        const cogsAcc = chartOfAccounts.find(a => a.classification === 'Expense' && (a.code === '5010' || a.name.toLowerCase().includes('raw') || a.name.toLowerCase().includes('cost')));
-        if (cogsAcc) {
-            return { code: cogsAcc.code, name: cogsAcc.name, id: cogsAcc.id };
-        }
-
-        return { code: '5100', name: 'Project Expense', id: 'coa-5100' };
+    const getResolvedCOA = (_categoryName?: string, _note?: string) => {
+        return projectExpAcc;
     };
 
     const getResolvedPaymentCOA = (method: string) => {
@@ -420,17 +321,16 @@ export const ProjectManagementModule: React.FC = () => {
     };
     const handleAddExpenseRow = () => {
         const newId = `exp-${Date.now()}-${expenseRows.length + 1}`;
-        const defaultCOA = getResolvedCOA('Labor Charge & Wages', '');
         setExpenseRows((prev) => [
             ...prev,
             {
                 id: newId,
-                category: 'Labor Charge & Wages',
-                categorySearch: 'Labor Charge & Wages',
+                category: '',
+                categorySearch: '',
                 amount: '',
                 note: '',
                 isDropdownOpen: false,
-                linkedAccountId: defaultCOA.id,
+                linkedAccountId: projectExpAcc.id,
                 paymentMethod: 'Cash in Hand',
             },
         ]);
@@ -452,8 +352,8 @@ export const ProjectManagementModule: React.FC = () => {
             return;
         const batchId = `exp-batch-${Date.now()}`;
         const itemsToSave: Omit<ProjectExpenseItem, 'id'>[] = validRows.map((r) => {
-            const finalCategory = r.category.trim() || r.categorySearch.trim() || ('General Expense');
-            const defaultCOA = getResolvedCOA(finalCategory, r.note);
+            const finalCategory = r.category.trim() || r.categorySearch.trim() || 'Project Expense';
+            const defaultCOA = projectExpAcc;
             const resolvedAccountId = r.linkedAccountId || defaultCOA.id;
             const targetCOA = chartOfAccounts.find(a => a.id === resolvedAccountId) || defaultCOA;
             const payMethod = r.paymentMethod || 'Cash in Hand';
@@ -806,11 +706,13 @@ export const ProjectManagementModule: React.FC = () => {
                     setExpenseRows([
                         {
                             id: `exp-${Date.now()}-1`,
-                            category: 'Conveyance & Transport',
-                            categorySearch: 'Conveyance & Transport',
+                            category: '',
+                            categorySearch: '',
                             amount: '',
                             note: '',
                             isDropdownOpen: false,
+                            linkedAccountId: projectExpAcc.id,
+                            paymentMethod: 'Cash in Hand',
                         },
                     ]);
                 }} className="px-2 py-1 text-[11px] font-bold text-rose-700 bg-rose-50 hover:bg-rose-100 rounded-lg border border-rose-200 transition-colors cursor-pointer">
@@ -1294,13 +1196,12 @@ export const ProjectManagementModule: React.FC = () => {
                     <span>{'Expense Breakdown Rows *'}</span>
                   </span>
                   <span className="text-[11px] text-slate-500 font-medium">
-                    {'Search category & write note below each row'}
+                    {'Type expense name & amount freely'}
                   </span>
                 </div>
 
                 {expenseRows.map((eRow, idx) => {
-                const filteredCats = getFilteredCategories(eRow.categorySearch);
-                return (<div key={eRow.id} className="bg-slate-50 p-3.5 rounded-2xl border border-slate-200 shadow-2xs space-y-2.5 relative">
+                  return (<div key={eRow.id} className="bg-slate-50 p-3.5 rounded-2xl border border-slate-200 shadow-2xs space-y-2.5 relative">
                       <div className="flex items-center justify-between">
                         <span className="text-[11px] font-extrabold text-slate-700 flex items-center gap-1.5">
                           <span className="w-5 h-5 rounded-full bg-rose-100 text-rose-800 flex items-center justify-center text-[10px] font-black">
@@ -1314,73 +1215,28 @@ export const ProjectManagementModule: React.FC = () => {
                           </button>)}
                       </div>
 
-                      {/* Row Inputs: Category with Search Dropdown + Amount */}
+                      {/* Row Inputs: Category (Free Text Input) + Amount */}
                       <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
-                        <div className="sm:col-span-2 relative">
+                        <div className="sm:col-span-2">
                           <label className="text-[10px] font-bold text-slate-600 block mb-1">
-                            {'Category / Breakdown Name *'}
+                            {'Expense Name / Category (খরচের নাম/বিবরণ) *'}
                           </label>
-
-                          <div className="relative">
-                            <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2.5 pointer-events-none"/>
-                            <input type="text" required value={eRow.categorySearch} onFocus={() => handleUpdateExpenseRow(eRow.id, { isDropdownOpen: true })} onChange={(e) => {
-                        const val = e.target.value;
-                        handleUpdateExpenseRow(eRow.id, {
-                            categorySearch: val,
-                            category: val,
-                            isDropdownOpen: true,
-                        });
-                    }} placeholder={'🔍 Search breakdown name or type new...'} className="w-full pl-8 pr-7 py-2 text-xs bg-white border border-slate-200 rounded-xl font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-amber-500/40"/>
-                            {eRow.categorySearch && (<button type="button" onClick={() => handleUpdateExpenseRow(eRow.id, {
-                            categorySearch: '',
-                            category: '',
-                            isDropdownOpen: true,
-                        })} className="absolute right-2 top-2 text-slate-400 hover:text-slate-600 font-bold text-xs">
-                                ✕
-                              </button>)}
-                          </div>
-
-                          {/* Searchable Dropdown for this row */}
-                          {eRow.isDropdownOpen && (<div className="absolute z-30 left-0 right-0 mt-1 bg-white border border-slate-200 rounded-xl shadow-2xl max-h-48 overflow-y-auto divide-y divide-slate-100 text-xs">
-                              {filteredCats.map((cat) => {
-                            const label = cat.nameEn;
-                            return (<button key={cat.id} type="button" onClick={() => {
-                                    const coaMatch = cat.coaId
-                                      ? chartOfAccounts.find(a => a.id === cat.coaId)
-                                      : getResolvedCOA(cat.nameEn, eRow.note);
-                                    handleUpdateExpenseRow(eRow.id, {
-                                        category: cat.nameEn,
-                                        categorySearch: label,
-                                        linkedAccountId: coaMatch?.id,
-                                        isDropdownOpen: false,
-                                    });
-                                }} className="w-full text-left px-3 py-2 hover:bg-amber-50 hover:text-amber-900 flex items-center justify-between font-semibold text-slate-800 transition-colors cursor-pointer">
-                                    <span>{label}</span>
-                                    {cat.nameBn && (<span className="text-[10px] text-slate-400 font-normal">({cat.nameBn})</span>)}
-                                  </button>);
-                        })}
-
-                              {eRow.categorySearch.trim() !== '' && (<button type="button" onClick={() => {
-                                const val = eRow.categorySearch.trim();
-                                const smartCOA = getResolvedCOA(val, eRow.note);
-                                handleUpdateExpenseRow(eRow.id, {
-                                    category: val,
-                                    categorySearch: val,
-                                    linkedAccountId: smartCOA.id,
-                                    isDropdownOpen: false,
-                                });
-                            }} className="w-full text-left px-3 py-2 bg-amber-50 text-amber-900 font-bold hover:bg-amber-100 flex items-center gap-1.5 transition-colors border-t border-amber-200 cursor-pointer">
-                                  <Plus className="w-3.5 h-3.5 text-amber-600 shrink-0"/>
-                                  <span>
-                                    {`✍️ Set as custom name: "${eRow.categorySearch.trim()}"`}
-                                  </span>
-                                </button>)}
-                            </div>)}
+                          <input
+                            type="text"
+                            required
+                            value={eRow.category}
+                            onChange={(e) => handleUpdateExpenseRow(eRow.id, {
+                              category: e.target.value,
+                              categorySearch: e.target.value,
+                            })}
+                            placeholder="e.g. Labour Charge, Transport, Site fitting, Snacks..."
+                            className="w-full px-3 py-2 text-xs bg-white border border-slate-200 rounded-xl font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-amber-500/40"
+                          />
                         </div>
 
                         <div>
                           <label className="text-[10px] font-bold text-slate-600 block mb-1">
-                            {"AmountTk  *"}
+                            {"Amount (Tk) *"}
                           </label>
                           <input type="number" min="1" required value={eRow.amount} onChange={(e) => handleUpdateExpenseRow(eRow.id, {
                         amount: e.target.value === '' ? '' : Number(e.target.value),
@@ -1393,13 +1249,12 @@ export const ProjectManagementModule: React.FC = () => {
                         <label className="text-[10px] font-bold text-slate-600 block mb-0.5">
                           {'Note / Description'}
                         </label>
-                        <input type="text" value={eRow.note} onChange={(e) => handleUpdateExpenseRow(eRow.id, { note: e.target.value })} placeholder={'e.g. Conveyance details / 3 laborers wages / site setup note...'} className="w-full px-3 py-1.5 border border-slate-200 rounded-xl text-[11px] bg-white text-slate-800 placeholder-slate-400"/>
+                        <input type="text" value={eRow.note} onChange={(e) => handleUpdateExpenseRow(eRow.id, { note: e.target.value })} placeholder={'e.g. Additional details, bill voucher ref, specific notes...'} className="w-full px-3 py-1.5 border border-slate-200 rounded-xl text-[11px] bg-white text-slate-800 placeholder-slate-400"/>
                       </div>
 
                       {/* Dynamic COA & Payment Account Linking */}
                       {(() => {
-                        const defaultCOA = getResolvedCOA(eRow.categorySearch || eRow.category, eRow.note);
-                        const selectedCOAId = eRow.linkedAccountId || defaultCOA.id;
+                        const selectedCOAId = eRow.linkedAccountId || projectExpAcc.id;
                         const currentPayment = eRow.paymentMethod || 'Cash in Hand';
 
                         return (
@@ -1410,7 +1265,7 @@ export const ProjectManagementModule: React.FC = () => {
                                 <span>🔗 Linked Accounting Accounts (হিসাব খাতের সাথে লিঙ্ক)</span>
                               </span>
                               <span className="text-[9px] text-amber-800 font-bold bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200">
-                                User Configurable
+                                Default: [5206] Project Expense
                               </span>
                             </div>
 
