@@ -1,22 +1,20 @@
 import React, { useState } from 'react';
 import { useApp } from '../context/AppContext';
 import { AccountType, TransactionType } from '../types';
-import { Wallet, Building, Smartphone, TrendingUp, TrendingDown, Plus, ArrowUpRight, ArrowDownLeft, Search, Filter, DollarSign, Calendar, Layers, FileSpreadsheet, Printer, SlidersHorizontal, RefreshCw, ShieldCheck, BookOpen, Trash2, Edit2, Eye, AlertCircle, } from 'lucide-react';
+import { Wallet, Building, Smartphone, TrendingUp, TrendingDown, Plus, ArrowUpRight, ArrowDownLeft, Search, Filter, DollarSign, Calendar, Layers, FileSpreadsheet, Printer, SlidersHorizontal, RefreshCw, BookOpen, Trash2, Edit2, Eye, AlertCircle, } from 'lucide-react';
 import { exportAccountingToExcel } from '../utils/exportUtils';
 import { ReportPrintModal } from './ReportPrintModal';
-import { AuditTrailComponent } from './AuditTrailComponent';
 import { ChartOfAccountsManager } from './ChartOfAccountsManager';
 import { ExpenseHeadManager } from './ExpenseHeadManager';
 import { JournalEntriesManager } from './JournalEntriesManager';
 export const AccountingModule: React.FC = () => {
-    const { accountBalances: rawBalances, transactions, chartOfAccounts, expenseHeads, journalEntries, auditLogs = [], profile, language, addTransaction, updateTransaction, deleteTransaction, } = useApp();
+    const { accountBalances: rawBalances, transactions, chartOfAccounts, expenseHeads, journalEntries, profile, language, addTransaction, updateTransaction, deleteTransaction, } = useApp();
     const accountBalances = {
         cash: rawBalances?.cash ?? 0,
         bank: rawBalances?.bank ?? 0,
         mobile: rawBalances?.mobile ?? 0,
     };
-    const [accountingTab, setAccountingTab] = useState<'ledger' | 'coa' | 'expense-heads' | 'journals' | 'audit'>('ledger');
-    const [showAuditReportModal, setShowAuditReportModal] = useState<boolean>(false);
+    const [accountingTab, setAccountingTab] = useState<'ledger' | 'coa' | 'expense-heads' | 'journals'>('ledger');
     const [filterType, setFilterType] = useState<string>('ALL');
     const [filterAccount, setFilterAccount] = useState<string>('ALL');
     const [searchQuery, setSearchQuery] = useState('');
@@ -352,22 +350,11 @@ export const AccountingModule: React.FC = () => {
             {journalEntries.length}
           </span>
         </button>
-
-        <button type="button" id="tab-accounting-audit" onClick={() => setAccountingTab('audit')} className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-bold text-xs sm:text-sm transition-all ${accountingTab === 'audit'
-            ? 'bg-blue-600 text-white shadow-xs'
-            : 'bg-white text-slate-600 hover:bg-slate-100 hover:text-slate-900 border border-slate-200'}`}>
-          <ShieldCheck className={`w-4 h-4 ${accountingTab === 'audit' ? 'text-white' : 'text-blue-600'}`}/>
-          <span>{'Audit Trail'}</span>
-          <span className={`px-2 py-0.5 rounded-full text-[10px] font-black ${accountingTab === 'audit' ? 'bg-blue-700 text-white' : 'bg-blue-50 text-blue-700'}`}>
-            {auditLogs.length}
-          </span>
-        </button>
       </div>
 
       {accountingTab === 'coa' && <ChartOfAccountsManager />}
       {accountingTab === 'expense-heads' && <ExpenseHeadManager />}
       {accountingTab === 'journals' && <JournalEntriesManager />}
-      {accountingTab === 'audit' && (<AuditTrailComponent onOpenPrintModal={() => setShowAuditReportModal(true)}/>)}
 
       {accountingTab === 'ledger' && (
         /* General Ledger Section */
@@ -630,9 +617,6 @@ export const AccountingModule: React.FC = () => {
 
       {/* Professional Accounting Ledger Report Modal */}
       {showReportModal && (<ReportPrintModal type="accounting" accountingData={filteredTransactions} profile={profile} language={language} dateRangeText={dateRangeLabel} onClose={() => setShowReportModal(false)}/>)}
-
-      {/* Professional Audit Trail Report Modal */}
-      {showAuditReportModal && (<ReportPrintModal type="audit" auditData={auditLogs} profile={profile} language={language} dateRangeText={'Staff Activity & Internal Audit Trail'} onClose={() => setShowAuditReportModal(false)}/>)}
       {/* RECORD INCOME MODAL */}
       {showIncomeModal && (<div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-4">
           <form onSubmit={handleCreateIncome} className="bg-white rounded-2xl max-w-4xl w-full p-6 shadow-2xl border border-slate-200 space-y-4 max-h-[90vh] overflow-y-auto">
