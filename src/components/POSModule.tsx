@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { useApp } from '../context/AppContext';
 import { ProductItem, InvoiceItem, Customer, PaymentMethod, ServiceCategory } from '../types';
-import { Search, ShoppingCart, Trash2, Plus, Minus, CheckCircle, CheckCircle2, Printer, UserPlus, Layers, Calculator, Tag, Clock, Building, DollarSign, AlertCircle, FileText, Smartphone, CreditCard, X, User, } from 'lucide-react';
+import { Search, ShoppingCart, Trash2, Plus, Minus, CheckCircle, CheckCircle2, Printer, UserPlus, Layers, Calculator, Tag, Clock, Building, DollarSign, AlertCircle, FileText, Smartphone, CreditCard, X, User, UserCheck, ChevronDown, } from 'lucide-react';
 import { POSSalesOverview } from './POSSalesOverview';
 interface POSModuleProps {
     onOpenInvoiceModal: (invoiceId: string, mode?: 'invoice' | 'challan' | 'pos', options?: {
@@ -218,6 +218,19 @@ export const POSModule: React.FC<POSModuleProps> = ({ onOpenInvoiceModal }) => {
         }
     };
     const selectedCustomer = (customers || []).find((c) => c.id === selectedCustomerId);
+    const isWalkIn = Boolean(
+        selectedCustomer &&
+        (selectedCustomer.name.toLowerCase().includes('walk-in') ||
+         selectedCustomer.name.toLowerCase().includes('walk in'))
+    );
+    const handleSelectWalkIn = () => {
+        const walkIn = (customers || []).find(c => c.name.toLowerCase().includes('walk-in') || c.name.toLowerCase().includes('walk in')) || customers[0];
+        if (walkIn) {
+            setSelectedCustomerId(walkIn.id);
+        }
+        setIsCustomerSearchOpen(false);
+        setCustomerSearchTerm('');
+    };
     const filteredCustomers = useMemo(() => {
         if (!customerSearchTerm.trim())
             return customers;
@@ -614,120 +627,258 @@ export const POSModule: React.FC<POSModuleProps> = ({ onOpenInvoiceModal }) => {
               </button>)}
           </div>
 
-          {/* Customer Selection & Search */}
-          <div className="space-y-1.5 relative">
+          {/* Customer Selection & Search (Design 1: Interactive Customer Card + Fast Action Buttons) */}
+          <div className="space-y-2 relative">
             <div className="flex items-center justify-between">
-              <label className="text-xs font-bold text-slate-800 flex items-center gap-1">
+              <label className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
                 <User className="w-3.5 h-3.5 text-slate-500"/>
                 <span>{'Customer / Client'}</span>
               </label>
-              <button type="button" onClick={() => {
-            if (customerSearchTerm.trim()) {
-                const isPhone = /^[0-9+ -]+$/.test(customerSearchTerm.trim());
-                if (isPhone) {
-                    setNewCustPhone(customerSearchTerm.trim());
-                    setNewCustName('');
-                }
-                else {
-                    setNewCustName(customerSearchTerm.trim());
-                    setNewCustPhone('');
-                }
-            }
-            setShowNewCustomerModal(true);
-        }} className="text-xs text-amber-600 hover:text-amber-800 font-bold flex items-center gap-1 transition-colors">
-                <UserPlus className="w-3.5 h-3.5"/>
-                {'+ New Customer'}
-              </button>
-            </div>
-
-            {/* Quick Customer Search Input */}
-            <div className="relative">
-              <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none"/>
-              <input type="text" value={customerSearchTerm} onChange={(e) => {
-            setCustomerSearchTerm(e.target.value);
-            setIsCustomerSearchOpen(true);
-        }} onFocus={() => setIsCustomerSearchOpen(true)} onKeyDown={(e) => {
-            if (e.key === 'Enter' && filteredCustomers.length > 0) {
-                e.preventDefault();
-                setSelectedCustomerId(filteredCustomers[0].id);
-                setCustomerSearchTerm('');
-                setIsCustomerSearchOpen(false);
-            }
-        }} placeholder={'Search customer by name or phone...'} className="w-full pl-8 pr-7 py-1.5 bg-slate-50 hover:bg-white focus:bg-white border border-slate-200 focus:border-amber-500 rounded-xl text-xs font-medium focus:ring-2 focus:ring-amber-500/20 transition-all"/>
-              {customerSearchTerm && (<button type="button" onClick={() => {
-                setCustomerSearchTerm('');
-                setIsCustomerSearchOpen(false);
-            }} className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-0.5 rounded-full">
-                  <X className="w-3.5 h-3.5"/>
-                </button>)}
-
-              {/* Floating Auto-suggest / Quick Select Dropdown */}
-              {isCustomerSearchOpen && customerSearchTerm.trim() && (<>
-                  <div className="fixed inset-0 z-20" onClick={() => setIsCustomerSearchOpen(false)}/>
-                  <div className="absolute left-0 right-0 top-full mt-1 z-30 bg-white rounded-xl shadow-xl border border-slate-200 max-h-52 overflow-y-auto divide-y divide-slate-100">
-                    {filteredCustomers.length > 0 ? (filteredCustomers.map((c) => (<button key={c.id} type="button" onClick={() => {
-                    setSelectedCustomerId(c.id);
-                    setCustomerSearchTerm('');
-                    setIsCustomerSearchOpen(false);
-                }} className={`w-full text-left p-2 hover:bg-amber-50/80 transition-colors flex items-center justify-between gap-2 ${c.id === selectedCustomerId ? 'bg-amber-50/90 font-bold border-l-2 border-amber-500' : ''}`}>
-                          <div className="min-w-0">
-                            <div className="text-xs text-slate-900 truncate">
-                              <span className="font-bold">{c.name}</span>
-                              {c.company && (<span className="text-[10px] text-amber-700 bg-amber-50 border border-amber-200 font-semibold px-1 rounded ml-1.5">
-                                  {c.company}
-                                </span>)}
-                            </div>
-                            <div className="text-[11px] text-slate-500 font-mono mt-0.5">{c.phone}</div>
-                          </div>
-                          {c.dueAmount > 0 && (<span className="text-[10px] font-bold text-rose-600 bg-rose-50 border border-rose-200 px-1.5 py-0.5 rounded-md flex-shrink-0">
-                              {'Due'}: Tk{c.dueAmount.toLocaleString()}
-                            </span>)}
-                        </button>))) : (<div className="p-3 text-center space-y-2">
-                        <p className="text-xs text-slate-500">
-                          {`No customer found matching "${customerSearchTerm}"`}
-                        </p>
-                        <button type="button" onClick={() => {
-                    const isPhone = /^[0-9+ -]+$/.test(customerSearchTerm.trim());
-                    if (isPhone) {
+              <div className="flex items-center gap-1.5">
+                {!isWalkIn && (
+                  <button
+                    type="button"
+                    onClick={handleSelectWalkIn}
+                    className="text-[11px] font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 px-2 py-0.5 rounded-lg transition-colors flex items-center gap-1 cursor-pointer"
+                    title="Quick reset to Walk-in Customer"
+                  >
+                    <span>🚶</span>
+                    <span>{'Walk-in'}</span>
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (customerSearchTerm.trim()) {
+                      const isPhone = /^[0-9+ -]+$/.test(customerSearchTerm.trim());
+                      if (isPhone) {
                         setNewCustPhone(customerSearchTerm.trim());
                         setNewCustName('');
-                    }
-                    else {
+                      } else {
                         setNewCustName(customerSearchTerm.trim());
                         setNewCustPhone('');
+                      }
                     }
-                    setIsCustomerSearchOpen(false);
                     setShowNewCustomerModal(true);
-                }} className="w-full py-1.5 px-3 bg-amber-500 hover:bg-amber-600 text-white rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 shadow-xs transition-colors">
-                          <UserPlus className="w-3.5 h-3.5"/>
-                          <span>
-                            {`+ Add as New Customer`}
-                          </span>
-                        </button>
-                      </div>)}
-                  </div>
-                </>)}
+                  }}
+                  className="text-xs text-amber-600 hover:text-amber-800 font-bold flex items-center gap-1 transition-colors px-1 py-0.5 cursor-pointer"
+                >
+                  <UserPlus className="w-3.5 h-3.5"/>
+                  {'+ New Customer'}
+                </button>
+              </div>
             </div>
 
-            {/* Customer Dropdown */}
-            <select value={selectedCustomerId} onChange={(e) => setSelectedCustomerId(e.target.value)} className="w-full px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500">
-              {filteredCustomers.map((c) => (<option key={c.id} value={c.id}>
-                  {c.company ? `${c.company} - ` : ''}
-                  {c.name} ({c.phone})
-                  {c.dueAmount > 0 ? ` [Due: ${profile.currencySymbol}${c.dueAmount}]` : ''}
-                </option>))}
-            </select>
+            {/* When search is NOT open: Selected Customer Card */}
+            {!isCustomerSearchOpen ? (
+              <div className="bg-slate-50/90 hover:bg-slate-100/90 border border-slate-200/90 rounded-2xl p-3 transition-all shadow-2xs">
+                <div className="flex items-center justify-between gap-2.5">
+                  <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                    <div
+                      className={`w-9 h-9 rounded-xl flex items-center justify-center text-sm font-black shrink-0 shadow-2xs ${
+                        isWalkIn
+                          ? 'bg-emerald-100 text-emerald-800 border border-emerald-200'
+                          : 'bg-amber-100 text-amber-800 border border-amber-200'
+                      }`}
+                    >
+                      {isWalkIn ? '🚶' : (selectedCustomer?.name?.charAt(0) || 'C')}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span className="font-extrabold text-xs sm:text-sm text-slate-900 truncate">
+                          {selectedCustomer?.name || 'Walk-in Customer'}
+                        </span>
+                        {selectedCustomer?.company && selectedCustomer.company !== selectedCustomer.name && (
+                          <span className="text-[10px] font-bold text-amber-800 bg-amber-50 border border-amber-200 px-1.5 py-0.2 rounded truncate max-w-[130px]">
+                            {selectedCustomer.company}
+                          </span>
+                        )}
+                      </div>
+                      <div className="text-[11px] text-slate-500 font-medium truncate mt-0.5 flex items-center gap-1.5">
+                        <span className="font-mono">{selectedCustomer?.phone || '01819-000000'}</span>
+                        {selectedCustomer?.address && (
+                          <span className="truncate max-w-[140px] text-slate-400">• {selectedCustomer.address}</span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
 
-            {selectedCustomer && (<div className="bg-slate-50 p-2 rounded-lg text-[11px] text-slate-600 flex justify-between items-center border border-slate-100">
-                <div className="min-w-0 pr-2">
-                  <span className="font-bold text-slate-800 truncate block">{selectedCustomer.name}</span>
-                  <span className="text-[10px] text-slate-500 font-mono">{selectedCustomer.phone} {selectedCustomer.address ? `• ${selectedCustomer.address}` : ''}</span>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsCustomerSearchOpen(true);
+                        setCustomerSearchTerm('');
+                      }}
+                      className="px-3 py-1.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold shadow-2xs transition-all flex items-center gap-1.5 cursor-pointer"
+                      title="Search or select another customer"
+                    >
+                      <Search className="w-3.5 h-3.5 text-amber-400"/>
+                      <span>{'Change'}</span>
+                    </button>
+                  </div>
                 </div>
-                {selectedCustomer.dueAmount > 0 && (<span className="text-rose-600 font-bold flex-shrink-0">
-                    {'Past Due:'} {profile.currencySymbol}
-                    {selectedCustomer.dueAmount.toLocaleString()}
-                  </span>)}
-              </div>)}
+
+                {/* Past Due Alert Banner if selected customer has debt */}
+                {selectedCustomer && selectedCustomer.dueAmount > 0 && (
+                  <div className="mt-2.5 pt-2 border-t border-slate-200/80 flex items-center justify-between text-xs">
+                    <span className="text-[11px] font-bold text-rose-700 flex items-center gap-1">
+                      <AlertCircle className="w-3.5 h-3.5 text-rose-600 shrink-0"/>
+                      <span>{'Previous Account Due:'}</span>
+                    </span>
+                    <span className="font-black text-rose-700 bg-rose-50 border border-rose-200 px-2 py-0.5 rounded-lg text-xs">
+                      {profile.currencySymbol}{selectedCustomer.dueAmount.toLocaleString()}
+                    </span>
+                  </div>
+                )}
+              </div>
+            ) : (
+              /* When search IS open: Interactive Searchable Customer Picker */
+              <div className="bg-white border-2 border-amber-500 rounded-2xl p-3 shadow-lg space-y-2.5">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="relative flex-1">
+                    <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none"/>
+                    <input
+                      type="text"
+                      autoFocus
+                      value={customerSearchTerm}
+                      onChange={(e) => setCustomerSearchTerm(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Escape') {
+                          setIsCustomerSearchOpen(false);
+                          setCustomerSearchTerm('');
+                        }
+                        if (e.key === 'Enter' && filteredCustomers.length > 0) {
+                          e.preventDefault();
+                          setSelectedCustomerId(filteredCustomers[0].id);
+                          setIsCustomerSearchOpen(false);
+                          setCustomerSearchTerm('');
+                        }
+                      }}
+                      placeholder={'Search customer by name, phone or company...'}
+                      className="w-full pl-8.5 pr-8 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium focus:bg-white focus:outline-hidden focus:ring-2 focus:ring-amber-500/20 transition-all placeholder:text-slate-400"
+                    />
+                    {customerSearchTerm && (
+                      <button
+                        type="button"
+                        onClick={() => setCustomerSearchTerm('')}
+                        className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-0.5 rounded-full cursor-pointer"
+                      >
+                        <X className="w-3.5 h-3.5"/>
+                      </button>
+                    )}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsCustomerSearchOpen(false);
+                      setCustomerSearchTerm('');
+                    }}
+                    className="p-2 text-slate-400 hover:text-slate-700 rounded-xl hover:bg-slate-100 transition-colors cursor-pointer"
+                    title="Close"
+                  >
+                    <X className="w-4 h-4"/>
+                  </button>
+                </div>
+
+                {/* Quick 1-Click Walk-in Customer Button */}
+                <button
+                  type="button"
+                  onClick={handleSelectWalkIn}
+                  className={`w-full py-1.5 px-3 rounded-xl text-xs font-bold flex items-center justify-between border transition-all cursor-pointer ${
+                    isWalkIn
+                      ? 'bg-emerald-50 text-emerald-800 border-emerald-300 shadow-2xs font-extrabold'
+                      : 'bg-slate-50 hover:bg-emerald-50/70 text-slate-700 border-slate-200 hover:border-emerald-200'
+                  }`}
+                >
+                  <div className="flex items-center gap-2">
+                    <span>🚶</span>
+                    <span>{'Walk-in Customer (Spot Cash Sale)'}</span>
+                  </div>
+                  {isWalkIn && <CheckCircle2 className="w-4 h-4 text-emerald-600"/>}
+                </button>
+
+                {/* Scrollable Customer List */}
+                <div className="max-h-52 overflow-y-auto divide-y divide-slate-100 border border-slate-100 rounded-xl">
+                  {filteredCustomers.length > 0 ? (
+                    filteredCustomers.map((c) => {
+                      const isSelected = c.id === selectedCustomerId;
+                      const isCustomerWalkIn = c.name.toLowerCase().includes('walk-in') || c.name.toLowerCase().includes('walk in');
+                      return (
+                        <button
+                          key={c.id}
+                          type="button"
+                          onClick={() => {
+                            setSelectedCustomerId(c.id);
+                            setIsCustomerSearchOpen(false);
+                            setCustomerSearchTerm('');
+                          }}
+                          className={`w-full text-left p-2.5 hover:bg-amber-50/80 transition-all flex items-center justify-between gap-2 cursor-pointer ${
+                            isSelected ? 'bg-amber-50 font-bold border-l-4 border-amber-500' : ''
+                          }`}
+                        >
+                          <div className="min-w-0 flex items-center gap-2.5">
+                            <div className="w-7 h-7 rounded-lg bg-slate-100 text-slate-600 flex items-center justify-center text-xs font-bold shrink-0">
+                              {isCustomerWalkIn ? '🚶' : c.name.charAt(0)}
+                            </div>
+                            <div className="min-w-0">
+                              <div className="text-xs text-slate-900 truncate flex items-center gap-1.5">
+                                <span className="font-bold">{c.name}</span>
+                                {c.company && (
+                                  <span className="text-[10px] text-amber-800 bg-amber-50 border border-amber-200 font-semibold px-1 rounded truncate">
+                                    {c.company}
+                                  </span>
+                                )}
+                              </div>
+                              <div className="text-[11px] text-slate-500 font-mono mt-0.5 flex items-center gap-1.5">
+                                <span>{c.phone}</span>
+                                {c.address && <span className="truncate max-w-[140px] text-slate-400">• {c.address}</span>}
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-2 shrink-0">
+                            {c.dueAmount > 0 && (
+                              <span className="text-[10px] font-bold text-rose-700 bg-rose-50 border border-rose-200 px-1.5 py-0.5 rounded-md">
+                                Due: {profile.currencySymbol}{c.dueAmount.toLocaleString()}
+                              </span>
+                            )}
+                            {isSelected && (
+                              <CheckCircle2 className="w-4 h-4 text-amber-600"/>
+                            )}
+                          </div>
+                        </button>
+                      );
+                    })
+                  ) : (
+                    <div className="p-4 text-center space-y-2">
+                      <p className="text-xs text-slate-500 font-medium">
+                        {`No customer found matching "${customerSearchTerm}"`}
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const isPhone = /^[0-9+ -]+$/.test(customerSearchTerm.trim());
+                          if (isPhone) {
+                            setNewCustPhone(customerSearchTerm.trim());
+                            setNewCustName('');
+                          } else {
+                            setNewCustName(customerSearchTerm.trim());
+                            setNewCustPhone('');
+                          }
+                          setIsCustomerSearchOpen(false);
+                          setShowNewCustomerModal(true);
+                        }}
+                        className="py-1.5 px-3 bg-amber-500 hover:bg-amber-600 text-white rounded-xl text-xs font-bold inline-flex items-center gap-1.5 shadow-2xs transition-colors cursor-pointer"
+                      >
+                        <UserPlus className="w-3.5 h-3.5"/>
+                        <span>{`+ Add "${customerSearchTerm}" as New Customer`}</span>
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Location, Delivery & Reference Info */}
