@@ -71,6 +71,27 @@ app.get('/api/health', (_req, res) => {
   });
 });
 
+// Lightweight meta endpoint to check if remote state was updated by another device
+app.get('/api/state/meta', async (_req, res) => {
+  if (!isConnected) {
+    return res.status(503).json({
+      success: false,
+      message: 'MongoDB is not connected.',
+    });
+  }
+
+  try {
+    const doc = await ErpState.findOne({ id: 'singleton' }).select('updatedAt');
+    if (!doc) {
+      return res.json({ success: true, exists: false, updatedAt: null });
+    }
+    res.json({ success: true, exists: true, updatedAt: doc.updatedAt });
+  } catch (error: any) {
+    console.error('Error fetching state meta:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
 // Get ERP state from MongoDB
 app.get('/api/state', async (_req, res) => {
   if (!isConnected) {

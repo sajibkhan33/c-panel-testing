@@ -392,6 +392,69 @@ export const AppProvider: React.FC<{
         const saved = localStorage.getItem(`${STORAGE_KEY}_IS_AUTHENTICATED`);
         return saved === 'true';
     });
+
+    // Cloud synchronization refs and helpers
+    const latestStateRef = useRef<any>({
+        profile,
+        products,
+        customers,
+        suppliers,
+        invoices,
+        quotations,
+        purchaseOrders,
+        transactions,
+        stockMovements,
+        auditLogs,
+        staffMembers,
+        userRoles,
+        chartOfAccounts,
+        expenseHeads,
+        productCategories,
+        journalEntries,
+        projects,
+        paymentMethods,
+    });
+    // Keep latestStateRef updated on every render
+    latestStateRef.current = {
+        profile,
+        products,
+        customers,
+        suppliers,
+        invoices,
+        quotations,
+        purchaseOrders,
+        transactions,
+        stockMovements,
+        auditLogs,
+        staffMembers,
+        userRoles,
+        chartOfAccounts,
+        expenseHeads,
+        productCategories,
+        journalEntries,
+        projects,
+        paymentMethods,
+    };
+
+    const isCloudLoadedRef = useRef(false);
+    const isImportingRef = useRef(false);
+    const isSyncingRef = useRef(false);
+    const lastServerUpdatedAtRef = useRef(0);
+    const syncTimeoutRef = useRef<any>(null);
+    const pushToCloudRef = useRef<() => Promise<void>>(() => Promise.resolve());
+
+    const triggerImmediatePush = () => {
+        if (!isCloudLoadedRef.current) return;
+        if (syncTimeoutRef.current) {
+            clearTimeout(syncTimeoutRef.current);
+        }
+        syncTimeoutRef.current = setTimeout(() => {
+            if (pushToCloudRef.current) {
+                pushToCloudRef.current();
+            }
+        }, 150);
+    };
+
     // Sync to LocalStorage
     useEffect(() => {
         localStorage.setItem(`${STORAGE_KEY}_PROFILE`, JSON.stringify(profile));
@@ -528,6 +591,12 @@ export const AppProvider: React.FC<{
                     const parsed = JSON.parse(e.newValue);
                     if (Array.isArray(parsed)) {
                         setInvoices(parsed);
+                    }
+                }
+                else if (e.key === `${STORAGE_KEY}_CATEGORIES`) {
+                    const parsed = JSON.parse(e.newValue);
+                    if (Array.isArray(parsed)) {
+                        setProductCategories(parsed);
                     }
                 }
             }
@@ -1107,10 +1176,22 @@ export const AppProvider: React.FC<{
         const code = `${codePrefix}-${Math.floor(100 + Math.random() * 900)}`;
         const newProd: ProductItem = {
             ...data,
-            id: `prod-${Date.now()}`,
+            id: `prod-${Date.now()}-${Math.floor(100 + Math.random() * 900)}`,
             code,
         };
-        setProducts((prev) => [newProd, ...prev]);
+        const currentProducts = latestStateRef.current.products || products;
+        const next = [newProd, ...currentProducts.filter((p: ProductItem) => p.id !== newProd.id)];
+        setProducts(next);
+        try {
+            localStorage.setItem(`${STORAGE_KEY}_PRODUCTS`, JSON.stringify(next));
+        } catch {}
+        latestStateRef.current = {
+            ...latestStateRef.current,
+            products: next,
+        };
+        isCloudLoadedRef.current = true;
+        triggerImmediatePush();
+        return newProd;
     };
     const bulkImportProducts = (items: Array<Omit<ProductItem, 'id'> & {
         id?: string;
@@ -1123,53 +1204,59 @@ export const AppProvider: React.FC<{
         const shouldUpdate = options.updateExisting !== false;
         let addedCount = 0;
         let updatedCount = 0;
-        setProducts((prev) => {
-            const updatedList = [...prev];
-            const timestamp = Date.now();
-            items.forEach((item, index) => {
-                // Find if item already exists by id, code or name
-                const existingIdx = updatedList.findIndex((p) => {
-                    if (item.id && p.id === item.id)
-                        return true;
-                    if (item.code && p.code && p.code.trim().toLowerCase() === item.code.trim().toLowerCase())
-                        return true;
-                    if (item.name && p.name && p.name.trim().toLowerCase() === item.name.trim().toLowerCase())
-                        return true;
-                    return false;
-                });
-                if (existingIdx !== -1 && shouldUpdate) {
-                    updatedList[existingIdx] = {
-                        ...updatedList[existingIdx],
-                        ...item,
-                        id: updatedList[existingIdx].id,
-                        code: item.code || updatedList[existingIdx].code,
-                    };
-                    updatedCount++;
-                }
-                else if (existingIdx === -1) {
-                    const codePrefix = (item.category || 'GEN').slice(0, 3).toUpperCase();
-                    const generatedCode = item.code || `${codePrefix}-${Math.floor(100 + Math.random() * 900)}`;
-                    const newProd: ProductItem = {
-                        id: item.id || `prod-${timestamp}-${index}-${Math.floor(10 + Math.random() * 90)}`,
-                        code: generatedCode,
-                        name: item.name,
-                        nameBn: item.nameBn || '',
-                        category: item.category || 'DIGITAL PRINTING',
-                        isRawMaterial: Boolean(item.isRawMaterial),
-                        unit: item.unit || 'pcs',
-                        unitPrice: item.unitPrice || 0,
-                        costPrice: item.costPrice || 0,
-                        stockFactory: item.stockFactory || 0,
-                        stockOffice: item.stockOffice || 0,
-                        minStockAlert: item.minStockAlert ?? 5,
-                        description: item.description || '',
-                    };
-                    updatedList.unshift(newProd);
-                    addedCount++;
-                }
+        const currentProducts = latestStateRef.current.products || products;
+        const updatedList = [...currentProducts];
+        const timestamp = Date.now();
+        items.forEach((item, index) => {
+            // Find if item already exists by id, code or name
+            const existingIdx = updatedList.findIndex((p) => {
+                if (item.id && p.id === item.id)
+                    return true;
+                if (item.code && p.code && p.code.trim().toLowerCase() === item.code.trim().toLowerCase())
+                    return true;
+                if (item.name && p.name && p.name.trim().toLowerCase() === item.name.trim().toLowerCase())
+                    return true;
+                return false;
             });
-            return updatedList;
+            if (existingIdx !== -1 && shouldUpdate) {
+                updatedList[existingIdx] = {
+                    ...updatedList[existingIdx],
+                    ...item,
+                    id: updatedList[existingIdx].id,
+                    code: item.code || updatedList[existingIdx].code,
+                };
+                updatedCount++;
+            }
+            else if (existingIdx === -1) {
+                const codePrefix = (item.category || 'GEN').slice(0, 3).toUpperCase();
+                const generatedCode = item.code || `${codePrefix}-${Math.floor(100 + Math.random() * 900)}`;
+                const newProd: ProductItem = {
+                    id: item.id || `prod-${timestamp}-${index}-${Math.floor(10 + Math.random() * 90)}`,
+                    code: generatedCode,
+                    name: item.name,
+                    nameBn: item.nameBn || '',
+                    category: item.category || 'DIGITAL PRINTING',
+                    isRawMaterial: Boolean(item.isRawMaterial),
+                    unit: item.unit || 'pcs',
+                    unitPrice: item.unitPrice || 0,
+                    costPrice: item.costPrice || 0,
+                    stockFactory: item.stockFactory || 0,
+                    stockOffice: item.stockOffice || 0,
+                    minStockAlert: item.minStockAlert ?? 5,
+                    description: item.description || '',
+                };
+                updatedList.unshift(newProd);
+                addedCount++;
+            }
         });
+        setProducts(updatedList);
+        try {
+            localStorage.setItem(`${STORAGE_KEY}_PRODUCTS`, JSON.stringify(updatedList));
+        } catch {}
+        latestStateRef.current = {
+            ...latestStateRef.current,
+            products: updatedList,
+        };
         addAuditLog({
             staffId: activeStaff.id,
             staffName: activeStaff.name,
@@ -1182,19 +1269,59 @@ export const AppProvider: React.FC<{
             detailsBn: undefined,
             severity: 'info',
         });
+        isCloudLoadedRef.current = true;
+        triggerImmediatePush();
         return { added: addedCount, updated: updatedCount };
     };
     const updateProduct = (id: string, updates: Partial<ProductItem>) => {
-        setProducts((prev) => prev.map((p) => (p.id === id ? { ...p, ...updates } : p)));
+        const currentProducts = latestStateRef.current.products || products;
+        const next = currentProducts.map((p: ProductItem) => (p.id === id ? { ...p, ...updates } : p));
+        setProducts(next);
+        try {
+            localStorage.setItem(`${STORAGE_KEY}_PRODUCTS`, JSON.stringify(next));
+        } catch {}
+        latestStateRef.current = {
+            ...latestStateRef.current,
+            products: next,
+        };
+        isCloudLoadedRef.current = true;
+        triggerImmediatePush();
     };
     const deleteProduct = (id: string) => {
-        setProducts((prev) => prev.filter((p) => p.id !== id));
+        const currentProducts = latestStateRef.current.products || products;
+        const prod = currentProducts.find((p: ProductItem) => p.id === id);
+        const next = currentProducts.filter((p: ProductItem) => p.id !== id);
+        setProducts(next);
+        try {
+            localStorage.setItem(`${STORAGE_KEY}_PRODUCTS`, JSON.stringify(next));
+        } catch {}
+        latestStateRef.current = {
+            ...latestStateRef.current,
+            products: next,
+        };
+        if (prod) {
+            addAuditLog({
+                staffId: activeStaff.id,
+                staffName: activeStaff.name,
+                staffRole: activeStaff.role,
+                location: 'All',
+                actionType: 'PRODUCT_DELETED',
+                entityType: 'Inventory',
+                refNo: prod.code,
+                details: `Deleted product item: ${prod.name} (${prod.code}) [Category: ${prod.category || 'N/A'}]`,
+                detailsBn: undefined,
+                severity: 'warning',
+            });
+        }
+        isCloudLoadedRef.current = true;
+        triggerImmediatePush();
     };
     const adjustStock = (productId: string, type: 'IN' | 'OUT' | 'TRANSFER' | 'ADJUSTMENT', qty: number, location: 'Factory' | 'Office', targetLocation?: 'Factory' | 'Office', reason: string = 'Stock manual entry') => {
-        const prod = products.find((p) => p.id === productId);
+        const currentProducts = latestStateRef.current.products || products;
+        const prod = currentProducts.find((p: ProductItem) => p.id === productId);
         if (!prod)
             return;
-        setProducts((prev) => prev.map((p) => {
+        const nextProds = currentProducts.map((p: ProductItem) => {
             if (p.id !== productId)
                 return p;
             if (type === 'IN') {
@@ -1217,7 +1344,11 @@ export const AppProvider: React.FC<{
                 };
             }
             return p;
-        }));
+        });
+        setProducts(nextProds);
+        try {
+            localStorage.setItem(`${STORAGE_KEY}_PRODUCTS`, JSON.stringify(nextProds));
+        } catch {}
         const movement: StockMovement = {
             id: `sm-${Date.now()}`,
             date: new Date().toISOString().replace('T', ' ').slice(0, 16),
@@ -1231,7 +1362,16 @@ export const AppProvider: React.FC<{
             refNo: `ADJ-${Date.now().toString().slice(-4)}`,
             reason,
         };
-        setStockMovements((prev) => [movement, ...prev]);
+        const nextMovements = [movement, ...(latestStateRef.current.stockMovements || stockMovements)];
+        setStockMovements(nextMovements);
+        try {
+            localStorage.setItem(`${STORAGE_KEY}_STOCK_MOVEMENTS`, JSON.stringify(nextMovements));
+        } catch {}
+        latestStateRef.current = {
+            ...latestStateRef.current,
+            products: nextProds,
+            stockMovements: nextMovements,
+        };
         addAuditLog({
             staffId: activeStaff.id,
             staffName: activeStaff.name,
@@ -1244,6 +1384,8 @@ export const AppProvider: React.FC<{
             detailsBn: undefined,
             severity: 'info',
         });
+        isCloudLoadedRef.current = true;
+        triggerImmediatePush();
     };
     // Supply Chain & Purchase Orders
     const addPurchaseOrder = (data: Omit<PurchaseOrder, 'id' | 'poNo'>): PurchaseOrder => {
@@ -1757,11 +1899,18 @@ export const AppProvider: React.FC<{
         }, 100);
     };
     const deleteInvoice = (id: string) => {
-        const inv = invoices.find((i) => i.id === id);
+        const currentInvoices = latestStateRef.current.invoices || invoices;
+        const inv = currentInvoices.find((i: SalesInvoice) => i.id === id);
         if (!inv)
             return;
-        setInvoices((prev) => prev.filter((i) => i.id !== id));
-        setCustomers((prev) => prev.map((c) => {
+        const nextInvoices = currentInvoices.filter((i: SalesInvoice) => i.id !== id);
+        setInvoices(nextInvoices);
+        try {
+            localStorage.setItem(`${STORAGE_KEY}_INVOICES`, JSON.stringify(nextInvoices));
+        } catch {}
+
+        const currentCusts = latestStateRef.current.customers || customers;
+        const nextCusts = currentCusts.map((c: Customer) => {
             if (c.id === inv.customerId) {
                 return {
                     ...c,
@@ -1770,7 +1919,17 @@ export const AppProvider: React.FC<{
                 };
             }
             return c;
-        }));
+        });
+        setCustomers(nextCusts);
+        try {
+            localStorage.setItem(`${STORAGE_KEY}_CUSTOMERS`, JSON.stringify(nextCusts));
+        } catch {}
+
+        latestStateRef.current = {
+            ...latestStateRef.current,
+            invoices: nextInvoices,
+            customers: nextCusts,
+        };
         addAuditLog({
             staffId: activeStaff.id,
             staffName: activeStaff.name,
@@ -1784,15 +1943,37 @@ export const AppProvider: React.FC<{
             amount: inv.grandTotal,
             severity: 'warning',
         });
+        isCloudLoadedRef.current = true;
+        triggerImmediatePush();
     };
     const deleteQuotation = (id: string) => {
-        setQuotations((prev) => prev.filter((q) => q.id !== id));
+        const currentQuotes = latestStateRef.current.quotations || quotations;
+        const next = currentQuotes.filter((q: Quotation) => q.id !== id);
+        setQuotations(next);
+        try {
+            localStorage.setItem(`${STORAGE_KEY}_QUOTATIONS`, JSON.stringify(next));
+        } catch {}
+        latestStateRef.current = {
+            ...latestStateRef.current,
+            quotations: next,
+        };
+        isCloudLoadedRef.current = true;
+        triggerImmediatePush();
     };
     const deletePurchaseOrder = (id: string) => {
-        const po = purchaseOrders.find((p) => p.id === id);
+        const currentPOs = latestStateRef.current.purchaseOrders || purchaseOrders;
+        const po = currentPOs.find((p: PurchaseOrder) => p.id === id);
         if (!po)
             return;
-        setPurchaseOrders((prev) => prev.filter((p) => p.id !== id));
+        const next = currentPOs.filter((p: PurchaseOrder) => p.id !== id);
+        setPurchaseOrders(next);
+        try {
+            localStorage.setItem(`${STORAGE_KEY}_PURCHASE_ORDERS`, JSON.stringify(next));
+        } catch {}
+        latestStateRef.current = {
+            ...latestStateRef.current,
+            purchaseOrders: next,
+        };
         addAuditLog({
             staffId: activeStaff.id,
             staffName: activeStaff.name,
@@ -1806,9 +1987,20 @@ export const AppProvider: React.FC<{
             amount: po.totalAmount,
             severity: 'warning',
         });
+        isCloudLoadedRef.current = true;
+        triggerImmediatePush();
     };
     const updatePurchaseOrder = (id: string, updates: Partial<PurchaseOrder>) => {
-        setPurchaseOrders((prev) => prev.map((p) => (p.id === id ? { ...p, ...updates } : p)));
+        const currentPOs = latestStateRef.current.purchaseOrders || purchaseOrders;
+        const next = currentPOs.map((p: PurchaseOrder) => (p.id === id ? { ...p, ...updates } : p));
+        setPurchaseOrders(next);
+        try {
+            localStorage.setItem(`${STORAGE_KEY}_PURCHASE_ORDERS`, JSON.stringify(next));
+        } catch {}
+        latestStateRef.current = {
+            ...latestStateRef.current,
+            purchaseOrders: next,
+        };
         addAuditLog({
             staffId: activeStaff.id,
             staffName: activeStaff.name,
@@ -1822,6 +2014,8 @@ export const AppProvider: React.FC<{
             amount: updates.grandTotal || updates.totalAmount,
             severity: 'info',
         });
+        isCloudLoadedRef.current = true;
+        triggerImmediatePush();
     };
     // Product Categories
     const addProductCategory = (cat: Omit<ProductCategory, 'id'>): ProductCategory => {
@@ -1832,7 +2026,16 @@ export const AppProvider: React.FC<{
             isRawMaterial: isRaw,
             id: `cat-${Date.now()}`,
         };
-        setProductCategories((prev) => [...prev, newCat]);
+        const currentCats = latestStateRef.current.productCategories || productCategories;
+        const next = [...currentCats, newCat];
+        setProductCategories(next);
+        try {
+            localStorage.setItem(`${STORAGE_KEY}_CATEGORIES`, JSON.stringify(next));
+        } catch {}
+        latestStateRef.current = {
+            ...latestStateRef.current,
+            productCategories: next,
+        };
         addAuditLog({
             staffId: activeStaff.id,
             staffName: activeStaff.name,
@@ -1845,20 +2048,39 @@ export const AppProvider: React.FC<{
             detailsBn: undefined,
             severity: 'info',
         });
+        isCloudLoadedRef.current = true;
+        triggerImmediatePush();
         return newCat;
     };
     const updateProductCategory = (id: string, updates: Partial<ProductCategory>) => {
-        const oldCat = productCategories.find((c) => c.id === id);
+        const currentCats = latestStateRef.current.productCategories || productCategories;
+        const oldCat = currentCats.find((c: ProductCategory) => c.id === id);
         const resolvedUpdates: Partial<ProductCategory> = {
             ...updates,
             ...(updates.isRawMaterialGroup !== undefined ? { isRawMaterial: updates.isRawMaterialGroup } : {}),
             ...(updates.isRawMaterial !== undefined ? { isRawMaterialGroup: updates.isRawMaterial } : {}),
         };
-        setProductCategories((prev) => prev.map((c) => (c.id === id ? { ...c, ...resolvedUpdates } : c)));
+        const nextCats = currentCats.map((c: ProductCategory) => (c.id === id ? { ...c, ...resolvedUpdates } : c));
+        setProductCategories(nextCats);
+        try {
+            localStorage.setItem(`${STORAGE_KEY}_CATEGORIES`, JSON.stringify(nextCats));
+        } catch {}
+
+        let nextProds = latestStateRef.current.products || products;
         if (oldCat && resolvedUpdates.name && resolvedUpdates.name.trim() !== oldCat.name) {
             const nextCatName = resolvedUpdates.name.trim();
-            setProducts((prev) => prev.map((p) => (p.category?.toLowerCase() === oldCat.name.toLowerCase() ? { ...p, category: nextCatName } : p)));
+            nextProds = nextProds.map((p: ProductItem) => (p.category?.toLowerCase() === oldCat.name.toLowerCase() ? { ...p, category: nextCatName } : p));
+            setProducts(nextProds);
+            try {
+                localStorage.setItem(`${STORAGE_KEY}_PRODUCTS`, JSON.stringify(nextProds));
+            } catch {}
         }
+
+        latestStateRef.current = {
+            ...latestStateRef.current,
+            productCategories: nextCats,
+            products: nextProds,
+        };
         addAuditLog({
             staffId: activeStaff.id,
             staffName: activeStaff.name,
@@ -1870,22 +2092,34 @@ export const AppProvider: React.FC<{
             detailsBn: undefined,
             severity: 'info',
         });
+        isCloudLoadedRef.current = true;
+        triggerImmediatePush();
     };
     const deleteProductCategory = (id: string): {
         success: boolean;
         message?: string;
     } => {
-        const cat = productCategories.find((c) => c.id === id);
+        const currentCats = latestStateRef.current.productCategories || productCategories;
+        const cat = currentCats.find((c: ProductCategory) => c.id === id);
         if (!cat)
             return { success: false, message: 'Category not found' };
-        const hasProducts = products.some((p) => p.category?.toLowerCase() === cat.name.toLowerCase());
+        const currentProds = latestStateRef.current.products || products;
+        const hasProducts = currentProds.some((p: ProductItem) => p.category?.toLowerCase() === cat.name.toLowerCase());
         if (hasProducts) {
             return {
                 success: false,
                 message: `Cannot delete category: products are assigned to "${cat.name}". Please reassign them first.`,
             };
         }
-        setProductCategories((prev) => prev.filter((c) => c.id !== id));
+        const next = currentCats.filter((c: ProductCategory) => c.id !== id);
+        setProductCategories(next);
+        try {
+            localStorage.setItem(`${STORAGE_KEY}_CATEGORIES`, JSON.stringify(next));
+        } catch {}
+        latestStateRef.current = {
+            ...latestStateRef.current,
+            productCategories: next,
+        };
         addAuditLog({
             staffId: activeStaff.id,
             staffName: activeStaff.name,
@@ -1898,6 +2132,8 @@ export const AppProvider: React.FC<{
             detailsBn: undefined,
             severity: 'warning',
         });
+        isCloudLoadedRef.current = true;
+        triggerImmediatePush();
         return { success: true };
     };
     // Chart of Accounts
@@ -3202,26 +3438,6 @@ export const AppProvider: React.FC<{
         } catch {}
     };
     // Keep an always-up-to-date ref of state to avoid stale closure bugs during debounced/async cloud sync
-    const latestStateRef = React.useRef({
-        profile,
-        products,
-        customers,
-        suppliers,
-        invoices,
-        quotations,
-        purchaseOrders,
-        transactions,
-        stockMovements,
-        auditLogs,
-        staffMembers,
-        userRoles,
-        chartOfAccounts,
-        expenseHeads,
-        productCategories,
-        journalEntries,
-        projects,
-        paymentMethods,
-    });
     latestStateRef.current = {
         profile,
         products,
@@ -3242,6 +3458,7 @@ export const AppProvider: React.FC<{
         projects,
         paymentMethods,
     };
+
     const exportDatabase = (): string => {
         const s = latestStateRef.current;
         const state = {
@@ -3268,7 +3485,8 @@ export const AppProvider: React.FC<{
         };
         return JSON.stringify(state, null, 2);
     };
-    const importDatabase = (jsonString: string, isCloudSync: boolean = false): boolean => {
+
+    const importDatabase = (jsonString: string, _isCloudSync: boolean = false): boolean => {
         try {
             const data = JSON.parse(jsonString);
             if (data.profile) {
@@ -3284,126 +3502,53 @@ export const AppProvider: React.FC<{
                     data.profile.footerBrandText = 'Dot Color';
                 }
                 setProfile(data.profile);
+                try { localStorage.setItem(`${STORAGE_KEY}_PROFILE`, JSON.stringify(data.profile)); } catch {}
             }
             if (data.products && Array.isArray(data.products)) {
-                if (isCloudSync) {
-                    setProducts((prev) => {
-                        const map = new Map<string, ProductItem>();
-                        data.products.forEach((p: ProductItem) => {
-                            if (p && p.id) map.set(p.id, p);
-                        });
-                        prev.forEach((p) => {
-                            if (p && p.id && !map.has(p.id)) map.set(p.id, p);
-                        });
-                        const merged = Array.from(map.values());
-                        try { localStorage.setItem(`${STORAGE_KEY}_PRODUCTS`, JSON.stringify(merged)); } catch {}
-                        return merged;
-                    });
-                } else {
-                    setProducts(data.products);
-                }
+                setProducts(data.products);
+                try { localStorage.setItem(`${STORAGE_KEY}_PRODUCTS`, JSON.stringify(data.products)); } catch {}
             }
             if (data.customers && Array.isArray(data.customers)) {
-                if (isCloudSync) {
-                    setCustomers((prev) => {
-                        const map = new Map<string, Customer>();
-                        data.customers.forEach((c: Customer) => {
-                            if (c && c.id) map.set(c.id, c);
-                        });
-                        prev.forEach((c) => {
-                            if (c && c.id && !map.has(c.id)) map.set(c.id, c);
-                        });
-                        const merged = Array.from(map.values());
-                        try { localStorage.setItem(`${STORAGE_KEY}_CUSTOMERS`, JSON.stringify(merged)); } catch {}
-                        return merged;
-                    });
-                } else {
-                    setCustomers(data.customers);
-                }
+                setCustomers(data.customers);
+                try { localStorage.setItem(`${STORAGE_KEY}_CUSTOMERS`, JSON.stringify(data.customers)); } catch {}
             }
             if (data.suppliers && Array.isArray(data.suppliers)) {
-                if (isCloudSync) {
-                    setSuppliers((prev) => {
-                        const map = new Map<string, Supplier>();
-                        data.suppliers.forEach((s: Supplier) => {
-                            if (s && s.id) map.set(s.id, s);
-                        });
-                        prev.forEach((s) => {
-                            if (s && s.id && !map.has(s.id)) map.set(s.id, s);
-                        });
-                        const merged = Array.from(map.values());
-                        try { localStorage.setItem(`${STORAGE_KEY}_SUPPLIERS`, JSON.stringify(merged)); } catch {}
-                        return merged;
-                    });
-                } else {
-                    setSuppliers(data.suppliers);
-                }
+                const cleanedSuppliers = data.suppliers.map((s: any) => ({
+                    ...s,
+                    balancePayable: s.balancePayable ?? s.dueAmount ?? 0,
+                    dueAmount: s.dueAmount ?? s.balancePayable ?? 0,
+                }));
+                setSuppliers(cleanedSuppliers);
+                try { localStorage.setItem(`${STORAGE_KEY}_SUPPLIERS`, JSON.stringify(cleanedSuppliers)); } catch {}
             }
             if (data.invoices && Array.isArray(data.invoices)) {
-                if (isCloudSync) {
-                    setInvoices((prev) => {
-                        const map = new Map<string, SalesInvoice>();
-                        data.invoices.forEach((inv: SalesInvoice) => {
-                            if (inv && inv.id) map.set(inv.id, inv);
-                        });
-                        prev.forEach((inv) => {
-                            if (inv && inv.id && !map.has(inv.id)) map.set(inv.id, inv);
-                        });
-                        const merged = Array.from(map.values());
-                        try { localStorage.setItem(`${STORAGE_KEY}_INVOICES`, JSON.stringify(merged)); } catch {}
-                        return merged;
-                    });
-                } else {
-                    setInvoices(data.invoices);
-                }
+                setInvoices(data.invoices);
+                try { localStorage.setItem(`${STORAGE_KEY}_INVOICES`, JSON.stringify(data.invoices)); } catch {}
             }
             if (data.quotations && Array.isArray(data.quotations)) {
-                if (isCloudSync) {
-                    setQuotations((prev) => {
-                        const map = new Map<string, Quotation>();
-                        data.quotations.forEach((q: Quotation) => {
-                            if (q && q.id) map.set(q.id, q);
-                        });
-                        prev.forEach((q) => {
-                            if (q && q.id && !map.has(q.id)) map.set(q.id, q);
-                        });
-                        const merged = Array.from(map.values());
-                        try { localStorage.setItem(`${STORAGE_KEY}_QUOTATIONS`, JSON.stringify(merged)); } catch {}
-                        return merged;
-                    });
-                } else {
-                    setQuotations(data.quotations);
-                }
+                setQuotations(data.quotations);
+                try { localStorage.setItem(`${STORAGE_KEY}_QUOTATIONS`, JSON.stringify(data.quotations)); } catch {}
             }
             if (data.purchaseOrders && Array.isArray(data.purchaseOrders)) {
-                if (isCloudSync) {
-                    setPurchaseOrders((prev) => {
-                        const map = new Map<string, PurchaseOrder>();
-                        data.purchaseOrders.forEach((po: PurchaseOrder) => {
-                            if (po && po.id) map.set(po.id, po);
-                        });
-                        prev.forEach((po) => {
-                            if (po && po.id && !map.has(po.id)) map.set(po.id, po);
-                        });
-                        const merged = Array.from(map.values());
-                        try { localStorage.setItem(`${STORAGE_KEY}_PURCHASE_ORDERS`, JSON.stringify(merged)); } catch {}
-                        return merged;
-                    });
-                } else {
-                    setPurchaseOrders(data.purchaseOrders);
-                }
+                setPurchaseOrders(data.purchaseOrders);
+                try { localStorage.setItem(`${STORAGE_KEY}_PURCHASE_ORDERS`, JSON.stringify(data.purchaseOrders)); } catch {}
             }
             if (data.transactions && Array.isArray(data.transactions)) {
-                setTransactions(ensureUniqueTransactions(data.transactions));
+                const uniqueTx = ensureUniqueTransactions(data.transactions);
+                setTransactions(uniqueTx);
+                try { localStorage.setItem(`${STORAGE_KEY}_TRANSACTIONS`, JSON.stringify(uniqueTx)); } catch {}
             }
             if (data.stockMovements && Array.isArray(data.stockMovements)) {
                 setStockMovements(data.stockMovements);
+                try { localStorage.setItem(`${STORAGE_KEY}_STOCK_MOVEMENTS`, JSON.stringify(data.stockMovements)); } catch {}
             }
             if (data.auditLogs && Array.isArray(data.auditLogs)) {
                 setAuditLogs(data.auditLogs);
+                try { localStorage.setItem(`${STORAGE_KEY}_AUDIT_LOGS`, JSON.stringify(data.auditLogs)); } catch {}
             }
             if (data.staffMembers && Array.isArray(data.staffMembers) && data.staffMembers.length > 0) {
                 setStaffMembers(data.staffMembers);
+                try { localStorage.setItem(`${STORAGE_KEY}_STAFF`, JSON.stringify(data.staffMembers)); } catch {}
                 setActiveStaff((prev) => {
                     if (prev?.id) {
                         const found = data.staffMembers.find((s: StaffMember) => s.id === prev.id);
@@ -3414,22 +3559,39 @@ export const AppProvider: React.FC<{
                 });
             }
             if (data.userRoles && Array.isArray(data.userRoles) && data.userRoles.length > 0) {
-                setUserRoles(sanitizeUserRoles(data.userRoles));
+                const sanitized = sanitizeUserRoles(data.userRoles);
+                setUserRoles(sanitized);
+                try { localStorage.setItem(`${STORAGE_KEY}_ROLES`, JSON.stringify(sanitized)); } catch {}
             }
-            if (data.chartOfAccounts && Array.isArray(data.chartOfAccounts) && data.chartOfAccounts.length > 0)
+            if (data.chartOfAccounts && Array.isArray(data.chartOfAccounts)) {
                 setChartOfAccounts(data.chartOfAccounts);
-            if (data.expenseHeads && Array.isArray(data.expenseHeads) && data.expenseHeads.length > 0)
+                try { localStorage.setItem(`${STORAGE_KEY}_COA`, JSON.stringify(data.chartOfAccounts)); } catch {}
+            }
+            if (data.expenseHeads && Array.isArray(data.expenseHeads)) {
                 setExpenseHeads(data.expenseHeads);
-            if (data.productCategories && Array.isArray(data.productCategories) && data.productCategories.length > 0)
+                try { localStorage.setItem(`${STORAGE_KEY}_EXPENSE_HEADS`, JSON.stringify(data.expenseHeads)); } catch {}
+            }
+            if (data.productCategories && Array.isArray(data.productCategories)) {
                 setProductCategories(data.productCategories);
-            if (data.journalEntries && Array.isArray(data.journalEntries))
+                try { localStorage.setItem(`${STORAGE_KEY}_CATEGORIES`, JSON.stringify(data.productCategories)); } catch {}
+            }
+            if (data.journalEntries && Array.isArray(data.journalEntries)) {
                 setJournalEntries(data.journalEntries);
+                try { localStorage.setItem(`${STORAGE_KEY}_JOURNALS`, JSON.stringify(data.journalEntries)); } catch {}
+            }
             if (data.projects && Array.isArray(data.projects)) {
                 setProjects(data.projects);
+                try { localStorage.setItem(`${STORAGE_KEY}_PROJECTS`, JSON.stringify(data.projects)); } catch {}
             }
-            if (data.paymentMethods && Array.isArray(data.paymentMethods) && data.paymentMethods.length > 0) {
+            if (data.paymentMethods && Array.isArray(data.paymentMethods)) {
                 setPaymentMethods(data.paymentMethods);
+                try { localStorage.setItem(`${STORAGE_KEY}_PAYMENT_METHODS`, JSON.stringify(data.paymentMethods)); } catch {}
             }
+
+            latestStateRef.current = {
+                ...latestStateRef.current,
+                ...data,
+            };
             return true;
         }
         catch (e) {
@@ -3437,12 +3599,103 @@ export const AppProvider: React.FC<{
             return false;
         }
     };
+
     // Cloud & MongoDB Synchronization State
     const [cloudSyncStatus, setCloudSyncStatus] = useState<'idle' | 'syncing' | 'synced' | 'offline' | 'error'>('idle');
     const [isCloudConnected, setIsCloudConnected] = useState<boolean>(false);
     const [lastSyncedAt, setLastSyncedAt] = useState<string | null>(null);
-    const isCloudLoadedRef = React.useRef(false);
-    const syncTimeoutRef = React.useRef<any>(null);
+
+    const pullFromCloud = async () => {
+        if (isSyncingRef.current) return;
+        try {
+            isSyncingRef.current = true;
+            const res = await fetch('/api/state');
+            if (res.ok) {
+                const stateData = await res.json();
+                if (stateData.success && stateData.data) {
+                    isImportingRef.current = true;
+                    importDatabase(JSON.stringify(stateData.data), true);
+                    setCloudSyncStatus('synced');
+                    setIsCloudConnected(true);
+                    if (stateData.updatedAt) {
+                        const ts = new Date(stateData.updatedAt).getTime();
+                        lastServerUpdatedAtRef.current = ts;
+                        setLastSyncedAt(new Date(stateData.updatedAt).toLocaleTimeString());
+                    } else {
+                        setLastSyncedAt(new Date().toLocaleTimeString());
+                    }
+                }
+            }
+        } catch (e) {
+            console.warn('Pull from cloud error', e);
+        } finally {
+            isSyncingRef.current = false;
+        }
+    };
+
+    const pushToCloud = async () => {
+        if (!isCloudLoadedRef.current || isSyncingRef.current) return;
+        try {
+            isSyncingRef.current = true;
+            setCloudSyncStatus('syncing');
+            const payload = { ...latestStateRef.current };
+            const res = await fetch('/api/state', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ data: payload }),
+            });
+            if (res.ok) {
+                const data = await res.json();
+                setCloudSyncStatus('synced');
+                setIsCloudConnected(true);
+                if (data.updatedAt) {
+                    const ts = new Date(data.updatedAt).getTime();
+                    lastServerUpdatedAtRef.current = ts;
+                    setLastSyncedAt(new Date(data.updatedAt).toLocaleTimeString());
+                } else {
+                    setLastSyncedAt(new Date().toLocaleTimeString());
+                }
+            } else {
+                setCloudSyncStatus('offline');
+            }
+        } catch {
+            setCloudSyncStatus('offline');
+        } finally {
+            isSyncingRef.current = false;
+        }
+    };
+
+    pushToCloudRef.current = pushToCloud;
+
+    const syncWithCloud = async (options?: { forcePull?: boolean; forcePush?: boolean }) => {
+        if (options?.forcePull) {
+            await pullFromCloud();
+            return;
+        }
+        if (options?.forcePush) {
+            await pushToCloud();
+            return;
+        }
+        // Smart manual sync: check remote metadata first
+        try {
+            setCloudSyncStatus('syncing');
+            const metaRes = await fetch('/api/state/meta');
+            if (metaRes.ok) {
+                const meta = await metaRes.json();
+                if (meta.success && meta.updatedAt) {
+                    const remoteTs = new Date(meta.updatedAt).getTime();
+                    if (remoteTs > lastServerUpdatedAtRef.current + 500) {
+                        await pullFromCloud();
+                        return;
+                    }
+                }
+            }
+            await pushToCloud();
+        } catch {
+            await pullFromCloud();
+        }
+    };
+
     // Initial load from MongoDB Atlas
     useEffect(() => {
         let isCancelled = false;
@@ -3460,24 +3713,24 @@ export const AppProvider: React.FC<{
                         const stateData = await stateRes.json();
                         if (stateData.success && stateData.data) {
                             if (!isCancelled) {
+                                isImportingRef.current = true;
                                 importDatabase(JSON.stringify(stateData.data), true);
                                 setCloudSyncStatus('synced');
-                                setLastSyncedAt(stateData.updatedAt
-                                    ? new Date(stateData.updatedAt).toLocaleTimeString()
-                                    : new Date().toLocaleTimeString());
+                                if (stateData.updatedAt) {
+                                    lastServerUpdatedAtRef.current = new Date(stateData.updatedAt).getTime();
+                                    setLastSyncedAt(new Date(stateData.updatedAt).toLocaleTimeString());
+                                } else {
+                                    setLastSyncedAt(new Date().toLocaleTimeString());
+                                }
                                 isCloudLoadedRef.current = true;
                                 console.log('✅ Synchronized state from MongoDB Atlas!');
-                                // Flush merged local state back to MongoDB Atlas in case local had new items
-                                setTimeout(() => {
-                                    syncWithCloud();
-                                }, 300);
                             }
                             return;
                         }
                         else {
-                            // Cloud database is brand new and empty, seed it with current data
+                            // Cloud database is brand new and empty, seed it with current local data
                             isCloudLoadedRef.current = true;
-                            syncWithCloud();
+                            pushToCloud();
                             return;
                         }
                     }
@@ -3504,40 +3757,66 @@ export const AppProvider: React.FC<{
             isCancelled = true;
         };
     }, []);
-    const syncWithCloud = async () => {
-        try {
-            setCloudSyncStatus('syncing');
-            const payload = { ...latestStateRef.current };
-            const res = await fetch('/api/state', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ data: payload }),
-            });
-            if (res.ok) {
-                const data = await res.json();
-                setCloudSyncStatus('synced');
-                setIsCloudConnected(true);
-                setLastSyncedAt(new Date(data.updatedAt).toLocaleTimeString());
-            }
-            else {
-                setCloudSyncStatus('offline');
-            }
-        }
-        catch {
-            setCloudSyncStatus('offline');
-        }
-    };
+
+    // Multi-device real-time sync: Periodically poll remote updatedAt & auto-fetch
     useEffect(() => {
-        // Prevent syncing until initial cloud check and load has completed!
+        let isCancelled = false;
+
+        const checkForRemoteUpdates = async () => {
+            if (isCancelled || isSyncingRef.current || !isCloudLoadedRef.current) return;
+            try {
+                const metaRes = await fetch('/api/state/meta');
+                if (metaRes.ok) {
+                    const meta = await metaRes.json();
+                    if (meta.success && meta.updatedAt) {
+                        const remoteTs = new Date(meta.updatedAt).getTime();
+                        if (remoteTs > lastServerUpdatedAtRef.current + 500) {
+                            console.log('🔄 Remote update detected from another device, pulling latest state...');
+                            await pullFromCloud();
+                        }
+                    }
+                }
+            } catch {}
+        };
+
+        const pollInterval = setInterval(() => {
+            if (!document.hidden) {
+                checkForRemoteUpdates();
+            }
+        }, 5000);
+
+        const handleVisibilityOrFocus = () => {
+            if (!document.hidden) {
+                checkForRemoteUpdates();
+            }
+        };
+
+        window.addEventListener('focus', handleVisibilityOrFocus);
+        document.addEventListener('visibilitychange', handleVisibilityOrFocus);
+
+        return () => {
+            isCancelled = true;
+            clearInterval(pollInterval);
+            window.removeEventListener('focus', handleVisibilityOrFocus);
+            document.removeEventListener('visibilitychange', handleVisibilityOrFocus);
+        };
+    }, []);
+
+    // Debounced automatic cloud push when state changes from user interactions
+    useEffect(() => {
         if (!isCloudLoadedRef.current) {
+            return;
+        }
+        if (isImportingRef.current) {
+            isImportingRef.current = false;
             return;
         }
         if (syncTimeoutRef.current) {
             clearTimeout(syncTimeoutRef.current);
         }
         syncTimeoutRef.current = setTimeout(() => {
-            syncWithCloud();
-        }, 1200);
+            pushToCloud();
+        }, 1000);
         return () => {
             if (syncTimeoutRef.current)
                 clearTimeout(syncTimeoutRef.current);
