@@ -79,6 +79,9 @@ export const POSModule: React.FC<POSModuleProps> = ({ onOpenInvoiceModal }) => {
         return pCat === target;
     };
 
+    // Total non-raw catalog items count
+    const totalCatalogCount = useMemo(() => products.filter(p => !p.isRawMaterial).length, [products]);
+
     // Filter products
     const filteredProducts = useMemo(() => {
         return products.filter((p) => {
@@ -511,7 +514,7 @@ export const POSModule: React.FC<POSModuleProps> = ({ onOpenInvoiceModal }) => {
         <div className="lg:col-span-7 space-y-4">
           
           {/* Search & Category Filter Bar */}
-          <div className="bg-white p-3 sm:p-4 rounded-2xl border border-slate-200 shadow-2xs">
+          <div className="bg-white p-3 sm:p-4 rounded-2xl border border-slate-200 shadow-2xs space-y-2.5">
             <div className="flex flex-col sm:flex-row items-center gap-2.5">
               <div className="relative flex-1 w-full">
                 <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400"/>
@@ -521,7 +524,7 @@ export const POSModule: React.FC<POSModuleProps> = ({ onOpenInvoiceModal }) => {
                   </button>)}
               </div>
 
-              {/* Dynamic Category Filter Dropdown (1) */}
+              {/* Dynamic Category Filter Dropdown */}
               <div className="w-full sm:w-auto">
                 <select
                   value={selectedCategory}
@@ -529,7 +532,7 @@ export const POSModule: React.FC<POSModuleProps> = ({ onOpenInvoiceModal }) => {
                   className="w-full sm:w-64 px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-700 focus:bg-white focus:outline-hidden focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition-all cursor-pointer"
                   title="Filter by Category"
                 >
-                  <option value="ALL">All Categories ({products.filter(p => !p.isRawMaterial).length})</option>
+                  <option value="ALL">All Categories</option>
                   {categories.filter(c => c.id !== 'ALL').map((cat) => (
                     <option key={cat.id} value={cat.id}>
                       {cat.labelEn} ({cat.count})
@@ -537,6 +540,38 @@ export const POSModule: React.FC<POSModuleProps> = ({ onOpenInvoiceModal }) => {
                   ))}
                 </select>
               </div>
+            </div>
+
+            {/* Catalog Items Status Bar */}
+            <div className="flex items-center justify-between pt-1 border-t border-slate-100 text-xs">
+              <div className="flex items-center gap-1.5 text-slate-500 font-medium">
+                <span className="inline-flex items-center justify-center w-2 h-2 rounded-full bg-emerald-500"></span>
+                <span>
+                  {selectedCategory === 'ALL' && !searchQuery ? (
+                    <>Total Catalog Items: <strong className="text-slate-900 font-bold">{totalCatalogCount}</strong></>
+                  ) : (
+                    <>Showing <strong className="text-slate-900 font-bold">{filteredProducts.length}</strong> of <strong className="text-slate-700">{totalCatalogCount}</strong> items</>
+                  )}
+                </span>
+                {selectedCategory !== 'ALL' && (
+                  <span className="text-[10px] font-bold text-amber-800 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-full ml-1">
+                    {selectedCategory}
+                  </span>
+                )}
+              </div>
+
+              {(selectedCategory !== 'ALL' || searchQuery) && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelectedCategory('ALL');
+                    setSearchQuery('');
+                  }}
+                  className="text-[11px] font-bold text-amber-600 hover:text-amber-800 hover:underline cursor-pointer"
+                >
+                  Clear filter
+                </button>
+              )}
             </div>
           </div>
 
