@@ -113,9 +113,10 @@ interface AppContextType {
     chartOfAccounts: ChartOfAccount[];
     addChartOfAccount: (account: Omit<ChartOfAccount, 'id' | 'currentBalance'>) => ChartOfAccount;
     updateChartOfAccount: (id: string, updates: Partial<ChartOfAccount>) => void;
-    deleteChartOfAccount: (id: string) => {
+    deleteChartOfAccount: (id: string, force?: boolean) => {
         success: boolean;
         message?: string;
+        requiresForce?: boolean;
     };
     expenseHeads: ExpenseHead[];
     addExpenseHead: (head: Omit<ExpenseHead, 'id'>) => ExpenseHead;
@@ -2144,7 +2145,14 @@ export const AppProvider: React.FC<{
             currentBalance: account.openingBalance || 0,
             isActive: true,
         };
-        setChartOfAccounts((prev) => [...prev, newAcct]);
+        const updated = [...(latestStateRef.current.chartOfAccounts || []), newAcct];
+        setChartOfAccounts(updated);
+        latestStateRef.current.chartOfAccounts = updated;
+        try {
+            localStorage.setItem(`${STORAGE_KEY}_COA`, JSON.stringify(updated));
+        } catch {}
+        pushToCloudRef.current?.();
+
         addAuditLog({
             staffId: activeStaff.id,
             staffName: activeStaff.name,
@@ -2160,7 +2168,7 @@ export const AppProvider: React.FC<{
         return newAcct;
     };
     const updateChartOfAccount = (id: string, updates: Partial<ChartOfAccount>) => {
-        setChartOfAccounts((prev) => prev.map((a) => {
+        const updated = (latestStateRef.current.chartOfAccounts || []).map((a) => {
             if (a.id === id) {
                 const newAccount = { ...a, ...updates };
                 if (updates.openingBalance !== undefined && updates.openingBalance !== a.openingBalance) {
@@ -2170,7 +2178,14 @@ export const AppProvider: React.FC<{
                 return newAccount;
             }
             return a;
-        }));
+        });
+        setChartOfAccounts(updated);
+        latestStateRef.current.chartOfAccounts = updated;
+        try {
+            localStorage.setItem(`${STORAGE_KEY}_COA`, JSON.stringify(updated));
+        } catch {}
+        pushToCloudRef.current?.();
+
         addAuditLog({
             staffId: activeStaff.id,
             staffName: activeStaff.name,
@@ -2183,18 +2198,43 @@ export const AppProvider: React.FC<{
             severity: 'info',
         });
     };
-    const deleteChartOfAccount = (id: string): {
+    const deleteChartOfAccount = (id: string, force: boolean = false): {
         success: boolean;
         message?: string;
+        requiresForce?: boolean;
     } => {
-        const target = chartOfAccounts.find((a) => a.id === id);
+        const target = (latestStateRef.current.chartOfAccounts || []).find((a) => a.id === id);
         if (!target)
             return { success: false, message: 'Account not found' };
-        const hasJournals = journalEntries.some((j) => j.debitAccountId === id || j.creditAccountId === id);
-        if (hasJournals) {
-            return { success: false, message: 'Cannot delete account with existing recorded journal entries.' };
+        
+        const hasJournals = (latestStateRef.current.journalEntries || []).some((j) => j.debitAccountId === id || j.creditAccountId === id);
+        if (hasJournals && !force) {
+            return {
+                success: false,
+                message: `This account has recorded journal entries/transactions (Balance: ${profile.currencySymbol}${target.currentBalance.toLocaleString()}).`,
+                requiresForce: true,
+            };
         }
-        setChartOfAccounts((prev) => prev.filter((a) => a.id !== id));
+
+        // If force is requested and account has journals, clean up associated journals
+        if (hasJournals && force) {
+            const updatedJournals = (latestStateRef.current.journalEntries || []).filter((j) => j.debitAccountId !== id && j.creditAccountId !== id);
+            setJournalEntries(updatedJournals);
+            latestStateRef.current.journalEntries = updatedJournals;
+            try {
+                localStorage.setItem(`${STORAGE_KEY}_JOURNALS`, JSON.stringify(updatedJournals));
+            } catch {}
+        }
+
+        const updatedCOA = (latestStateRef.current.chartOfAccounts || []).filter((a) => a.id !== id);
+        setChartOfAccounts(updatedCOA);
+        latestStateRef.current.chartOfAccounts = updatedCOA;
+        try {
+            localStorage.setItem(`${STORAGE_KEY}_COA`, JSON.stringify(updatedCOA));
+        } catch {}
+
+        pushToCloudRef.current?.();
+
         addAuditLog({
             staffId: activeStaff.id,
             staffName: activeStaff.name,
@@ -2216,7 +2256,14 @@ export const AppProvider: React.FC<{
             id: `eh-${Date.now()}`,
             isActive: head.isActive ?? true,
         };
-        setExpenseHeads((prev) => [newHead, ...prev]);
+        const updated = [newHead, ...(latestStateRef.current.expenseHeads || [])];
+        setExpenseHeads(updated);
+        latestStateRef.current.expenseHeads = updated;
+        try {
+            localStorage.setItem(`${STORAGE_KEY}_EXPENSE_HEADS`, JSON.stringify(updated));
+        } catch {}
+        pushToCloudRef.current?.();
+
         addAuditLog({
             staffId: activeStaff.id,
             staffName: activeStaff.name,
@@ -2232,7 +2279,14 @@ export const AppProvider: React.FC<{
         return newHead;
     };
     const updateExpenseHead = (id: string, updates: Partial<ExpenseHead>) => {
-        setExpenseHeads((prev) => prev.map((h) => (h.id === id ? { ...h, ...updates } : h)));
+        const updated = (latestStateRef.current.expenseHeads || []).map((h) => (h.id === id ? { ...h, ...updates } : h));
+        setExpenseHeads(updated);
+        latestStateRef.current.expenseHeads = updated;
+        try {
+            localStorage.setItem(`${STORAGE_KEY}_EXPENSE_HEADS`, JSON.stringify(updated));
+        } catch {}
+        pushToCloudRef.current?.();
+
         addAuditLog({
             staffId: activeStaff.id,
             staffName: activeStaff.name,
@@ -2249,10 +2303,17 @@ export const AppProvider: React.FC<{
         success: boolean;
         message?: string;
     } => {
-        const head = expenseHeads.find((h) => h.id === id);
+        const head = (latestStateRef.current.expenseHeads || []).find((h) => h.id === id);
         if (!head)
             return { success: false, message: 'Expense head not found' };
-        setExpenseHeads((prev) => prev.filter((h) => h.id !== id));
+        const updated = (latestStateRef.current.expenseHeads || []).filter((h) => h.id !== id);
+        setExpenseHeads(updated);
+        latestStateRef.current.expenseHeads = updated;
+        try {
+            localStorage.setItem(`${STORAGE_KEY}_EXPENSE_HEADS`, JSON.stringify(updated));
+        } catch {}
+        pushToCloudRef.current?.();
+
         addAuditLog({
             staffId: activeStaff.id,
             staffName: activeStaff.name,
