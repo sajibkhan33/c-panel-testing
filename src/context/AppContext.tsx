@@ -4326,12 +4326,40 @@ export const AppProvider: React.FC<{
             }
         });
 
+        // Reconcile sales invoice cash/bank payments that might not be recorded as ledger transactions
+        const recordedInvoiceRefs = new Set(
+            transactions
+                .filter(t => t.type === 'INCOME' && t.refNo)
+                .map(t => (t.refNo || '').toLowerCase().trim())
+        );
+
+        (invoices || []).forEach(inv => {
+            const invRef = (inv.invoiceNo || '').toLowerCase().trim();
+            if (invRef && recordedInvoiceRefs.has(invRef)) {
+                return; // Already accounted for via ledger transaction
+            }
+            const pmLower = (inv.paymentMethod || '').toLowerCase();
+            const isBankPm = pmLower.includes('bank') || pmLower.includes('card');
+            const isMobilePm = pmLower.includes('bkash') || pmLower.includes('nagad') || pmLower.includes('wallet');
+
+            if (inv.splitPayments) {
+                if ((inv.splitPayments.cash || 0) > 0) cash += Number(inv.splitPayments.cash) || 0;
+                if ((inv.splitPayments.card || 0) > 0) bank += Number(inv.splitPayments.card) || 0;
+                if ((inv.splitPayments.bkash || 0) > 0) mobile += Number(inv.splitPayments.bkash) || 0;
+                if ((inv.splitPayments.nagad || 0) > 0) mobile += Number(inv.splitPayments.nagad) || 0;
+            } else if ((inv.paidAmount || 0) > 0) {
+                if (isBankPm) bank += Number(inv.paidAmount) || 0;
+                else if (isMobilePm) mobile += Number(inv.paidAmount) || 0;
+                else cash += Number(inv.paidAmount) || 0;
+            }
+        });
+
         return {
             cash: Math.max(0, cash),
             bank: Math.max(0, bank),
             mobile: Math.max(0, mobile),
         };
-    }, [transactions, chartOfAccounts, profile.bankName]);
+    }, [transactions, chartOfAccounts, profile.bankName, invoices]);
     return (<AppContext.Provider value={{
             profile,
             products,
