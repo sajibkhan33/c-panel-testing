@@ -5,8 +5,8 @@ import { Package, Boxes, ArrowRightLeft, AlertTriangle, Plus, Search, Filter, La
 import { BulkProductImportModal } from './BulkProductImportModal';
 import { ProductCategoryManager } from './ProductCategoryManager';
 export const InventoryModule: React.FC = () => {
-    const { products, stockMovements, productCategories, profile, language, activeLocation, addProduct, updateProduct, deleteProduct, adjustStock, addProductCategory, updateProductCategory, } = useApp();
-    const [activeTab, setActiveTab] = useState<'inventory' | 'categories' | 'history'>('inventory');
+    const { products, productCategories, profile, language, activeLocation, addProduct, updateProduct, deleteProduct, adjustStock, addProductCategory, updateProductCategory, } = useApp();
+    const [activeTab, setActiveTab] = useState<'inventory' | 'categories'>('inventory');
     const [filterType, setFilterType] = useState<'ALL' | 'RAW' | 'FINISHED' | 'LOW_STOCK'>('ALL');
     const [searchQuery, setSearchQuery] = useState('');
     // Modals
@@ -262,9 +262,6 @@ export const InventoryModule: React.FC = () => {
           <button type="button" id="tab-inventory-categories" onClick={() => setActiveTab('categories')} className={`flex-1 md:flex-none px-4 py-1.5 rounded-lg text-xs font-bold transition-all ${activeTab === 'categories' ? 'bg-white text-slate-900 shadow-2xs' : 'text-slate-600 hover:text-slate-900'}`}>
             {'Category Manager'}
           </button>
-          <button type="button" onClick={() => setActiveTab('history')} className={`flex-1 md:flex-none px-4 py-1.5 rounded-lg text-xs font-bold transition-all ${activeTab === 'history' ? 'bg-white text-slate-900 shadow-2xs' : 'text-slate-600 hover:text-slate-900'}`}>
-            {'Movement Audit Log'}
-          </button>
         </div>
 
         {activeTab === 'inventory' && (<div className="flex items-center gap-2 w-full md:w-auto">
@@ -435,62 +432,6 @@ export const InventoryModule: React.FC = () => {
 
       {/* SUB-TAB: CATEGORIES */}
       {activeTab === 'categories' && <ProductCategoryManager />}
-
-      {/* SUB-TAB: AUDIT LOG */}
-      {activeTab === 'history' && (<div className="bg-white rounded-2xl border border-slate-200 shadow-2xs overflow-hidden">
-          <div className="p-4 border-b border-slate-100 flex items-center justify-between">
-            <h3 className="font-bold text-slate-900 text-sm">
-              {'Stock Movements History'}
-            </h3>
-            <span className="text-xs text-slate-500">
-              {stockMovements.length} {'movements recorded'}
-            </span>
-          </div>
-
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs border-collapse">
-              <thead>
-                <tr className="bg-slate-50 text-[11px] font-bold text-slate-500 uppercase border-b border-slate-200">
-                  <th className="py-3 px-4">Date</th>
-                  <th className="py-3 px-4">Description</th>
-                  <th className="py-3 px-4 text-center"></th>
-                  <th className="py-3 px-4 text-center">Quantity</th>
-                  <th className="py-3 px-4"></th>
-                  <th className="py-3 px-4"></th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {stockMovements.map((sm) => (<tr key={sm.id} className="hover:bg-slate-50">
-                    <td className="py-3 px-4 text-slate-500 font-mono text-[11px]">{sm.date}</td>
-                    <td className="py-3 px-4 font-bold text-slate-900">{sm.productName}</td>
-                    <td className="py-3 px-4 text-center">
-                      <span className={`inline-block px-2.5 py-0.5 rounded-full text-[10px] font-extrabold ${sm.type === 'IN'
-                    ? 'bg-emerald-100 text-emerald-800'
-                    : sm.type === 'OUT'
-                        ? 'bg-rose-100 text-rose-800'
-                        : sm.type === 'TRANSFER'
-                            ? 'bg-blue-100 text-blue-800'
-                            : 'bg-amber-100 text-amber-800'}`}>
-                        {sm.type}
-                      </span>
-                    </td>
-                    <td className="py-3 px-4 text-center font-bold text-slate-900">
-                      {sm.qty} {sm.unit}
-                    </td>
-                    <td className="py-3 px-4 text-slate-600 font-medium">
-                      {sm.sourceLocation && sm.targetLocation
-                    ? `${sm.sourceLocation} ➔ ${sm.targetLocation}`
-                    : sm.sourceLocation || sm.targetLocation}
-                    </td>
-                    <td className="py-3 px-4">
-                      <div className="font-semibold text-slate-800">{sm.refNo}</div>
-                      <div className="text-[10px] text-slate-400">{sm.reason}</div>
-                    </td>
-                  </tr>))}
-              </tbody>
-            </table>
-          </div>
-        </div>)}
 
       {/* ADJUST / TRANSFER STOCK MODAL */}
       {adjustModalProduct && (<div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-4">
