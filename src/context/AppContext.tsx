@@ -2814,16 +2814,16 @@ export const AppProvider: React.FC<{
     // Projects Management & Chart of Accounts Dynamic Alignment
     const resolvePaymentAssetAccount = (methodName?: string) => {
         const m = (methodName || 'Cash').toLowerCase();
-        if (m.includes('bank') || m.includes('brac') || m.includes('city') || m.includes('card')) {
-            return chartOfAccounts.find(a => a.classification === 'Asset' && (a.code === '1030' || a.name.toLowerCase().includes('bank'))) || chartOfAccounts.find(a => a.classification === 'Asset') || chartOfAccounts[0];
+        if (m.includes('bank') || m.includes('brac') || m.includes('city') || m.includes('card') || m.includes('plc')) {
+            return chartOfAccounts.find(a => a.classification === 'Asset' && (a.code === '1006' || a.code === '1020' || a.code === '1030' || a.name.toLowerCase().includes('bank') || a.name.toLowerCase().includes('plc'))) || chartOfAccounts.find(a => a.classification === 'Asset') || chartOfAccounts[0];
         }
         if (m.includes('bkash') || m.includes('nagad') || m.includes('rocket') || m.includes('mfs') || m.includes('wallet')) {
-            return chartOfAccounts.find(a => a.classification === 'Asset' && (a.code === '1040' || a.name.toLowerCase().includes('bkash'))) || chartOfAccounts.find(a => a.classification === 'Asset') || chartOfAccounts[0];
+            return chartOfAccounts.find(a => a.classification === 'Asset' && (a.code === '1003' || a.code === '1040' || a.code === '1030' || a.name.toLowerCase().includes('bkash') || a.name.toLowerCase().includes('nagad') || a.name.toLowerCase().includes('wallet'))) || chartOfAccounts.find(a => a.classification === 'Asset') || chartOfAccounts[0];
         }
         if (m.includes('due') || m.includes('receivable')) {
-            return chartOfAccounts.find(a => a.classification === 'Asset' && (a.code === '1050' || a.name.toLowerCase().includes('receivable'))) || chartOfAccounts.find(a => a.classification === 'Asset') || chartOfAccounts[0];
+            return chartOfAccounts.find(a => a.classification === 'Asset' && (a.code === '1004' || a.code === '1050' || a.name.toLowerCase().includes('receivable'))) || chartOfAccounts.find(a => a.classification === 'Asset') || chartOfAccounts[0];
         }
-        return chartOfAccounts.find(a => a.classification === 'Asset' && (a.code === '1010' || a.name.toLowerCase().includes('cash'))) || chartOfAccounts[0];
+        return chartOfAccounts.find(a => a.classification === 'Asset' && (a.code === '1001' || a.code === '1010' || a.name.toLowerCase().includes('cash'))) || chartOfAccounts[0];
     };
 
     const resolveProjectExpenseAccount = () => {
@@ -3084,7 +3084,11 @@ export const AppProvider: React.FC<{
         const newTxs: AccountingTransaction[] = [];
 
         const newItems: ProjectExpenseItem[] = expenses.map((exp, idx) => {
-            const expAcc = resolveExpenseAccount(exp.category, exp.note);
+            const expAcc = (exp.linkedAccountId ? chartOfAccounts.find(a => a.id === exp.linkedAccountId) : null)
+                || resolveExpenseAccount(exp.category, exp.note);
+            const paymentMethodName = exp.paymentMethod || 'Cash';
+            const payAcc = (exp.paymentAccountId ? chartOfAccounts.find(a => a.id === exp.paymentAccountId) : null)
+                || resolvePaymentAssetAccount(paymentMethodName);
             const expAmount = Number(exp.amount) || 0;
 
             if (expAmount > 0) {
@@ -3095,8 +3099,8 @@ export const AppProvider: React.FC<{
                     refNo: code,
                     debitAccountId: expAcc.id,
                     debitAccountName: expAcc.name,
-                    creditAccountId: defaultCashAcc.id,
-                    creditAccountName: defaultCashAcc.name,
+                    creditAccountId: payAcc.id,
+                    creditAccountName: payAcc.name,
                     amount: expAmount,
                     narration: `Project Expense: [${code}] ${projName} - ${exp.category}${exp.note ? `: ${exp.note}` : ''}`,
                     source: 'PROJECT_EXPENSE',
@@ -3108,10 +3112,10 @@ export const AppProvider: React.FC<{
                     date: exp.date || new Date().toISOString().slice(0, 10),
                     type: 'EXPENSE',
                     category: exp.category,
-                    account: 'Cash in Hand',
+                    account: payAcc.name,
                     accountHead: expAcc.name,
-                    paymentMethod: 'Cash',
-                    paymentAccount: 'Cash Counter / In-Hand',
+                    paymentMethod: paymentMethodName,
+                    paymentAccount: payAcc.name,
                     refNo: code,
                     customerOrSupplier: targetProj?.clientName || 'Vendor/Labor',
                     description: `Project Cost: [${code}] ${projName} - ${exp.category}${exp.note ? ` (${exp.note})` : ''}`,
@@ -3124,6 +3128,8 @@ export const AppProvider: React.FC<{
                 id: `pe-${timestamp}-${idx}`,
                 linkedAccountId: expAcc.id,
                 linkedAccountCode: expAcc.code,
+                paymentMethod: paymentMethodName,
+                paymentAccountId: payAcc.id,
             };
         });
 

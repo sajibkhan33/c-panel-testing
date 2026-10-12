@@ -15,6 +15,8 @@ export interface ExpenseBreakdownRow {
     amount: number | '';
     note: string;
     isDropdownOpen: boolean;
+    linkedAccountId?: string;
+    paymentMethod?: string;
 }
 export const ProjectManagementModule: React.FC = () => {
     const { projects, addProject, updateProject, deleteProject, addProjectSales, addProjectExpense, addProjectExpenses, deleteProjectSales, deleteProjectExpense, syncProjectsWithAccounting, journalEntries = [], chartOfAccounts = [], expenseHeads = [], language, profile, paymentMethods = [], } = useApp();
@@ -90,46 +92,108 @@ export const ProjectManagementModule: React.FC = () => {
             amount: '' as number | '',
             note: '',
             isDropdownOpen: false,
+            linkedAccountId: '',
+            paymentMethod: 'Cash in Hand',
         },
     ]);
     const totalExpenseAmount = useMemo(() => {
         return expenseRows.reduce((sum, r) => sum + (Number(r.amount) || 0), 0);
     }, [expenseRows]);
     const [breakdownSearchTerm, setBreakdownSearchTerm] = useState('');
-    const defaultExpenseCategoryList = useMemo(() => {
-        const list = [
-            { id: 'cat-1', nameEn: 'Conveyance & Transport', nameBn: "ConveyanceTransport" },
-            { id: 'cat-2', nameEn: 'Labor Charge & Wages', nameBn: "LaborWorker Wages" },
-            { id: 'cat-3', nameEn: 'Entertainment & Refreshments', nameBn: "EntertainmentSnacks" },
-            { id: 'cat-4', nameEn: 'Raw Materials Purchase', nameBn: "Raw Materials Purchase" },
-            { id: 'cat-5', nameEn: 'Fuel & Truck Transport', nameBn: "" },
-            { id: 'cat-6', nameEn: 'Site Installation & Setup', nameBn: "" },
-            { id: 'cat-7', nameEn: 'Permit, Tax & Official Fee', nameBn: "," },
-            { id: 'cat-8', nameEn: 'Commission & Allowance', nameBn: "" },
-            { id: 'cat-9', nameEn: 'Subcontract & Fabrication', nameBn: "-" },
-            { id: 'cat-10', nameEn: 'Printing & Banner', nameBn: "Print" },
-            { id: 'cat-11', nameEn: 'Generator Diesel & Power', nameBn: "" },
-            { id: 'cat-12', nameEn: 'Equipment & Crane Rental', nameBn: "" },
-            { id: 'cat-13', nameEn: 'Hotel & Food Allowance', nameBn: "" },
-            { id: 'cat-14', nameEn: 'Site Security & Guard', nameBn: "" },
-        ];
-        if (expenseHeads && expenseHeads.length > 0) {
-            expenseHeads.forEach((head) => {
-                list.push({
-                    id: head.id,
-                    nameEn: head.name,
-                    nameBn: head.nameBn || head.name,
-                });
-            });
+
+    const availableExpenseAccounts = useMemo(() => {
+        const list = (chartOfAccounts || []).filter(a => a.classification === 'Expense' && a.isActive !== false);
+        if (list.length === 0) {
+            return [
+                { id: 'coa-5100', code: '5100', name: 'Conveyance, Courier & Delivery Logistics', nameBn: '' },
+                { id: 'coa-5201', code: '5201', name: 'Staff Salaries, Wages & Overtime', nameBn: '' },
+                { id: 'coa-5001', code: '5001', name: 'Cost of Goods Sold - Raw Materials', nameBn: '' },
+                { id: 'coa-5206', code: '5206', name: 'Project Expense', nameBn: '' },
+            ];
         }
         return list;
-    }, [expenseHeads]);
+    }, [chartOfAccounts]);
+
+    const availablePaymentAccounts = useMemo(() => {
+        const list = (chartOfAccounts || []).filter(a => a.classification === 'Asset' && (
+            a.code === '1001' || a.code === '1010' || a.code === '1006' || a.code === '1020' || a.code === '1003' || a.code === '1040' ||
+            (a.name || '').toLowerCase().includes('cash') || (a.name || '').toLowerCase().includes('bank') || (a.name || '').toLowerCase().includes('bkash') || (a.name || '').toLowerCase().includes('nagad') || (a.name || '').toLowerCase().includes('wallet')
+        ));
+        if (list.length === 0) {
+            return [
+                { id: 'pay-cash', code: '1001', name: 'Cash in Hand' },
+                { id: 'pay-bank', code: '1006', name: 'Bank' },
+                { id: 'pay-mfs', code: '1003', name: 'bKash / Nagad' },
+            ];
+        }
+        return list;
+    }, [chartOfAccounts]);
+
+    const defaultExpenseCategoryList = useMemo(() => {
+        const list: { id: string; nameEn: string; nameBn?: string; coaId?: string }[] = [];
+        const seen = new Set<string>();
+
+        // 1. All active Chart of Accounts Expense heads
+        (chartOfAccounts || []).filter(a => a.classification === 'Expense' && a.isActive !== false).forEach(acc => {
+            const key = acc.name.trim().toLowerCase();
+            if (!seen.has(key)) {
+                seen.add(key);
+                list.push({
+                    id: `coa-${acc.id}`,
+                    nameEn: acc.name,
+                    nameBn: acc.nameBn || '',
+                    coaId: acc.id,
+                });
+            }
+        });
+
+        // 2. All active Expense Heads
+        (expenseHeads || []).filter(h => h.isActive).forEach(h => {
+            const key = h.name.trim().toLowerCase();
+            if (!seen.has(key)) {
+                seen.add(key);
+                list.push({
+                    id: `eh-${h.id}`,
+                    nameEn: h.name,
+                    nameBn: h.nameBn || '',
+                    coaId: h.linkedAccountId,
+                });
+            }
+        });
+
+        // 3. Predefined popular project expenses
+        const builtInDefaults = [
+            { id: 'cat-1', nameEn: 'Conveyance & Transport', nameBn: 'যাতায়াত ও পরিবহন' },
+            { id: 'cat-2', nameEn: 'Labor Charge & Wages', nameBn: 'লেবার ও শ্রমিক মজুরি' },
+            { id: 'cat-3', nameEn: 'Entertainment & Refreshments', nameBn: 'আপ্যায়ন ও নাস্তা' },
+            { id: 'cat-4', nameEn: 'Raw Materials Purchase', nameBn: 'কাঁচামাল ক্রয়' },
+            { id: 'cat-5', nameEn: 'Fuel & Truck Transport', nameBn: 'জ্বালানি ও পরিবহন' },
+            { id: 'cat-6', nameEn: 'Site Installation & Setup', nameBn: 'সাইট ইনস্টলেশন' },
+            { id: 'cat-7', nameEn: 'Permit, Tax & Official Fee', nameBn: 'অনুমতি ও ফি' },
+            { id: 'cat-8', nameEn: 'Commission & Allowance', nameBn: 'কমিশন ও ভাতা' },
+            { id: 'cat-9', nameEn: 'Subcontract & Fabrication', nameBn: 'সাব-কন্ট্রাক্ট কাজ' },
+            { id: 'cat-10', nameEn: 'Printing & Banner', nameBn: 'প্রিন্টিং ও ব্যানার' },
+            { id: 'cat-11', nameEn: 'Generator Diesel & Power', nameBn: 'বিদ্যুৎ ও জেনারেটর' },
+            { id: 'cat-12', nameEn: 'Equipment & Crane Rental', nameBn: 'যন্ত্রপাতি ভাড়া' },
+            { id: 'cat-13', nameEn: 'Hotel & Food Allowance', nameBn: 'হোটেল ও খাবার ভাতা' },
+            { id: 'cat-14', nameEn: 'Site Security & Guard', nameBn: 'সিকিউরিটি গার্ড' },
+        ];
+        builtInDefaults.forEach(d => {
+            const key = d.nameEn.trim().toLowerCase();
+            if (!seen.has(key)) {
+                seen.add(key);
+                list.push(d);
+            }
+        });
+
+        return list;
+    }, [chartOfAccounts, expenseHeads]);
     const getFilteredCategories = (termInput: string) => {
-        const term = termInput.toLowerCase().trim();
+        const term = (termInput || '').toLowerCase().trim();
         if (!term)
             return defaultExpenseCategoryList;
         return defaultExpenseCategoryList.filter((item) => item.nameEn.toLowerCase().includes(term) ||
-            item.nameBn.toLowerCase().includes(term));
+            (item.nameBn && item.nameBn.toLowerCase().includes(term)));
     };
 
     const projectRevAcc = useMemo(() => {
@@ -356,6 +420,7 @@ export const ProjectManagementModule: React.FC = () => {
     };
     const handleAddExpenseRow = () => {
         const newId = `exp-${Date.now()}-${expenseRows.length + 1}`;
+        const defaultCOA = getResolvedCOA('Labor Charge & Wages', '');
         setExpenseRows((prev) => [
             ...prev,
             {
@@ -365,6 +430,8 @@ export const ProjectManagementModule: React.FC = () => {
                 amount: '',
                 note: '',
                 isDropdownOpen: false,
+                linkedAccountId: defaultCOA.id,
+                paymentMethod: 'Cash in Hand',
             },
         ]);
     };
@@ -386,7 +453,12 @@ export const ProjectManagementModule: React.FC = () => {
         const batchId = `exp-batch-${Date.now()}`;
         const itemsToSave: Omit<ProjectExpenseItem, 'id'>[] = validRows.map((r) => {
             const finalCategory = r.category.trim() || r.categorySearch.trim() || ('General Expense');
-            const coa = getResolvedCOA(finalCategory, r.note);
+            const defaultCOA = getResolvedCOA(finalCategory, r.note);
+            const resolvedAccountId = r.linkedAccountId || defaultCOA.id;
+            const targetCOA = chartOfAccounts.find(a => a.id === resolvedAccountId) || defaultCOA;
+            const payMethod = r.paymentMethod || 'Cash in Hand';
+            const payAcc = chartOfAccounts.find(a => a.name === payMethod || a.id === payMethod) || availablePaymentAccounts.find(p => p.name === payMethod) || { id: 'coa-1001', code: '1001', name: 'Cash in Hand' };
+
             return {
                 category: finalCategory,
                 categoryBn: finalCategory,
@@ -394,8 +466,10 @@ export const ProjectManagementModule: React.FC = () => {
                 date: expenseDate,
                 note: r.note.trim() || expenseGeneralNote.trim() || undefined,
                 breakdownBatchId: batchId,
-                linkedAccountId: coa.id,
-                linkedAccountCode: coa.code,
+                linkedAccountId: targetCOA.id,
+                linkedAccountCode: targetCOA.code,
+                paymentMethod: payMethod,
+                paymentAccountId: payAcc.id,
             };
         });
         addProjectExpenses(showExpenseModal, itemsToSave);
@@ -1271,21 +1345,28 @@ export const ProjectManagementModule: React.FC = () => {
                               {filteredCats.map((cat) => {
                             const label = cat.nameEn;
                             return (<button key={cat.id} type="button" onClick={() => {
+                                    const coaMatch = cat.coaId
+                                      ? chartOfAccounts.find(a => a.id === cat.coaId)
+                                      : getResolvedCOA(cat.nameEn, eRow.note);
                                     handleUpdateExpenseRow(eRow.id, {
                                         category: cat.nameEn,
                                         categorySearch: label,
+                                        linkedAccountId: coaMatch?.id,
                                         isDropdownOpen: false,
                                     });
                                 }} className="w-full text-left px-3 py-2 hover:bg-amber-50 hover:text-amber-900 flex items-center justify-between font-semibold text-slate-800 transition-colors cursor-pointer">
                                     <span>{label}</span>
-                                    <span className="text-[10px] text-amber-700 font-bold bg-amber-50 px-1.5 py-0.5 rounded"></span>
+                                    {cat.nameBn && (<span className="text-[10px] text-slate-400 font-normal">({cat.nameBn})</span>)}
                                   </button>);
                         })}
 
                               {eRow.categorySearch.trim() !== '' && (<button type="button" onClick={() => {
+                                const val = eRow.categorySearch.trim();
+                                const smartCOA = getResolvedCOA(val, eRow.note);
                                 handleUpdateExpenseRow(eRow.id, {
-                                    category: eRow.categorySearch.trim(),
-                                    categorySearch: eRow.categorySearch.trim(),
+                                    category: val,
+                                    categorySearch: val,
+                                    linkedAccountId: smartCOA.id,
                                     isDropdownOpen: false,
                                 });
                             }} className="w-full text-left px-3 py-2 bg-amber-50 text-amber-900 font-bold hover:bg-amber-100 flex items-center gap-1.5 transition-colors border-t border-amber-200 cursor-pointer">
@@ -1315,16 +1396,65 @@ export const ProjectManagementModule: React.FC = () => {
                         <input type="text" value={eRow.note} onChange={(e) => handleUpdateExpenseRow(eRow.id, { note: e.target.value })} placeholder={'e.g. Conveyance details / 3 laborers wages / site setup note...'} className="w-full px-3 py-1.5 border border-slate-200 rounded-xl text-[11px] bg-white text-slate-800 placeholder-slate-400"/>
                       </div>
 
-                      {/* Real-time COA Alignment indicator */}
+                      {/* Dynamic COA & Payment Account Linking */}
                       {(() => {
-                        const coa = getResolvedCOA(eRow.categorySearch || eRow.category, eRow.note);
+                        const defaultCOA = getResolvedCOA(eRow.categorySearch || eRow.category, eRow.note);
+                        const selectedCOAId = eRow.linkedAccountId || defaultCOA.id;
+                        const currentPayment = eRow.paymentMethod || 'Cash in Hand';
+
                         return (
-                          <div className="flex items-center gap-1.5 text-[10px] font-bold text-slate-600 bg-white px-2.5 py-1 rounded-lg border border-slate-200 flex-wrap">
-                            <span className="text-rose-700">COA Debit:</span>
-                            <span className="font-mono font-black text-slate-800">[{coa.code}] {coa.name}</span>
-                            <span className="text-slate-300">|</span>
-                            <span className="text-slate-500">Credit:</span>
-                            <span className="font-mono font-black text-slate-700">[1010] Cash in Hand</span>
+                          <div className="bg-white p-2.5 rounded-xl border border-slate-200/90 shadow-2xs space-y-2">
+                            <div className="flex items-center justify-between">
+                              <span className="text-[10px] font-extrabold text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
+                                <Layers className="w-3.5 h-3.5 text-amber-600" />
+                                <span>🔗 Linked Accounting Accounts (হিসাব খাতের সাথে লিঙ্ক)</span>
+                              </span>
+                              <span className="text-[9px] text-amber-800 font-bold bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200">
+                                User Configurable
+                              </span>
+                            </div>
+
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+                              {/* Debit Account: COA Expense Head */}
+                              <div>
+                                <label className="text-[10px] font-bold text-rose-700 flex items-center gap-1 mb-1">
+                                  <span>Debit Account (খরচের খাত) *</span>
+                                </label>
+                                <select
+                                  value={selectedCOAId}
+                                  onChange={(e) => {
+                                    handleUpdateExpenseRow(eRow.id, { linkedAccountId: e.target.value });
+                                  }}
+                                  className="w-full px-2.5 py-1.5 text-xs font-bold text-slate-800 bg-rose-50/50 border border-rose-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-rose-500 cursor-pointer"
+                                >
+                                  {availableExpenseAccounts.map((acc) => (
+                                    <option key={acc.id} value={acc.id}>
+                                      [{acc.code}] {acc.name} {acc.nameBn ? `(${acc.nameBn})` : ''}
+                                    </option>
+                                  ))}
+                                </select>
+                              </div>
+
+                              {/* Credit Account: Payment Source */}
+                              <div>
+                                <label className="text-[10px] font-bold text-emerald-700 flex items-center gap-1 mb-1">
+                                  <span>Paid Via / Credit (টাকা কোথা থেকে খরচ হয়েছে) *</span>
+                                </label>
+                                <select
+                                  value={currentPayment}
+                                  onChange={(e) => {
+                                    handleUpdateExpenseRow(eRow.id, { paymentMethod: e.target.value });
+                                  }}
+                                  className="w-full px-2.5 py-1.5 text-xs font-bold text-slate-800 bg-emerald-50/50 border border-emerald-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-emerald-500 cursor-pointer"
+                                >
+                                  {availablePaymentAccounts.map((pm) => (
+                                    <option key={pm.id} value={pm.name}>
+                                      [{pm.code}] {pm.name}
+                                    </option>
+                                  ))}
+                                </select>
+                              </div>
+                            </div>
                           </div>
                         );
                       })()}

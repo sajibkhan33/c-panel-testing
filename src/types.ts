@@ -520,6 +520,8 @@ export interface ProjectExpenseItem {
   linkedExpenseHeadId?: string;
   linkedAccountId?: string;
   linkedAccountCode?: string;
+  paymentMethod?: string;
+  paymentAccountId?: string;
   breakdownBatchId?: string;
 }
 
