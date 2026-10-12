@@ -352,14 +352,18 @@ export type AccountType =
   | 'bKash / Nagad'
   | 'Factory Cash'
   | 'Office Cash'
-  | 'BRAC Bank';
+  | 'BRAC Bank'
+  | string;
 
 export interface AccountBalances {
   cash: number;
   bank: number;
   mobile: number;
   factoryCash?: number;
-  [key: string]: number | undefined;
+  bkash?: number;
+  nagad?: number;
+  bankBreakdown?: { id: string; code: string; name: string; balance: number }[];
+  [key: string]: any;
 }
 
 export interface AccountingTransaction {
@@ -367,6 +371,7 @@ export interface AccountingTransaction {
   date: string;
   type: TransactionType;
   category: string;
+  categoryBn?: string;
   amount: number;
   account?: AccountType;
   accountHead?: string;
