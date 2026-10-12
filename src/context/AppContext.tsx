@@ -146,6 +146,7 @@ interface AppContextType {
     syncProjectsWithAccounting: () => { salesSynced: number; expensesSynced: number; totalAmount: number };
     // Utilities & Module Data Cleanup
     cleanModuleData: (moduleKey: 'SALES' | 'QUOTATIONS' | 'PURCHASES' | 'INVENTORY_STOCK' | 'CUSTOM_PRODUCTS' | 'TRANSACTIONS' | 'JOURNALS' | 'AUDIT_LOGS' | 'PROJECTS' | 'ALL' | 'WIPE_ALL_EXCEPT_PRODUCTS') => void;
+    resetSalesData: () => void;
     resetToDefaultData: () => void;
     exportDatabase: () => string;
     importDatabase: (jsonString: string, isCloudSync?: boolean) => boolean;
@@ -3375,21 +3376,91 @@ export const AppProvider: React.FC<{
     // Module Data Clean & Purge
     const cleanModuleData = (moduleKey: 'SALES' | 'QUOTATIONS' | 'PURCHASES' | 'INVENTORY_STOCK' | 'CUSTOM_PRODUCTS' | 'TRANSACTIONS' | 'JOURNALS' | 'AUDIT_LOGS' | 'PROJECTS' | 'ALL' | 'WIPE_ALL_EXCEPT_PRODUCTS') => {
         if (moduleKey === 'SALES') {
+            // 1. Reset Invoices
             setInvoices([]);
+            try {
+                localStorage.setItem(`${STORAGE_KEY}_INVOICES`, JSON.stringify([]));
+            } catch {}
+
+            // 2. Reset Quotations
+            setQuotations([]);
+            try {
+                localStorage.setItem(`${STORAGE_KEY}_QUOTATIONS`, JSON.stringify([]));
+            } catch {}
+
+            // 3. Reset Customer sales totals & due balances to zero
+            const currentCusts = latestStateRef.current.customers || customers;
+            const nextCusts = currentCusts.map((c: Customer) => ({
+                ...c,
+                totalPurchased: 0,
+                dueAmount: 0,
+            }));
+            setCustomers(nextCusts);
+            try {
+                localStorage.setItem(`${STORAGE_KEY}_CUSTOMERS`, JSON.stringify(nextCusts));
+            } catch {}
+
+            // 4. Remove Sales Revenue transactions and POS invoice payment records
+            const currentTxs = latestStateRef.current.transactions || transactions;
+            const nextTxs = currentTxs.filter((t: AccountingTransaction) => {
+                const isSalesCategory = t.category === 'Sales Revenue' || t.category === 'Customer Payment';
+                const isInvoiceRef = Boolean(t.refNo && (t.refNo.startsWith('DCC-INV-') || t.refNo.startsWith('inv-')));
+                const isPosDesc = Boolean(t.description && (
+                    t.description.startsWith('POS Payment:') ||
+                    t.description.startsWith('Sales Invoice payment') ||
+                    t.description.startsWith('Invoice Due Payment:')
+                ));
+                return !(isSalesCategory || isInvoiceRef || isPosDesc);
+            });
+            setTransactions(nextTxs);
+            try {
+                localStorage.setItem(`${STORAGE_KEY}_TRANSACTIONS`, JSON.stringify(nextTxs));
+            } catch {}
+
+            // 5. Remove Sales stock movements
+            const currentMovements = latestStateRef.current.stockMovements || stockMovements;
+            const nextMovements = currentMovements.filter((m: StockMovement) => {
+                const isSalesReason = Boolean(m.reason && (
+                    m.reason.toLowerCase().includes('sales invoice') ||
+                    m.reason.toLowerCase().includes('pos sale')
+                ));
+                const isInvoiceRef = Boolean(m.refNo && (m.refNo.startsWith('DCC-INV-') || m.refNo.startsWith('inv-')));
+                return !(isSalesReason || isInvoiceRef);
+            });
+            setStockMovements(nextMovements);
+            try {
+                localStorage.setItem(`${STORAGE_KEY}_STOCK_MOVEMENTS`, JSON.stringify(nextMovements));
+            } catch {}
+
+            // 6. Audit Log
             addAuditLog({
-                staffId: activeStaff.id,
-                staffName: activeStaff.name,
-                staffRole: activeStaff.role,
+                staffId: activeStaff?.id || 'admin',
+                staffName: activeStaff?.name || 'Staff',
+                staffRole: activeStaff?.role || 'Admin',
                 location: 'All',
                 actionType: 'DATA_CLEANED',
-                entityType: 'System',
-                details: 'Purged/cleaned all sales invoice records and POS transactions from system.',
-                detailsBn: "Invoice      \u0964",
+                entityType: 'Sales',
+                details: 'Reset and purged all sales data: invoices, POS records, quotations, customer dues, and sales revenue transactions from system.',
+                detailsBn: 'সকল সেলস ডেটা রিসেট করা হয়েছে (ইনভয়েস, পিওএস, কোটেশন, কাস্টমার বকেয়া ও সেলস আয়)।',
                 severity: 'critical',
             });
+
+            // 7. Update latestStateRef immediately
+            latestStateRef.current = {
+                ...latestStateRef.current,
+                invoices: [],
+                quotations: [],
+                customers: nextCusts,
+                transactions: nextTxs,
+                stockMovements: nextMovements,
+            };
         }
         else if (moduleKey === 'QUOTATIONS') {
             setQuotations([]);
+            try {
+                localStorage.setItem(`${STORAGE_KEY}_QUOTATIONS`, JSON.stringify([]));
+            } catch {}
+            latestStateRef.current = { ...latestStateRef.current, quotations: [] };
             addAuditLog({
                 staffId: activeStaff.id,
                 staffName: activeStaff.name,
@@ -3398,12 +3469,16 @@ export const AppProvider: React.FC<{
                 actionType: 'DATA_CLEANED',
                 entityType: 'System',
                 details: 'Purged/cleaned all quotation records from system.',
-                detailsBn: "Quotation      \u0964",
+                detailsBn: 'সকল কোটেশন রেকর্ড মুছে ফেলা হয়েছে।',
                 severity: 'critical',
             });
         }
         else if (moduleKey === 'PURCHASES') {
             setPurchaseOrders([]);
+            try {
+                localStorage.setItem(`${STORAGE_KEY}_PURCHASE_ORDERS`, JSON.stringify([]));
+            } catch {}
+            latestStateRef.current = { ...latestStateRef.current, purchaseOrders: [] };
             addAuditLog({
                 staffId: activeStaff.id,
                 staffName: activeStaff.name,
@@ -3412,13 +3487,19 @@ export const AppProvider: React.FC<{
                 actionType: 'DATA_CLEANED',
                 entityType: 'System',
                 details: 'Purged/cleaned all purchase orders and vendor procurement records.',
-                detailsBn: "Order        \u0964",
+                detailsBn: 'সকল পারচেজ অর্ডার মুছে ফেলা হয়েছে।',
                 severity: 'critical',
             });
         }
         else if (moduleKey === 'INVENTORY_STOCK') {
-            setProducts((prev) => prev.map((p) => ({ ...p, stockFactory: 0, stockOffice: 0 })));
+            const zeroStock = products.map((p) => ({ ...p, stockFactory: 0, stockOffice: 0 }));
+            setProducts(zeroStock);
             setStockMovements([]);
+            try {
+                localStorage.setItem(`${STORAGE_KEY}_PRODUCTS`, JSON.stringify(zeroStock));
+                localStorage.setItem(`${STORAGE_KEY}_STOCK_MOVEMENTS`, JSON.stringify([]));
+            } catch {}
+            latestStateRef.current = { ...latestStateRef.current, products: zeroStock, stockMovements: [] };
             addAuditLog({
                 staffId: activeStaff.id,
                 staffName: activeStaff.name,
@@ -3427,12 +3508,16 @@ export const AppProvider: React.FC<{
                 actionType: 'DATA_CLEANED',
                 entityType: 'System',
                 details: 'Zeroed out stock quantities across all factory and office warehouse items.',
-                detailsBn: "Zero-out  \u0964",
+                detailsBn: 'স্টক পরিমাণ শূন্য (০) করা হয়েছে।',
                 severity: 'critical',
             });
         }
         else if (moduleKey === 'CUSTOM_PRODUCTS') {
             setProducts(INITIAL_PRODUCTS);
+            try {
+                localStorage.setItem(`${STORAGE_KEY}_PRODUCTS`, JSON.stringify(INITIAL_PRODUCTS));
+            } catch {}
+            latestStateRef.current = { ...latestStateRef.current, products: INITIAL_PRODUCTS };
             addAuditLog({
                 staffId: activeStaff.id,
                 staffName: activeStaff.name,
@@ -3441,12 +3526,16 @@ export const AppProvider: React.FC<{
                 actionType: 'DATA_CLEANED',
                 entityType: 'System',
                 details: 'Reset product catalog to standard default catalog.',
-                detailsBn: "Product    Reset  \u0964",
+                detailsBn: 'প্রোডাক্ট ক্যাটালগ রিসেট করা হয়েছে।',
                 severity: 'critical',
             });
         }
         else if (moduleKey === 'TRANSACTIONS') {
             setTransactions([]);
+            try {
+                localStorage.setItem(`${STORAGE_KEY}_TRANSACTIONS`, JSON.stringify([]));
+            } catch {}
+            latestStateRef.current = { ...latestStateRef.current, transactions: [] };
             addAuditLog({
                 staffId: activeStaff.id,
                 staffName: activeStaff.name,
@@ -3455,18 +3544,30 @@ export const AppProvider: React.FC<{
                 actionType: 'DATA_CLEANED',
                 entityType: 'System',
                 details: 'Purged/cleaned operating cash transactions and expense registers.',
-                detailsBn: "\u0964",
+                detailsBn: 'সকল ট্রানজ্যাকশন মুছে ফেলা হয়েছে।',
                 severity: 'critical',
             });
         }
         else if (moduleKey === 'JOURNALS') {
             setJournalEntries([]);
+            try {
+                localStorage.setItem(`${STORAGE_KEY}_JOURNALS`, JSON.stringify([]));
+            } catch {}
+            latestStateRef.current = { ...latestStateRef.current, journalEntries: [] };
         }
         else if (moduleKey === 'AUDIT_LOGS') {
             setAuditLogs([]);
+            try {
+                localStorage.setItem(`${STORAGE_KEY}_AUDIT_LOGS`, JSON.stringify([]));
+            } catch {}
+            latestStateRef.current = { ...latestStateRef.current, auditLogs: [] };
         }
         else if (moduleKey === 'PROJECTS') {
             setProjects([]);
+            try {
+                localStorage.setItem(`${STORAGE_KEY}_PROJECTS`, JSON.stringify([]));
+            } catch {}
+            latestStateRef.current = { ...latestStateRef.current, projects: [] };
             addAuditLog({
                 staffId: activeStaff.id,
                 staffName: activeStaff.name,
@@ -3475,7 +3576,7 @@ export const AppProvider: React.FC<{
                 actionType: 'DATA_CLEANED',
                 entityType: 'Projects',
                 details: 'Purged/cleaned all project sales, expense, and profitability records.',
-                detailsBn: ",    Description     \u0964",
+                detailsBn: 'প্রজেক্ট ডেটা মুছে ফেলা হয়েছে।',
                 severity: 'critical',
             });
         }
@@ -3483,6 +3584,8 @@ export const AppProvider: React.FC<{
             resetToDefaultData();
         }
         else if (moduleKey === 'WIPE_ALL_EXCEPT_PRODUCTS') {
+            const zeroStockProducts = products.map((p) => ({ ...p, stockFactory: 0, stockOffice: 0 }));
+            const zeroBalCOA = chartOfAccounts.map((acc) => ({ ...acc, openingBalance: 0, currentBalance: 0 }));
             setInvoices([]);
             setQuotations([]);
             setPurchaseOrders([]);
@@ -3493,9 +3596,50 @@ export const AppProvider: React.FC<{
             setCustomers([]);
             setSuppliers([]);
             setAuditLogs([]);
-            setProducts((prev) => prev.map((p) => ({ ...p, stockFactory: 0, stockOffice: 0 })));
-            setChartOfAccounts((prev) => prev.map((acc) => ({ ...acc, openingBalance: 0, currentBalance: 0 })));
+            setProducts(zeroStockProducts);
+            setChartOfAccounts(zeroBalCOA);
+
+            try {
+                localStorage.setItem(`${STORAGE_KEY}_INVOICES`, JSON.stringify([]));
+                localStorage.setItem(`${STORAGE_KEY}_QUOTATIONS`, JSON.stringify([]));
+                localStorage.setItem(`${STORAGE_KEY}_PURCHASE_ORDERS`, JSON.stringify([]));
+                localStorage.setItem(`${STORAGE_KEY}_TRANSACTIONS`, JSON.stringify([]));
+                localStorage.setItem(`${STORAGE_KEY}_STOCK_MOVEMENTS`, JSON.stringify([]));
+                localStorage.setItem(`${STORAGE_KEY}_JOURNALS`, JSON.stringify([]));
+                localStorage.setItem(`${STORAGE_KEY}_PROJECTS`, JSON.stringify([]));
+                localStorage.setItem(`${STORAGE_KEY}_CUSTOMERS`, JSON.stringify([]));
+                localStorage.setItem(`${STORAGE_KEY}_SUPPLIERS`, JSON.stringify([]));
+                localStorage.setItem(`${STORAGE_KEY}_AUDIT_LOGS`, JSON.stringify([]));
+                localStorage.setItem(`${STORAGE_KEY}_PRODUCTS`, JSON.stringify(zeroStockProducts));
+                localStorage.setItem(`${STORAGE_KEY}_COA`, JSON.stringify(zeroBalCOA));
+            } catch {}
+
+            latestStateRef.current = {
+                ...latestStateRef.current,
+                invoices: [],
+                quotations: [],
+                purchaseOrders: [],
+                transactions: [],
+                stockMovements: [],
+                journalEntries: [],
+                projects: [],
+                customers: [],
+                suppliers: [],
+                auditLogs: [],
+                products: zeroStockProducts,
+                chartOfAccounts: zeroBalCOA,
+            };
         }
+
+        // Instant cloud sync push
+        isCloudLoadedRef.current = true;
+        triggerImmediatePush();
+        if (pushToCloudRef.current) {
+            pushToCloudRef.current();
+        }
+    };
+    const resetSalesData = () => {
+        cleanModuleData('SALES');
     };
     // Utilities
     const resetToDefaultData = () => {
@@ -4142,6 +4286,7 @@ export const AppProvider: React.FC<{
             deleteProjectExpense,
             syncProjectsWithAccounting,
             cleanModuleData,
+            resetSalesData,
             resetToDefaultData,
             exportDatabase,
             importDatabase,
