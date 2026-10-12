@@ -3,6 +3,7 @@ import { useApp } from '../context/AppContext';
 import { ChartOfAccount } from '../types';
 import { BookOpen, Plus, Search, Filter, Edit2, Trash2, Lock, CheckCircle2, AlertCircle, X, FileText, Printer, Layers, ArrowUpDown, Download, Upload, } from 'lucide-react';
 import * as XLSX from 'xlsx';
+import { calculateSingleAccountBalance } from '../utils/accountUtils';
 export const ChartOfAccountsManager: React.FC = () => {
     const { chartOfAccounts, invoices = [], transactions = [], accountBalances, suppliers = [], customers = [], language, profile, addChartOfAccount, updateChartOfAccount, deleteChartOfAccount, checkPermission, projects = [], syncProjectsWithAccounting } = useApp();
     const [searchQuery, setSearchQuery] = useState('');
@@ -85,51 +86,13 @@ export const ChartOfAccountsManager: React.FC = () => {
                     nameBn.includes('ইনভেন্টরি')
                 );
 
-                // 3. Cash in Hand
-                const isCash = !isCustomerReceivable && !isInventory && (
-                    acc.id === 'coa-1001' ||
-                    acc.id === 'coa-1010' ||
-                    (acc.id === 'coa-1020' && nameLower.includes('cash')) ||
-                    acc.code === '1001' ||
-                    acc.code === '1010' ||
-                    (nameLower.includes('cash') && !nameLower.includes('bkash')) ||
-                    nameBn.includes('নগদ')
-                );
-
-                // 4. Bank Accounts (Code 1006 / 1020 / 1030)
-                const isBank = !isCustomerReceivable && !isInventory && (
-                    acc.id === 'coa-1030' ||
-                    acc.code === '1006' ||
-                    (acc.code === '1020' && nameLower.includes('bank')) ||
-                    acc.code === '1030' ||
-                    nameLower.includes('bank') ||
-                    nameLower.includes('plc') ||
-                    nameBn.includes('ব্যাংক')
-                );
-
-                // 5. Mobile Financial Services (bKash, Nagad, etc.)
-                const isMobile = !isCustomerReceivable && !isInventory && (
-                    acc.id === 'coa-1040' ||
-                    acc.code === '1040' ||
-                    (acc.code === '1030' && (nameLower.includes('bkash') || nameLower.includes('nagad') || nameLower.includes('wallet'))) ||
-                    nameLower.includes('bkash') ||
-                    nameLower.includes('nagad') ||
-                    nameLower.includes('rocket') ||
-                    nameLower.includes('upay') ||
-                    nameLower.includes('wallet') ||
-                    nameLower.includes('mfs') ||
-                    nameBn.includes('বিকাশ') ||
-                    nameBn.includes('নগদ')
-                );
-
                 if (isCustomerReceivable) {
                     liveBal = totalCustomerDue > 0 ? totalCustomerDue : acc.currentBalance;
-                } else if (isCash) {
-                    liveBal = accountBalances?.cash ?? acc.currentBalance;
-                } else if (isBank) {
-                    liveBal = accountBalances?.bank ?? acc.currentBalance;
-                } else if (isMobile) {
-                    liveBal = accountBalances?.mobile ?? acc.currentBalance;
+                } else if (isInventory) {
+                    liveBal = acc.currentBalance;
+                } else {
+                    // Dynamic individual live balance calculation for Cash, City Bank PLC, Southeast Bank, Nagad, bKash, etc.
+                    liveBal = calculateSingleAccountBalance(acc, transactions, invoices);
                 }
             } else if (acc.classification === 'Liability') {
                 const isPayable = acc.code === '2001' || acc.code === '2010' || nameLower.includes('payable') || nameBn.includes('দেনা');

@@ -7,13 +7,30 @@ import { ReportPrintModal } from './ReportPrintModal';
 import { ChartOfAccountsManager } from './ChartOfAccountsManager';
 import { ExpenseHeadManager } from './ExpenseHeadManager';
 import { JournalEntriesManager } from './JournalEntriesManager';
+import { getBankAccountsBreakdown, getMfsAccountsBreakdown } from '../utils/accountUtils';
 export const AccountingModule: React.FC = () => {
-    const { accountBalances: rawBalances, transactions, chartOfAccounts, expenseHeads, journalEntries, profile, language, addTransaction, updateTransaction, deleteTransaction, } = useApp();
+    const { accountBalances: rawBalances, transactions, chartOfAccounts, expenseHeads, journalEntries, profile, language, invoices = [], addTransaction, updateTransaction, deleteTransaction, } = useApp();
     const accountBalances = {
         cash: rawBalances?.cash ?? 0,
         bank: rawBalances?.bank ?? 0,
         mobile: rawBalances?.mobile ?? 0,
+        bkash: rawBalances?.bkash ?? 0,
+        nagad: rawBalances?.nagad ?? 0,
     };
+
+    const mfsInfo = useMemo(() => {
+        return getMfsAccountsBreakdown(chartOfAccounts, transactions, invoices);
+    }, [chartOfAccounts, transactions, invoices]);
+
+    const bankInfo = useMemo(() => {
+        return getBankAccountsBreakdown(chartOfAccounts, transactions, invoices);
+    }, [chartOfAccounts, transactions, invoices]);
+
+    const bankBreakdownText = bankInfo.length > 0
+        ? bankInfo.map(b => `${b.name.replace(/ PLC| Bank/gi, '')}: ${profile.currencySymbol}${b.balance.toLocaleString()}`).join(' • ')
+        : `${profile.bankName || 'City Bank PLC'} • ${(profile.bankAccount ? profile.bankAccount.slice(-6) : '314001')}`;
+
+    const mfsBreakdownText = `bKash: ${profile.currencySymbol}${(rawBalances?.bkash ?? mfsInfo.bkash).toLocaleString()} • Nagad: ${profile.currencySymbol}${(rawBalances?.nagad ?? mfsInfo.nagad).toLocaleString()}`;
     const [accountingTab, setAccountingTab] = useState<'ledger' | 'coa' | 'expense-heads' | 'journals'>('ledger');
     const [filterType, setFilterType] = useState<string>('ALL');
     const [filterAccount, setFilterAccount] = useState<string>('ALL');
@@ -285,8 +302,8 @@ export const AccountingModule: React.FC = () => {
             {profile.currencySymbol}
             {accountBalances.bank.toLocaleString()}
           </div>
-          <span className="text-[11px] text-slate-500 block mt-1">
-            {profile.bankName || 'City Bank PLC'} • {(profile.bankAccount ? profile.bankAccount.slice(-6) : '314001')}
+          <span className="text-[11px] text-slate-500 block mt-1 truncate" title={bankBreakdownText}>
+            {bankBreakdownText}
           </span>
         </div>
 
@@ -304,8 +321,8 @@ export const AccountingModule: React.FC = () => {
             {profile.currencySymbol}
             {accountBalances.mobile.toLocaleString()}
           </div>
-          <span className="text-[11px] text-pink-600 font-semibold block mt-1">
-            {profile.phone}
+          <span className="text-[11px] text-pink-600 font-semibold block mt-1 truncate" title={mfsBreakdownText}>
+            {mfsBreakdownText}
           </span>
         </div>
       </div>

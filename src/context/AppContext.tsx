@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useEffect, useMemo, useRef 
 import { CompanyProfile, ProductItem, Customer, Supplier, SalesInvoice, Quotation, PurchaseOrder, AccountingTransaction, StockMovement, Language, LocationType, AccountBalances, StaffMember, StaffRole, AuditLogEntry, ChartOfAccount, ExpenseHead, ProductCategory, UserRole, RolePermission, JournalEntry, Project, ProjectExpenseItem, ProjectSalesItem, PaymentMethodConfig, } from '../types';
 import { INITIAL_COMPANY_PROFILE, INITIAL_PRODUCTS, INITIAL_CUSTOMERS, INITIAL_SUPPLIERS, INITIAL_INVOICES, INITIAL_PURCHASE_ORDERS, INITIAL_TRANSACTIONS, INITIAL_QUOTATIONS, INITIAL_STOCK_MOVEMENTS, INITIAL_STAFF_MEMBERS, INITIAL_AUDIT_LOGS, } from '../data/initialData';
 import { INITIAL_CHART_OF_ACCOUNTS, INITIAL_EXPENSE_HEADS, INITIAL_PRODUCT_CATEGORIES, INITIAL_USER_ROLES, INITIAL_JOURNAL_ENTRIES, INITIAL_PROJECTS, ALL_SYSTEM_PERMISSIONS, INITIAL_PAYMENT_METHODS, } from '../data/accountingAndConfigData';
+import { matchChannelToAccount, calculateSingleAccountBalance, getBankAccountsBreakdown, getMfsAccountsBreakdown } from '../utils/accountUtils';
 const STORAGE_KEY = 'DOT_COLOR_ERP_V1_STATE';
 interface AppContextType {
     profile: CompanyProfile;
@@ -951,124 +952,48 @@ export const AppProvider: React.FC<{
         if (data.splitPayments) {
             const txs: AccountingTransaction[] = [];
             const cashAcct = data.warehouseLocation === 'Factory' ? 'Factory Cash' : 'Office Cash';
-            if ((data.splitPayments.cash || 0) > 0) {
-                txs.push({
-                    id: generateUniqueId('tx'),
-                    date: data.date,
-                    type: 'INCOME',
-                    category: 'Sales Revenue',
-                    amount: data.splitPayments.cash!,
-                    paymentAccount: cashAcct,
-                    refNo: invoiceNo,
-                    customerOrSupplier: data.customerName,
-                    description: `POS Payment: Cash (${data.paymentStatus}) - ${(data.items || []).map((i) => i.name).join(', ')}`,
-                });
-            }
-            if ((data.splitPayments.card || 0) > 0) {
-                txs.push({
-                    id: generateUniqueId('tx'),
-                    date: data.date,
-                    type: 'INCOME',
-                    category: 'Sales Revenue',
-                    amount: data.splitPayments.card!,
-                    paymentAccount: 'BRAC Bank',
-                    refNo: invoiceNo,
-                    customerOrSupplier: data.customerName,
-                    description: `POS Payment: Card (${data.paymentStatus}) - ${(data.items || []).map((i) => i.name).join(', ')}`,
-                });
-            }
-            if ((data.splitPayments.bkash || 0) > 0) {
-                txs.push({
-                    id: generateUniqueId('tx'),
-                    date: data.date,
-                    type: 'INCOME',
-                    category: 'Sales Revenue',
-                    amount: data.splitPayments.bkash!,
-                    paymentAccount: 'bKash / Nagad',
-                    refNo: invoiceNo,
-                    customerOrSupplier: data.customerName,
-                    description: `POS Payment: bKash (${data.paymentStatus}) - ${(data.items || []).map((i) => i.name).join(', ')}`,
-                });
-            }
-            if ((data.splitPayments.nagad || 0) > 0) {
-                txs.push({
-                    id: generateUniqueId('tx'),
-                    date: data.date,
-                    type: 'INCOME',
-                    category: 'Sales Revenue',
-                    amount: data.splitPayments.nagad!,
-                    paymentAccount: 'bKash / Nagad',
-                    refNo: invoiceNo,
-                    customerOrSupplier: data.customerName,
-                    description: `POS Payment: Nagad (${data.paymentStatus}) - ${(data.items || []).map((i) => i.name).join(', ')}`,
-                });
-            }
-            const standardPaidCovered = (data.splitPayments.cash || 0) + (data.splitPayments.card || 0) + (data.splitPayments.bkash || 0) + (data.splitPayments.nagad || 0);
-            const standardKeys = new Set(['cash', 'card', 'bkash', 'nagad', 'due', 'pm-cash', 'pm-card', 'pm-bkash', 'pm-nagad']);
 
-            // Only check dynamic split payment keys if standard keys haven't covered the entire paid amount
-            if (standardPaidCovered < data.paidAmount) {
-                Object.entries(data.splitPayments).forEach(([key, val]) => {
-                    const normKey = key.toLowerCase().replace(/[\s\-_]/g, '');
-                    if (!standardKeys.has(key.toLowerCase()) && !standardKeys.has(normKey) && typeof val === 'number' && val > 0) {
-                        const matchedPm = paymentMethods.find((p) => p.id === key || p.name.toLowerCase() === key.toLowerCase());
-                        let acctName = 'Office Cash';
-                        if (matchedPm) {
-                            if (matchedPm.type === 'bank' || matchedPm.type === 'cheque')
-                                acctName = matchedPm.bankName || 'BRAC Bank';
-                            else if (matchedPm.type === 'mfs' || matchedPm.type === 'gateway')
-                                acctName = matchedPm.name || 'bKash / Nagad';
-                            else if (matchedPm.type === 'cash')
-                                acctName = cashAcct;
-                            else
-                                acctName = matchedPm.name;
-                        }
-                        else {
-                            acctName = key;
-                        }
-                        txs.push({
-                            id: generateUniqueId('tx'),
-                            date: data.date,
-                            type: 'INCOME',
-                            category: 'Sales Revenue',
-                            amount: val,
-                            paymentAccount: acctName,
-                            refNo: invoiceNo,
-                            customerOrSupplier: data.customerName,
-                            description: `Payment: ${matchedPm?.name || key} (${data.paymentStatus}) - ${(data.items || []).map((i) => i.name).join(', ')}`,
-                        });
-                    }
+            // Iterate over all payment methods in splitPayments
+            Object.entries(data.splitPayments).forEach(([key, val]) => {
+                const amt = Number(val) || 0;
+                if (amt <= 0 || key.toLowerCase() === 'due') return;
+
+                const matchedCoa = matchChannelToAccount(key, chartOfAccounts, paymentMethods);
+                const matchedPm = paymentMethods.find((p) => p.id === key || p.name.toLowerCase() === key.toLowerCase());
+
+                let acctName = matchedCoa ? matchedCoa.name : (matchedPm?.name || key);
+                if (key.toLowerCase() === 'cash' || key.toLowerCase() === 'pm-cash') {
+                    acctName = matchedCoa ? matchedCoa.name : cashAcct;
+                }
+
+                txs.push({
+                    id: generateUniqueId('tx'),
+                    date: data.date,
+                    type: 'INCOME',
+                    category: 'Sales Revenue',
+                    amount: amt,
+                    paymentAccount: acctName,
+                    accountHead: acctName,
+                    refNo: invoiceNo,
+                    customerOrSupplier: data.customerName,
+                    description: `POS Payment: ${acctName} (${data.paymentStatus}) - ${(data.items || []).map((i) => i.name).join(', ')}`,
                 });
-            }
+            });
+
             if (txs.length > 0) {
                 setTransactions((prev) => ensureUniqueTransactions([...txs, ...prev]));
             }
         }
         else if (data.paidAmount > 0) {
-            let resolvedAcct = 'Office Cash';
-            const pmObj = paymentMethods.find((p) => p.name.toLowerCase() === (data.paymentMethod || '').toLowerCase());
-            if (pmObj) {
-                if (pmObj.type === 'bank' || pmObj.type === 'cheque')
-                    resolvedAcct = pmObj.bankName || 'BRAC Bank';
-                else if (pmObj.type === 'mfs' || pmObj.type === 'gateway')
-                    resolvedAcct = pmObj.name || 'bKash / Nagad';
-                else if (pmObj.type === 'cash')
-                    resolvedAcct = data.warehouseLocation === 'Factory' ? 'Factory Cash' : 'Office Cash';
-                else
-                    resolvedAcct = pmObj.name;
+            const matchedCoa = matchChannelToAccount(data.paymentMethod || 'Cash', chartOfAccounts, paymentMethods);
+            const pmObj = paymentMethods.find((p) => p.name.toLowerCase() === (data.paymentMethod || '').toLowerCase() || p.id === data.paymentMethod);
+            const cashAcct = data.warehouseLocation === 'Factory' ? 'Factory Cash' : 'Office Cash';
+
+            let resolvedAcct = matchedCoa ? matchedCoa.name : (pmObj?.name || data.paymentMethod || cashAcct);
+            if ((data.paymentMethod || '').toLowerCase().includes('cash')) {
+                resolvedAcct = matchedCoa ? matchedCoa.name : cashAcct;
             }
-            else {
-                const legacyMap: Record<string, string> = {
-                    'Cash': data.warehouseLocation === 'Factory' ? 'Factory Cash' : 'Office Cash',
-                    'bKash / Nagad': 'bKash / Nagad',
-                    'bKash': 'bKash / Nagad',
-                    'Nagad': 'bKash / Nagad',
-                    'Bank Transfer': 'BRAC Bank',
-                    'Credit Card': 'BRAC Bank',
-                    'Cheque': 'BRAC Bank',
-                };
-                resolvedAcct = legacyMap[data.paymentMethod] || 'Office Cash';
-            }
+
             const newTx: AccountingTransaction = {
                 id: generateUniqueId('tx'),
                 date: data.date,
@@ -1076,9 +1001,10 @@ export const AppProvider: React.FC<{
                 category: 'Sales Revenue',
                 amount: data.paidAmount,
                 paymentAccount: resolvedAcct,
+                accountHead: resolvedAcct,
                 refNo: invoiceNo,
                 customerOrSupplier: data.customerName,
-                description: `Sales Invoice payment (${data.paymentStatus}) - ${(data.items || []).map((i) => i.name).join(', ')}`,
+                description: `Sales Invoice payment: ${resolvedAcct} (${data.paymentStatus}) - ${(data.items || []).map((i) => i.name).join(', ')}`,
             };
             setTransactions((prev) => ensureUniqueTransactions([newTx, ...prev]));
         }
@@ -1151,35 +1077,29 @@ export const AppProvider: React.FC<{
         });
         const newPaid = targetInv.paidAmount + amount;
         const newDue = Math.max(0, targetInv.grandTotal - newPaid);
-        const newStatus = newDue <= 0 ? 'Paid' : 'Partial';
+        // Resolve exact channel account in Chart of Accounts
+        const matchedPm = paymentMethods.find((p) => p.id === method || p.name.toLowerCase() === (method || '').toLowerCase());
+        const targetCoa = matchChannelToAccount(method, chartOfAccounts, paymentMethods);
+        const resolvedAccount = targetCoa ? targetCoa.name : (matchedPm?.name || method || 'Office Cash');
+
         // Update invoice
-        setInvoices((prev) => prev.map((inv) => inv.id === invoiceId
-            ? {
+        setInvoices((prev) => prev.map((inv) => {
+            if (inv.id !== invoiceId) return inv;
+            const existingSplits = { ...(inv.splitPayments || {}) };
+            existingSplits[resolvedAccount] = (existingSplits[resolvedAccount] || 0) + amount;
+            return {
                 ...inv,
                 paidAmount: newPaid,
                 dueAmount: newDue,
                 paymentStatus: newStatus,
-            }
-            : inv));
+                splitPayments: existingSplits,
+            };
+        }));
         // Update customer due
         if (targetInv.customerId) {
             setCustomers((custs) => custs.map((c) => (c.id === targetInv.customerId ? { ...c, dueAmount: Math.max(0, c.dueAmount - amount) } : c)));
         }
-        // Add transaction with guaranteed unique ID
-        const matchedPm = paymentMethods.find((p) => p.id === method || p.name.toLowerCase() === (method || '').toLowerCase());
-        let resolvedAccount = 'Office Cash';
-        if (matchedPm?.linkedAccountId) {
-            resolvedAccount = matchedPm.linkedAccountId;
-        }
-        else {
-            const lower = (method || '').toLowerCase();
-            if (lower.includes('bank') || lower.includes('card') || lower.includes('cheque')) {
-                resolvedAccount = 'BRAC Bank';
-            }
-            else if (lower.includes('bkash') || lower.includes('nagad') || lower.includes('rocket') || lower.includes('upay')) {
-                resolvedAccount = 'bKash / Nagad';
-            }
-        }
+        // Add transaction with guaranteed unique ID and exact channel
         const newTx: AccountingTransaction = {
             id: generateUniqueId('tx'),
             date: new Date().toISOString().slice(0, 10),
@@ -1187,9 +1107,10 @@ export const AppProvider: React.FC<{
             category: 'Client Due Collection',
             amount: amount,
             paymentAccount: resolvedAccount,
+            accountHead: resolvedAccount,
             refNo: targetInv.invoiceNo,
             customerOrSupplier: targetInv.customerName,
-            description: `Due collection against invoice ${targetInv.invoiceNo}`,
+            description: `Due collection against invoice ${targetInv.invoiceNo} via ${resolvedAccount}`,
         };
         setTransactions((txs) => ensureUniqueTransactions([newTx, ...txs]));
     };
@@ -4376,10 +4297,17 @@ export const AppProvider: React.FC<{
             }
         });
 
+        const mfsData = getMfsAccountsBreakdown(chartOfAccounts, transactions, invoices);
+        const bankData = getBankAccountsBreakdown(chartOfAccounts, transactions, invoices);
+        const dynamicBankTotal = bankData.reduce((acc, b) => acc + b.balance, 0);
+
         return {
             cash: Math.max(0, cash),
-            bank: Math.max(0, bank),
-            mobile: Math.max(0, mobile),
+            bank: Math.max(0, bankData.length > 0 ? dynamicBankTotal : bank),
+            mobile: Math.max(0, mfsData.accounts.length > 0 ? mfsData.total : mobile),
+            bkash: mfsData.bkash,
+            nagad: mfsData.nagad,
+            bankBreakdown: bankData,
         };
     }, [transactions, chartOfAccounts, profile.bankName, invoices]);
     return (<AppContext.Provider value={{

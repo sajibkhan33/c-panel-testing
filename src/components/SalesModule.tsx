@@ -5,6 +5,7 @@ import { FileText, Printer, Receipt, Plus, Search, CheckCircle2, Clock, Truck, A
 import { exportSalesToExcel } from '../utils/exportUtils';
 import { ReportPrintModal } from './ReportPrintModal';
 import { CreateSalesInvoiceModal } from './CreateSalesInvoiceModal';
+import { getPaymentMethodLiveBalance } from '../utils/accountUtils';
 interface SalesModuleProps {
     onOpenInvoiceModal: (invoiceId: string, mode?: 'invoice' | 'challan' | 'pos', options?: {
         autoPrint?: boolean;
@@ -13,7 +14,7 @@ interface SalesModuleProps {
     onOpenChallanModal: (invoiceId: string) => void;
 }
 export const SalesModule: React.FC<SalesModuleProps> = ({ onOpenInvoiceModal, onOpenChallanModal, }) => {
-    const { invoices, quotations, customers, products, profile, language, paymentMethods = [], updateProductionStatus, updateInvoice, deleteInvoice, collectInvoicePayment, convertQuotationToInvoice, addQuotation, updateQuotation, updateQuotationStatus, deleteQuotation, addCustomer, updateCustomer, deleteCustomer, cleanModuleData, } = useApp();
+    const { invoices, quotations, customers, products, profile, language, paymentMethods = [], chartOfAccounts = [], transactions = [], accountBalances, updateProductionStatus, updateInvoice, deleteInvoice, collectInvoicePayment, convertQuotationToInvoice, addQuotation, updateQuotation, updateQuotationStatus, deleteQuotation, addCustomer, updateCustomer, deleteCustomer, cleanModuleData, } = useApp();
     const activePaymentMethods = useMemo(() => {
         const list = (paymentMethods || []).filter((p) => p.isEnabled);
         return list.length > 0 ? list : [{ id: 'pm-cash', name: 'Cash', nameBn: "Nagad", type: 'cash' as const, isEnabled: true }];
@@ -1087,13 +1088,30 @@ export const SalesModule: React.FC<SalesModuleProps> = ({ onOpenInvoiceModal, on
               </div>
 
               <div>
-                <label className="font-bold text-slate-700 block mb-1">
-                  {'Payment Channel'}
-                </label>
-                <select value={collectMethod} onChange={(e) => setCollectMethod(e.target.value)} className="w-full px-3 py-2 border border-slate-200 rounded-xl font-medium">
-                  {activePaymentMethods.map((pm) => (<option key={pm.id} value={pm.name}>
-                      {pm.name} {pm.nameBn ? `(${pm.nameBn})` : ''}
-                    </option>))}
+                <div className="flex items-center justify-between mb-1">
+                  <label className="font-bold text-slate-700 block">
+                    {'Payment Channel *'}
+                  </label>
+                  {(() => {
+                    const selectedPm = activePaymentMethods.find(p => p.name === collectMethod || p.id === collectMethod) || activePaymentMethods[0];
+                    if (!selectedPm) return null;
+                    const bal = getPaymentMethodLiveBalance(selectedPm, chartOfAccounts, transactions, invoices, accountBalances);
+                    return (
+                      <span className="text-[11px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
+                        Live: {profile.currencySymbol}{bal.toLocaleString()}
+                      </span>
+                    );
+                  })()}
+                </div>
+                <select value={collectMethod} onChange={(e) => setCollectMethod(e.target.value)} className="w-full px-3 py-2 border border-slate-200 rounded-xl font-medium text-xs">
+                  {activePaymentMethods.map((pm) => {
+                    const bal = getPaymentMethodLiveBalance(pm, chartOfAccounts, transactions, invoices, accountBalances);
+                    return (
+                      <option key={pm.id} value={pm.name}>
+                        {pm.name} {pm.nameBn ? `(${pm.nameBn})` : ''} — [{profile.currencySymbol}{bal.toLocaleString()}]
+                      </option>
+                    );
+                  })}
                 </select>
               </div>
             </div>

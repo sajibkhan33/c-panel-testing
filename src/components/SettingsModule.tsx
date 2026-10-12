@@ -3,8 +3,9 @@ import { useApp } from '../context/AppContext';
 import { StaffMember, UserRole, StaffRole, PaymentMethodConfig, PaymentMethodType } from '../types';
 import { ALL_SYSTEM_PERMISSIONS, ALL_SYSTEM_PERMISSIONS as SYSTEM_PERMISSIONS } from '../data/accountingAndConfigData';
 import { Users, Shield, KeyRound, Trash2, Plus, Edit2, CheckCircle2, AlertTriangle, AlertCircle, RotateCcw, Building2, Factory, Mail, Phone, Search, Lock, Eye, EyeOff, SlidersHorizontal, FolderSync, FileSpreadsheet, AlertOctagon, CheckSquare, Square, Sparkles, Server, Globe, ExternalLink, Cpu, HardDrive, ShieldCheck, Zap, CreditCard, Landmark, Smartphone, Save, Copy, Check, Star, Banknote, X, Wallet, } from 'lucide-react';
+import { getPaymentMethodLiveBalance, getBankAccountsBreakdown } from '../utils/accountUtils';
 export const SettingsModule: React.FC = () => {
-    const { staffMembers = [], userRoles = [], activeStaff, setActiveStaff, language, profile, updateProfile, paymentMethods = [], accountBalances, addPaymentMethod, updatePaymentMethod, deletePaymentMethod, togglePaymentMethod, setDefaultPaymentMethod, addAuditLog, addStaffMember, updateStaffMember, deleteStaffMember, addUserRole, updateUserRole, deleteUserRole, cleanModuleData, resetToDefaultData, checkPermission, } = useApp();
+    const { staffMembers = [], userRoles = [], activeStaff, setActiveStaff, language, profile, updateProfile, paymentMethods = [], accountBalances, chartOfAccounts = [], transactions = [], invoices = [], addPaymentMethod, updatePaymentMethod, deletePaymentMethod, togglePaymentMethod, setDefaultPaymentMethod, addAuditLog, addStaffMember, updateStaffMember, deleteStaffMember, addUserRole, updateUserRole, deleteUserRole, cleanModuleData, resetToDefaultData, checkPermission, } = useApp();
     const [activeTab, setActiveTab] = useState<'users' | 'roles' | 'payment-gateways' | 'data-clean' | 'system'>('users');
     const [searchQuery, setSearchQuery] = useState('');
     // User modal states
@@ -130,6 +131,12 @@ export const SettingsModule: React.FC = () => {
                 (pm.provider && pm.provider.toLowerCase().includes(q)));
         });
     }, [paymentMethods, paymentFilterType, paymentSearchQuery]);
+
+    const bankBreakdownText = useMemo(() => {
+        const bankList = getBankAccountsBreakdown(chartOfAccounts, transactions, invoices);
+        if (bankList.length === 0) return '';
+        return bankList.map(b => `${b.name.replace(/ PLC| Bank/gi, '')}: ${profile.currencySymbol || "Tk"}${b.balance.toLocaleString()}`).join(' • ');
+    }, [chartOfAccounts, transactions, invoices, profile.currencySymbol]);
     const [paymentMethodFormData, setPaymentMethodFormData] = useState<Partial<PaymentMethodConfig>>({
         name: '',
         nameBn: '',
@@ -926,7 +933,7 @@ export const SettingsModule: React.FC = () => {
                 {profile.currencySymbol || "Tk"}{(accountBalances?.mobile || 0).toLocaleString()}
               </div>
               <span className="text-[11px] text-pink-600 font-medium mt-0.5 block">
-                bKash: {profile.currencySymbol || "Tk"}{(accountBalances?.mobile || 0).toLocaleString()} | Nagad: {profile.currencySymbol || "Tk"}0
+                bKash: {profile.currencySymbol || "Tk"}{(accountBalances?.bkash ?? accountBalances?.mobile ?? 0).toLocaleString()} | Nagad: {profile.currencySymbol || "Tk"}{(accountBalances?.nagad ?? 0).toLocaleString()}
               </span>
             </div>
 
@@ -938,8 +945,8 @@ export const SettingsModule: React.FC = () => {
               <div className="text-2xl font-black text-blue-800 mt-1">
                 {profile.currencySymbol || "Tk"}{(accountBalances?.bank || 0).toLocaleString()}
               </div>
-              <span className="text-[11px] text-blue-600 font-medium mt-0.5 block">
-                Corporate Banks & Card Swipe
+              <span className="text-[11px] text-blue-600 font-medium mt-0.5 block truncate" title={bankBreakdownText}>
+                {bankBreakdownText || 'Corporate Banks & Card Swipe'}
               </span>
             </div>
           </div>
@@ -1054,13 +1061,7 @@ export const SettingsModule: React.FC = () => {
                     const providerName = pm.provider || pm.bankName || (isCash ? 'Cash' : isCheque ? 'Cheque' : isDue ? 'Credit' : 'Direct');
                     const accountNo = pm.accountNumber || (isCash ? '1010' : isDue ? '1030' : '—');
                     const ledgerLink = pm.linkedAccountId || (isCash ? '1010 - Cash' : isBank ? '1030 - Bank' : isMfs ? '1040 - Mobile MFS' : isDue ? '1050 - Accounts' : '1030 - Bank');
-                    const liveBal = isCash
-                        ? (accountBalances?.cash || 0) + (accountBalances?.factoryCash || 0)
-                        : isBank
-                            ? (accountBalances?.bank || 0)
-                            : isMfs
-                                ? (accountBalances?.mobile || 0)
-                                : 0;
+                    const liveBal = getPaymentMethodLiveBalance(pm, chartOfAccounts, transactions, invoices, accountBalances);
                     return (<tr key={pm.id} className="hover:bg-slate-50/80 transition-colors">
                             {/* Payment Method */}
                             <td className="py-3 px-4 font-bold text-slate-900 whitespace-nowrap">
@@ -1225,6 +1226,13 @@ export const SettingsModule: React.FC = () => {
                                         : isCheque
                                             ? 'Bank Cheque'
                                             : 'Custom'}
+                          </span>
+                        </div>
+
+                        <div className="flex items-center justify-between text-[11px]">
+                          <span className="text-slate-400 font-medium">{'Live Balance'}:</span>
+                          <span className="font-bold text-slate-900 font-mono">
+                            {profile.currencySymbol || "Tk"}{getPaymentMethodLiveBalance(pm, chartOfAccounts, transactions, invoices, accountBalances).toLocaleString()}
                           </span>
                         </div>
 
