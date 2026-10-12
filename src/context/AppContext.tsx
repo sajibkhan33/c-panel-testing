@@ -54,7 +54,7 @@ interface AppContextType {
     checkPermission: (permissionCode: string) => boolean;
     // Authentication
     isAuthenticated: boolean;
-    login: (staffId: string, passcode: string) => {
+    login: (staffIdOrPasscode: string, passcode?: string) => {
         success: boolean;
         message: string;
     };
@@ -688,47 +688,64 @@ export const AppProvider: React.FC<{
 
         hasAutoAlignedProjectsRef.current = true;
     }, [projects, chartOfAccounts]);
-    const login = (staffId: string, passcode: string): {
+    const login = (staffIdOrPasscode: string, passcode?: string): {
         success: boolean;
         message: string;
     } => {
         const staffList = (staffMembers && staffMembers.length > 0) ? staffMembers : INITIAL_STAFF_MEMBERS;
-        let staff = staffList.find((s) => s.id === staffId);
-        // Fallback: If not found by ID, allow matching directly by passcode
-        if (!staff) {
-            staff = staffList.find((s) => (s.password || '1234') === passcode);
+        const enteredPin = (passcode !== undefined && passcode.trim() !== '') ? passcode.trim() : (staffIdOrPasscode || '').trim();
+        const requestedId = (passcode !== undefined && passcode.trim() !== '') ? (staffIdOrPasscode || '').trim() : '';
+
+        let staff: StaffMember | undefined;
+
+        // If specific staff ID was provided along with passcode
+        if (requestedId) {
+            staff = staffList.find((s) => s.id === requestedId && (s.password || '1234') === enteredPin);
         }
+
+        // Match directly by entered PIN across all staff members
         if (!staff) {
-            staff = INITIAL_STAFF_MEMBERS.find((s) => (s.password || '1234') === passcode);
+            staff = staffList.find((s) => (s.password || '1234') === enteredPin);
         }
+
+        // Fallback match in INITIAL_STAFF_MEMBERS
         if (!staff) {
-            return { success: false, message: "User not found or incorrect PIN" };
+            staff = INITIAL_STAFF_MEMBERS.find((s) => (s.password || '1234') === enteredPin);
         }
+
+        if (!staff) {
+            return {
+                success: false,
+                message: language === 'bn' ? 'ভুল পিন কোড! অনুগ্রহ করে সঠিক পিন নম্বর লিখুন।' : 'Incorrect PIN code. Please try again.'
+            };
+        }
+
         if (staff.isActive === false) {
-            return { success: false, message: "This account is deactivated" };
+            return {
+                success: false,
+                message: language === 'bn' ? 'এই অ্যাকাউন্টটি নিষ্ক্রিয় করা হয়েছে।' : 'This account has been deactivated.'
+            };
         }
-        const correctPassword = staff.password || '1234';
-        if (passcode === correctPassword) {
-            if (!staffMembers.some((s) => s.id === staff!.id)) {
-                setStaffMembers((prev) => [...prev, staff!]);
-            }
-            setActiveStaff(staff);
-            setIsAuthenticated(true);
-            addAuditLog({
-                staffId: staff.id,
-                staffName: staff.name,
-                staffRole: staff.role,
-                actionType: 'PROFILE_UPDATED',
-                entityType: 'System',
-                details: `${staff.name} logged in successfully`,
-                detailsBn: undefined,
-                location: staff.location === 'Both' ? 'Office' : staff.location,
-            });
-            return { success: true, message: "Login successful" };
+
+        if (!staffMembers.some((s) => s.id === staff!.id)) {
+            setStaffMembers((prev) => [...prev, staff!]);
         }
-        else {
-            return { success: false, message: "Incorrect password" };
-        }
+        setActiveStaff(staff);
+        setIsAuthenticated(true);
+        addAuditLog({
+            staffId: staff.id,
+            staffName: staff.name,
+            staffRole: staff.role,
+            actionType: 'PROFILE_UPDATED',
+            entityType: 'System',
+            details: `${staff.name} (${staff.role}) logged in successfully`,
+            detailsBn: `${staff.name} (${staff.role}) সফলভাবে লগইন করেছেন`,
+            location: staff.location === 'Both' ? 'Office' : staff.location,
+        });
+        return {
+            success: true,
+            message: language === 'bn' ? `স্বাগতম, ${staff.nameBn || staff.name}! লগইন সফল হয়েছে।` : `Welcome, ${staff.name}! Login successful.`
+        };
     };
     const logout = () => {
         const prevStaff = activeStaff;
