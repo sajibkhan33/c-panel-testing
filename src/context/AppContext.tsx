@@ -145,8 +145,9 @@ interface AppContextType {
     deleteProjectExpense: (projectId: string, expenseId: string) => void;
     syncProjectsWithAccounting: () => { salesSynced: number; expensesSynced: number; totalAmount: number };
     // Utilities & Module Data Cleanup
-    cleanModuleData: (moduleKey: 'SALES' | 'QUOTATIONS' | 'PURCHASES' | 'INVENTORY_STOCK' | 'CUSTOM_PRODUCTS' | 'TRANSACTIONS' | 'JOURNALS' | 'AUDIT_LOGS' | 'PROJECTS' | 'ALL' | 'WIPE_ALL_EXCEPT_PRODUCTS') => void;
+    cleanModuleData: (moduleKey: 'SALES' | 'QUOTATIONS' | 'PURCHASES' | 'INVENTORY_STOCK' | 'CUSTOM_PRODUCTS' | 'TRANSACTIONS' | 'JOURNALS' | 'AUDIT_LOGS' | 'PROJECTS' | 'ALL' | 'WIPE_ALL_EXCEPT_PRODUCTS' | 'RESET_ALL_TRANSACTIONS') => void;
     resetSalesData: () => void;
+    resetAllTransactionalData: () => void;
     resetToDefaultData: () => void;
     exportDatabase: () => string;
     importDatabase: (jsonString: string, isCloudSync?: boolean) => boolean;
@@ -625,26 +626,26 @@ export const AppProvider: React.FC<{
     }, []);
 
     // Automatic real-time dynamic reconciliation between Projects and Chart of Accounts
-    const hasAutoAlignedProjectsRef = useRef(false);
     useEffect(() => {
-        if (hasAutoAlignedProjectsRef.current) return;
-        if (!projects || projects.length === 0 || !chartOfAccounts || chartOfAccounts.length === 0) return;
+        if (!chartOfAccounts || chartOfAccounts.length === 0) return;
 
         const revAcc = chartOfAccounts.find(a => a.classification === 'Revenue' && (a.name.toLowerCase().includes('project') || a.code === '4002' || a.code === '4051' || a.code === '4060'));
         const expAcc = chartOfAccounts.find(a => a.classification === 'Expense' && (a.name.toLowerCase().includes('project') || a.code === '5206')) ||
                        chartOfAccounts.find(a => a.classification === 'Expense' && a.code === '5100' && a.name.toLowerCase().includes('project'));
         const cogsAcc = chartOfAccounts.find(a => a.classification === 'Expense' && (a.code === '5010' || a.name.toLowerCase().includes('raw') || a.name.toLowerCase().includes('cost')));
 
-        const totalPrjSales = projects.reduce((s, p) => s + (p.totalSales || 0), 0);
-        const totalPrjExpenses = projects.reduce((s, p) => s + (p.totalExpenses || 0), 0);
+        const totalPrjSales = (projects || []).reduce((s, p) => s + (p.totalSales || 0), 0);
+        const totalPrjExpenses = (projects || []).reduce((s, p) => s + (p.totalExpenses || 0), 0);
 
         let coaNeedsUpdate = false;
         const updatedCOA = chartOfAccounts.map(acc => {
             // 1. Dedicated Project Expense Account
-            if (expAcc && acc.id === expAcc.id) {
-                if (acc.currentBalance < totalPrjExpenses) {
+            const isProjectExp = (expAcc && acc.id === expAcc.id) || acc.code === '5206' || acc.name.toLowerCase().trim() === 'project expense';
+            if (isProjectExp) {
+                const targetExpBal = (acc.openingBalance || 0) + totalPrjExpenses;
+                if (acc.currentBalance !== targetExpBal) {
                     coaNeedsUpdate = true;
-                    return { ...acc, currentBalance: totalPrjExpenses };
+                    return { ...acc, currentBalance: targetExpBal };
                 }
             }
             // 2. Cost of Goods Sold Account (5010) - recover if it mistakenly absorbed project expenses
@@ -656,17 +657,19 @@ export const AppProvider: React.FC<{
                 }
             }
             // 3. Fix: If any non-project expense account (like 5100 Wastage Expense) wrongly had totalPrjExpenses assigned, revert it:
-            if (acc.classification === 'Expense' && (!expAcc || acc.id !== expAcc.id) && !acc.name.toLowerCase().includes('project')) {
+            if (acc.classification === 'Expense' && !isProjectExp && !acc.name.toLowerCase().includes('project')) {
                 if (totalPrjExpenses > 0 && acc.currentBalance === totalPrjExpenses) {
                     coaNeedsUpdate = true;
                     return { ...acc, currentBalance: acc.openingBalance || 0 };
                 }
             }
             // 4. Dedicated Project Revenue Account (4002 / 4051 Project Sales)
-            if (revAcc && acc.id === revAcc.id) {
-                if (acc.currentBalance < totalPrjSales) {
+            const isProjectRev = (revAcc && acc.id === revAcc.id) || acc.code === '4002' || acc.code === '4051' || acc.name.toLowerCase().trim() === 'project sales';
+            if (isProjectRev) {
+                const targetRevBal = (acc.openingBalance || 0) + totalPrjSales;
+                if (acc.currentBalance !== targetRevBal) {
                     coaNeedsUpdate = true;
-                    return { ...acc, currentBalance: totalPrjSales };
+                    return { ...acc, currentBalance: targetRevBal };
                 }
             }
             return acc;
@@ -674,6 +677,14 @@ export const AppProvider: React.FC<{
 
         if (coaNeedsUpdate) {
             setChartOfAccounts(updatedCOA);
+            try {
+                localStorage.setItem(`${STORAGE_KEY}_COA`, JSON.stringify(updatedCOA));
+            } catch {}
+            latestStateRef.current = {
+                ...latestStateRef.current,
+                chartOfAccounts: updatedCOA,
+            };
+            triggerImmediatePush();
         }
 
         // Repair project expense journal vouchers pointing to 5010 instead of 5100
@@ -696,11 +707,11 @@ export const AppProvider: React.FC<{
 
             let txsUpdated = false;
             const updatedTxs = transactions.map(t => {
-                if (t.type === 'EXPENSE' && t.refNo && projects.some(p => p.code === t.refNo) && t.accountHead !== expAcc.name) {
+                if (t.type === 'EXPENSE' && t.refNo && (projects || []).some(p => p.code === t.refNo) && t.accountHead !== expAcc.name) {
                     txsUpdated = true;
                     return { ...t, accountHead: expAcc.name };
                 }
-                if (t.type === 'INCOME' && revAcc && (t.category?.toLowerCase().includes('project') || (t.refNo && projects.some(p => p.code === t.refNo))) && t.accountHead !== revAcc.name) {
+                if (t.type === 'INCOME' && revAcc && (t.category?.toLowerCase().includes('project') || (t.refNo && (projects || []).some(p => p.code === t.refNo))) && t.accountHead !== revAcc.name) {
                     txsUpdated = true;
                     return { ...t, accountHead: revAcc.name };
                 }
@@ -710,8 +721,6 @@ export const AppProvider: React.FC<{
                 setTransactions(updatedTxs);
             }
         }
-
-        hasAutoAlignedProjectsRef.current = true;
     }, [projects, chartOfAccounts]);
     const login = (staffIdOrPasscode: string, passcode?: string): {
         success: boolean;
@@ -3340,9 +3349,9 @@ export const AppProvider: React.FC<{
 
         // 3. Align and ensure proper Chart of Accounts balances
         setChartOfAccounts(prev => prev.map(acc => {
-            // Dedicated Project Expense (5100)
+            // Dedicated Project Expense (5206 / Project Expense)
             if (expAcc && acc.id === expAcc.id) {
-                return { ...acc, currentBalance: Math.max(acc.currentBalance, totalPrjExpenses) };
+                return { ...acc, currentBalance: (acc.openingBalance || 0) + totalPrjExpenses };
             }
             // 5010 COGS: reclaim incorrectly attributed project expenses
             if (cogsAcc && acc.id === cogsAcc.id) {
@@ -3351,9 +3360,9 @@ export const AppProvider: React.FC<{
                     return { ...acc, currentBalance: corrected };
                 }
             }
-            // Dedicated Project Revenue (4051)
+            // Dedicated Project Revenue (4002 / 4051 Project Sales)
             if (revAcc && acc.id === revAcc.id) {
-                return { ...acc, currentBalance: Math.max(acc.currentBalance, totalPrjSales) };
+                return { ...acc, currentBalance: (acc.openingBalance || 0) + totalPrjSales };
             }
             return acc;
         }));
@@ -3374,7 +3383,7 @@ export const AppProvider: React.FC<{
         return { salesSynced, expensesSynced, totalAmount: totalPrjSales + totalPrjExpenses };
     };
     // Module Data Clean & Purge
-    const cleanModuleData = (moduleKey: 'SALES' | 'QUOTATIONS' | 'PURCHASES' | 'INVENTORY_STOCK' | 'CUSTOM_PRODUCTS' | 'TRANSACTIONS' | 'JOURNALS' | 'AUDIT_LOGS' | 'PROJECTS' | 'ALL' | 'WIPE_ALL_EXCEPT_PRODUCTS') => {
+    const cleanModuleData = (moduleKey: 'SALES' | 'QUOTATIONS' | 'PURCHASES' | 'INVENTORY_STOCK' | 'CUSTOM_PRODUCTS' | 'TRANSACTIONS' | 'JOURNALS' | 'AUDIT_LOGS' | 'PROJECTS' | 'ALL' | 'WIPE_ALL_EXCEPT_PRODUCTS' | 'RESET_ALL_TRANSACTIONS') => {
         if (moduleKey === 'SALES') {
             // 1. Reset Invoices
             setInvoices([]);
@@ -3567,7 +3576,36 @@ export const AppProvider: React.FC<{
             try {
                 localStorage.setItem(`${STORAGE_KEY}_PROJECTS`, JSON.stringify([]));
             } catch {}
-            latestStateRef.current = { ...latestStateRef.current, projects: [] };
+            // Also reset Project Expense (5206) and Project Revenue (4002/4051) in Chart of Accounts
+            const cleanedCOA = (latestStateRef.current.chartOfAccounts || chartOfAccounts).map((acc: ChartOfAccount) => {
+                const isPrj = acc.code === '5206' || acc.code === '4002' || acc.code === '4051' || acc.name.toLowerCase().includes('project');
+                if (isPrj) {
+                    return { ...acc, currentBalance: acc.openingBalance || 0 };
+                }
+                return acc;
+            });
+            setChartOfAccounts(cleanedCOA);
+            try {
+                localStorage.setItem(`${STORAGE_KEY}_COA`, JSON.stringify(cleanedCOA));
+            } catch {}
+            // Remove project transactions and journal vouchers
+            const nextTxs = (latestStateRef.current.transactions || transactions).filter((t: AccountingTransaction) => !(t.category?.toLowerCase().includes('project') || t.accountHead?.toLowerCase().includes('project')));
+            setTransactions(nextTxs);
+            try {
+                localStorage.setItem(`${STORAGE_KEY}_TRANSACTIONS`, JSON.stringify(nextTxs));
+            } catch {}
+            const nextJournals = (latestStateRef.current.journalEntries || journalEntries).filter((j: JournalEntry) => !(j.source === 'PROJECT_EXPENSE' || j.source === 'PROJECT_SALES'));
+            setJournalEntries(nextJournals);
+            try {
+                localStorage.setItem(`${STORAGE_KEY}_JOURNALS`, JSON.stringify(nextJournals));
+            } catch {}
+            latestStateRef.current = {
+                ...latestStateRef.current,
+                projects: [],
+                chartOfAccounts: cleanedCOA,
+                transactions: nextTxs,
+                journalEntries: nextJournals,
+            };
             addAuditLog({
                 staffId: activeStaff.id,
                 staffName: activeStaff.name,
@@ -3583,9 +3621,12 @@ export const AppProvider: React.FC<{
         else if (moduleKey === 'ALL') {
             resetToDefaultData();
         }
-        else if (moduleKey === 'WIPE_ALL_EXCEPT_PRODUCTS') {
-            const zeroStockProducts = products.map((p) => ({ ...p, stockFactory: 0, stockOffice: 0 }));
-            const zeroBalCOA = chartOfAccounts.map((acc) => ({ ...acc, openingBalance: 0, currentBalance: 0 }));
+        else if (moduleKey === 'WIPE_ALL_EXCEPT_PRODUCTS' || moduleKey === 'RESET_ALL_TRANSACTIONS') {
+            const zeroStockProducts = (latestStateRef.current.products || products).map((p: ProductItem) => ({ ...p, stockFactory: 0, stockOffice: 0 }));
+            const zeroBalCOA = (latestStateRef.current.chartOfAccounts || chartOfAccounts).map((acc: ChartOfAccount) => ({ ...acc, openingBalance: 0, currentBalance: 0 }));
+            const zeroDuesCustomers = (latestStateRef.current.customers || customers).map((c: Customer) => ({ ...c, totalPurchased: 0, dueAmount: 0 }));
+            const zeroDuesSuppliers = (latestStateRef.current.suppliers || suppliers).map((s: Supplier) => ({ ...s, balancePayable: 0, dueAmount: 0 }));
+
             setInvoices([]);
             setQuotations([]);
             setPurchaseOrders([]);
@@ -3593,9 +3634,8 @@ export const AppProvider: React.FC<{
             setStockMovements([]);
             setJournalEntries([]);
             setProjects([]);
-            setCustomers([]);
-            setSuppliers([]);
-            setAuditLogs([]);
+            setCustomers(zeroDuesCustomers);
+            setSuppliers(zeroDuesSuppliers);
             setProducts(zeroStockProducts);
             setChartOfAccounts(zeroBalCOA);
 
@@ -3607,12 +3647,23 @@ export const AppProvider: React.FC<{
                 localStorage.setItem(`${STORAGE_KEY}_STOCK_MOVEMENTS`, JSON.stringify([]));
                 localStorage.setItem(`${STORAGE_KEY}_JOURNALS`, JSON.stringify([]));
                 localStorage.setItem(`${STORAGE_KEY}_PROJECTS`, JSON.stringify([]));
-                localStorage.setItem(`${STORAGE_KEY}_CUSTOMERS`, JSON.stringify([]));
-                localStorage.setItem(`${STORAGE_KEY}_SUPPLIERS`, JSON.stringify([]));
-                localStorage.setItem(`${STORAGE_KEY}_AUDIT_LOGS`, JSON.stringify([]));
+                localStorage.setItem(`${STORAGE_KEY}_CUSTOMERS`, JSON.stringify(zeroDuesCustomers));
+                localStorage.setItem(`${STORAGE_KEY}_SUPPLIERS`, JSON.stringify(zeroDuesSuppliers));
                 localStorage.setItem(`${STORAGE_KEY}_PRODUCTS`, JSON.stringify(zeroStockProducts));
                 localStorage.setItem(`${STORAGE_KEY}_COA`, JSON.stringify(zeroBalCOA));
             } catch {}
+
+            addAuditLog({
+                staffId: activeStaff?.id || 'admin',
+                staffName: activeStaff?.name || 'Staff',
+                staffRole: activeStaff?.role || 'Admin',
+                location: 'All',
+                actionType: 'DATA_CLEANED',
+                entityType: 'System',
+                details: 'Full transactional reset: Wiped all invoices, quotes, POs, accounting transactions, journal entries, projects, and stock movements. Reset customer/supplier dues to 0, product stock to 0, and account balances to 0.',
+                detailsBn: 'সম্পূর্ণ ট্রানজ্যাকশনাল ডেটা রিসেট করা হয়েছে (বিক্রয়, ক্রয়, ক্যাশ লেনদেন, জার্নাল, প্রজেক্ট, স্টক ও ব্যালেন্স শূন্য)।',
+                severity: 'critical',
+            });
 
             latestStateRef.current = {
                 ...latestStateRef.current,
@@ -3623,9 +3674,8 @@ export const AppProvider: React.FC<{
                 stockMovements: [],
                 journalEntries: [],
                 projects: [],
-                customers: [],
-                suppliers: [],
-                auditLogs: [],
+                customers: zeroDuesCustomers,
+                suppliers: zeroDuesSuppliers,
                 products: zeroStockProducts,
                 chartOfAccounts: zeroBalCOA,
             };
@@ -3640,6 +3690,9 @@ export const AppProvider: React.FC<{
     };
     const resetSalesData = () => {
         cleanModuleData('SALES');
+    };
+    const resetAllTransactionalData = () => {
+        cleanModuleData('RESET_ALL_TRANSACTIONS');
     };
     // Utilities
     const resetToDefaultData = () => {
@@ -4287,6 +4340,7 @@ export const AppProvider: React.FC<{
             syncProjectsWithAccounting,
             cleanModuleData,
             resetSalesData,
+            resetAllTransactionalData,
             resetToDefaultData,
             exportDatabase,
             importDatabase,
