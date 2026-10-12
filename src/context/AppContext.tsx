@@ -2,7 +2,7 @@ import React, { createContext, useContext, useState, useEffect, useMemo, useRef 
 import { CompanyProfile, ProductItem, Customer, Supplier, SalesInvoice, Quotation, PurchaseOrder, AccountingTransaction, StockMovement, Language, LocationType, AccountBalances, StaffMember, StaffRole, AuditLogEntry, ChartOfAccount, ExpenseHead, ProductCategory, UserRole, RolePermission, JournalEntry, Project, ProjectExpenseItem, ProjectSalesItem, PaymentMethodConfig, PaymentStatus } from '../types';
 import { INITIAL_COMPANY_PROFILE, INITIAL_PRODUCTS, INITIAL_CUSTOMERS, INITIAL_SUPPLIERS, INITIAL_INVOICES, INITIAL_PURCHASE_ORDERS, INITIAL_TRANSACTIONS, INITIAL_QUOTATIONS, INITIAL_STOCK_MOVEMENTS, INITIAL_STAFF_MEMBERS, INITIAL_AUDIT_LOGS, } from '../data/initialData';
 import { INITIAL_CHART_OF_ACCOUNTS, INITIAL_EXPENSE_HEADS, INITIAL_PRODUCT_CATEGORIES, INITIAL_USER_ROLES, INITIAL_JOURNAL_ENTRIES, INITIAL_PROJECTS, ALL_SYSTEM_PERMISSIONS, INITIAL_PAYMENT_METHODS, } from '../data/accountingAndConfigData';
-import { matchChannelToAccount, calculateSingleAccountBalance, getBankAccountsBreakdown, getMfsAccountsBreakdown } from '../utils/accountUtils';
+import { matchChannelToAccount, calculateSingleAccountBalance, getBankAccountsBreakdown, getMfsAccountsBreakdown, getCashAccountsBreakdown } from '../utils/accountUtils';
 const STORAGE_KEY = 'DOT_COLOR_ERP_V1_STATE';
 interface AppContextType {
     profile: CompanyProfile;
@@ -4300,12 +4300,14 @@ export const AppProvider: React.FC<{
 
         const mfsData = getMfsAccountsBreakdown(chartOfAccounts, transactions, invoices);
         const bankData = getBankAccountsBreakdown(chartOfAccounts, transactions, invoices);
+        const cashData = getCashAccountsBreakdown(chartOfAccounts, transactions, invoices);
         const dynamicBankTotal = bankData.reduce((acc, b) => acc + b.balance, 0);
 
         return {
-            cash: Math.max(0, cash),
+            cash: Math.max(0, cashData.accounts.length > 0 ? cashData.total : cash),
             bank: Math.max(0, bankData.length > 0 ? dynamicBankTotal : bank),
             mobile: Math.max(0, mfsData.accounts.length > 0 ? mfsData.total : mobile),
+            factoryCash: 0,
             bkash: mfsData.bkash,
             nagad: mfsData.nagad,
             bankBreakdown: bankData,

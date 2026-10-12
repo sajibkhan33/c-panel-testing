@@ -393,3 +393,60 @@ export const getMfsAccountsBreakdown = (
         accounts,
     };
 };
+
+/**
+ * Extracts Cash accounts with their individual balances
+ */
+export const getCashAccountsBreakdown = (
+    chartOfAccounts: ChartOfAccount[] = [],
+    transactions: AccountingTransaction[] = [],
+    invoices: SalesInvoice[] = []
+): {
+    total: number;
+    officeCash: number;
+    factoryCash: number;
+    accounts: Array<{ id: string; code: string; name: string; balance: number }>;
+} => {
+    const isCash = (acc: ChartOfAccount) => {
+        if (acc.classification !== 'Asset') return false;
+        const n = acc.name.toLowerCase();
+        if (n.includes('bkash') || n.includes('nagad') || n.includes('rocket') || n.includes('bank') || n.includes('plc')) return false;
+        return (
+            n.includes('cash') ||
+            (acc.nameBn && acc.nameBn.includes('ক্যাশ')) ||
+            n.includes('counter') ||
+            n.includes('drawer') ||
+            acc.code === '1001' ||
+            acc.code === '1010' ||
+            acc.code === '1020'
+        );
+    };
+
+    const cashAccs = chartOfAccounts.filter(isCash);
+    let officeCash = 0;
+    let factoryCash = 0;
+    let total = 0;
+    const accounts = cashAccs.map((acc) => {
+        const bal = calculateSingleAccountBalance(acc, transactions, invoices);
+        total += bal;
+        const n = acc.name.toLowerCase();
+        if (n.includes('factory') || acc.code === '1020') {
+            factoryCash += bal;
+        } else {
+            officeCash += bal;
+        }
+        return {
+            id: acc.id,
+            code: acc.code,
+            name: acc.name,
+            balance: bal,
+        };
+    });
+
+    return {
+        total,
+        officeCash,
+        factoryCash,
+        accounts,
+    };
+};
