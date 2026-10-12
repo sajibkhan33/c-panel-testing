@@ -3609,7 +3609,7 @@ export const AppProvider: React.FC<{
         if (isSyncingRef.current) return;
         try {
             isSyncingRef.current = true;
-            const res = await fetch('/api/state');
+            const res = await fetch(`/api/state?t=${Date.now()}`, { cache: 'no-store' });
             if (res.ok) {
                 const stateData = await res.json();
                 if (stateData.success && stateData.data) {
@@ -3679,12 +3679,12 @@ export const AppProvider: React.FC<{
         // Smart manual sync: check remote metadata first
         try {
             setCloudSyncStatus('syncing');
-            const metaRes = await fetch('/api/state/meta');
+            const metaRes = await fetch(`/api/state/meta?t=${Date.now()}`, { cache: 'no-store' });
             if (metaRes.ok) {
                 const meta = await metaRes.json();
                 if (meta.success && meta.updatedAt) {
                     const remoteTs = new Date(meta.updatedAt).getTime();
-                    if (remoteTs > lastServerUpdatedAtRef.current + 500) {
+                    if (remoteTs > lastServerUpdatedAtRef.current) {
                         await pullFromCloud();
                         return;
                     }
@@ -3708,7 +3708,7 @@ export const AppProvider: React.FC<{
                 if (healthData.database === 'connected') {
                     if (!isCancelled)
                         setIsCloudConnected(true);
-                    const stateRes = await fetch('/api/state');
+                    const stateRes = await fetch(`/api/state?t=${Date.now()}`, { cache: 'no-store' });
                     if (stateRes.ok) {
                         const stateData = await stateRes.json();
                         if (stateData.success && stateData.data) {
@@ -3758,19 +3758,20 @@ export const AppProvider: React.FC<{
         };
     }, []);
 
-    // Multi-device real-time sync: Periodically poll remote updatedAt & auto-fetch
+    // Multi-device real-time sync: Server-Sent Events (Instant Live Broadcast) + Polling fallback
     useEffect(() => {
         let isCancelled = false;
+        let eventSource: EventSource | null = null;
 
         const checkForRemoteUpdates = async () => {
             if (isCancelled || isSyncingRef.current || !isCloudLoadedRef.current) return;
             try {
-                const metaRes = await fetch('/api/state/meta');
+                const metaRes = await fetch(`/api/state/meta?t=${Date.now()}`, { cache: 'no-store' });
                 if (metaRes.ok) {
                     const meta = await metaRes.json();
                     if (meta.success && meta.updatedAt) {
                         const remoteTs = new Date(meta.updatedAt).getTime();
-                        if (remoteTs > lastServerUpdatedAtRef.current + 500) {
+                        if (remoteTs > lastServerUpdatedAtRef.current) {
                             console.log('🔄 Remote update detected from another device, pulling latest state...');
                             await pullFromCloud();
                         }
@@ -3779,12 +3780,37 @@ export const AppProvider: React.FC<{
             } catch {}
         };
 
+        // 1. Instant Real-Time Push via Server-Sent Events (SSE)
+        try {
+            if (typeof EventSource !== 'undefined') {
+                eventSource = new EventSource('/api/state/events');
+                eventSource.onmessage = async (e) => {
+                    if (isCancelled || !e.data) return;
+                    try {
+                        const parsed = JSON.parse(e.data);
+                        if (parsed.type === 'STATE_UPDATED') {
+                            const remoteTs = parsed.updatedAt ? new Date(parsed.updatedAt).getTime() : Date.now();
+                            if (remoteTs > lastServerUpdatedAtRef.current) {
+                                console.log('⚡ Real-time SSE state broadcast received! Syncing immediately...');
+                                await pullFromCloud();
+                            }
+                        }
+                    } catch {}
+                };
+                eventSource.onerror = () => {
+                    // EventSource will auto-reconnect, no action needed
+                };
+            }
+        } catch {}
+
+        // 2. High-speed fallback polling every 4 seconds
         const pollInterval = setInterval(() => {
             if (!document.hidden) {
                 checkForRemoteUpdates();
             }
-        }, 5000);
+        }, 4000);
 
+        // 3. Immediate check when user focuses window or changes tab back
         const handleVisibilityOrFocus = () => {
             if (!document.hidden) {
                 checkForRemoteUpdates();
@@ -3796,6 +3822,9 @@ export const AppProvider: React.FC<{
 
         return () => {
             isCancelled = true;
+            if (eventSource) {
+                eventSource.close();
+            }
             clearInterval(pollInterval);
             window.removeEventListener('focus', handleVisibilityOrFocus);
             document.removeEventListener('visibilitychange', handleVisibilityOrFocus);

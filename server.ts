@@ -73,6 +73,7 @@ app.get('/api/health', (_req, res) => {
 
 // Lightweight meta endpoint to check if remote state was updated by another device
 app.get('/api/state/meta', async (_req, res) => {
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
   if (!isConnected) {
     return res.status(503).json({
       success: false,
@@ -94,6 +95,7 @@ app.get('/api/state/meta', async (_req, res) => {
 
 // Get ERP state from MongoDB
 app.get('/api/state', async (_req, res) => {
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
   if (!isConnected) {
     return res.status(503).json({
       success: false,
@@ -161,6 +163,49 @@ app.get('/api/public/invoice/:id', async (req, res) => {
   }
 });
 
+// --- Real-Time Multi-Device Broadcast Bus (Server-Sent Events) ---
+const sseClients = new Set<express.Response>();
+
+const broadcastStateUpdate = (updatedAt: any) => {
+  const payload = `data: ${JSON.stringify({ type: 'STATE_UPDATED', updatedAt })}\n\n`;
+  for (const client of sseClients) {
+    try {
+      client.write(payload);
+    } catch {
+      sseClients.delete(client);
+    }
+  }
+};
+
+// SSE Stream Endpoint for Instant Live Sync across Devices
+app.get('/api/state/events', (req, res) => {
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache, no-transform');
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('X-Accel-Buffering', 'no');
+  res.flushHeaders?.();
+
+  sseClients.add(res);
+
+  // Send initial connected ACK
+  res.write(`data: ${JSON.stringify({ type: 'CONNECTED', timestamp: Date.now() })}\n\n`);
+
+  // Periodic heartbeat every 20s to prevent reverse proxy/Render idle timeout
+  const heartbeat = setInterval(() => {
+    try {
+      res.write(': keepalive\n\n');
+    } catch {
+      clearInterval(heartbeat);
+      sseClients.delete(res);
+    }
+  }, 20000);
+
+  req.on('close', () => {
+    clearInterval(heartbeat);
+    sseClients.delete(res);
+  });
+});
+
 // Save or Update ERP state in MongoDB
 app.post('/api/state', async (req, res) => {
   if (!isConnected) {
@@ -182,6 +227,9 @@ app.post('/api/state', async (req, res) => {
       { upsert: true, new: true, setDefaultsOnInsert: true }
     );
 
+    // Instant real-time broadcast to all other open devices/tabs
+    broadcastStateUpdate(updated.updatedAt);
+
     res.json({ success: true, updatedAt: updated.updatedAt });
   } catch (error: any) {
     console.error('Error saving state:', error);
@@ -196,6 +244,7 @@ app.post('/api/state/reset', async (_req, res) => {
   }
   try {
     await ErpState.deleteOne({ id: 'singleton' });
+    broadcastStateUpdate(new Date());
     res.json({ success: true, message: 'Cloud database state cleared.' });
   } catch (error: any) {
     res.status(500).json({ success: false, message: error.message });
