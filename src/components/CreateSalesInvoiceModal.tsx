@@ -245,7 +245,6 @@ export const CreateSalesInvoiceModal: React.FC<CreateSalesInvoiceModalProps> = (
                 bkash: paymentMethod.toLowerCase().includes('bkash') ? effectivePaid : 0,
                 nagad: paymentMethod.toLowerCase().includes('nagad') ? effectivePaid : 0,
                 due: dueAmount,
-                [paymentMethod]: effectivePaid,
             },
         });
         onClose();

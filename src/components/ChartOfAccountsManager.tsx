@@ -73,7 +73,7 @@ export const ChartOfAccountsManager: React.FC = () => {
                     liveBal = Math.max(0, totalTxIncome - otherRev);
                 }
             } else if (acc.classification === 'Expense') {
-                const isProjectExp = acc.code === '5100' || nameLower.includes('project');
+                const isProjectExp = nameLower.includes('project') || acc.code === '5206';
                 const matching = (transactions || [])
                     .filter(t => t.type === 'EXPENSE' && (
                         (t.category && nameLower.includes(t.category.toLowerCase())) ||
@@ -386,8 +386,8 @@ export const ChartOfAccountsManager: React.FC = () => {
 
       {/* Projects Integration Status Bar */}
       {(() => {
-        const projectRevAcc = chartOfAccounts.find(a => a.classification === 'Revenue' && (a.code === '4051' || a.name.toLowerCase().includes('project') || a.code === '4060')) || { code: '4051', name: 'Project Sales Income' };
-        const projectExpAcc = chartOfAccounts.find(a => a.classification === 'Expense' && (a.code === '5100' || a.name.toLowerCase().includes('project'))) || { code: '5100', name: 'Project Expense' };
+        const projectRevAcc = chartOfAccounts.find(a => a.classification === 'Revenue' && (a.name.toLowerCase().includes('project') || a.code === '4002' || a.code === '4051' || a.code === '4060')) || { code: '4002', name: 'Project Sales' };
+        const projectExpAcc = chartOfAccounts.find(a => a.classification === 'Expense' && (a.name.toLowerCase().includes('project') || a.code === '5206')) || { code: '5206', name: 'Project Expense' };
         const totalSales = (projects || []).reduce((s, p) => s + (p.totalSales || 0), 0);
         const totalExpenses = (projects || []).reduce((s, p) => s + (p.totalExpenses || 0), 0);
 

@@ -159,15 +159,31 @@ const AppContext = createContext<AppContextType | undefined>(undefined);
 const generateUniqueId = (prefix: string) => `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}-${Math.floor(100 + Math.random() * 900)}`;
 const ensureUniqueTransactions = (list: AccountingTransaction[]): AccountingTransaction[] => {
     const seenIds = new Set<string>();
-    return list.map((tx, idx) => {
+    const seenInvoiceKeys = new Set<string>();
+    const result: AccountingTransaction[] = [];
+
+    for (let idx = 0; idx < list.length; idx++) {
+        const tx = list[idx];
+        if (!tx) continue;
+
+        // Deduplicate duplicate invoice payment entries for the same invoice & amount & date
+        if (tx.type === 'INCOME' && tx.refNo && tx.refNo.startsWith('DCC-INV-')) {
+            const invoiceKey = `${tx.refNo}_${tx.amount}_${tx.date}`;
+            if (seenInvoiceKeys.has(invoiceKey)) {
+                continue; // Skip duplicate invoice income transaction
+            }
+            seenInvoiceKeys.add(invoiceKey);
+        }
+
+        let cleanTx = tx;
         if (!tx.id || seenIds.has(tx.id)) {
             const uniqueId = `tx-${Date.now()}-${idx}-${Math.random().toString(36).slice(2, 7)}`;
-            seenIds.add(uniqueId);
-            return { ...tx, id: uniqueId };
+            cleanTx = { ...tx, id: uniqueId };
         }
-        seenIds.add(tx.id);
-        return tx;
-    });
+        seenIds.add(cleanTx.id);
+        result.push(cleanTx);
+    }
+    return result;
 };
 export const sanitizeUserRoles = (list: UserRole[]): UserRole[] => {
     if (!Array.isArray(list) || list.length === 0) {
@@ -613,8 +629,9 @@ export const AppProvider: React.FC<{
         if (hasAutoAlignedProjectsRef.current) return;
         if (!projects || projects.length === 0 || !chartOfAccounts || chartOfAccounts.length === 0) return;
 
-        const revAcc = chartOfAccounts.find(a => a.classification === 'Revenue' && (a.code === '4051' || a.name.toLowerCase().includes('project') || a.code === '4060'));
-        const expAcc = chartOfAccounts.find(a => a.classification === 'Expense' && (a.code === '5100' || a.name.toLowerCase().includes('project')));
+        const revAcc = chartOfAccounts.find(a => a.classification === 'Revenue' && (a.name.toLowerCase().includes('project') || a.code === '4002' || a.code === '4051' || a.code === '4060'));
+        const expAcc = chartOfAccounts.find(a => a.classification === 'Expense' && (a.name.toLowerCase().includes('project') || a.code === '5206')) ||
+                       chartOfAccounts.find(a => a.classification === 'Expense' && a.code === '5100' && a.name.toLowerCase().includes('project'));
         const cogsAcc = chartOfAccounts.find(a => a.classification === 'Expense' && (a.code === '5010' || a.name.toLowerCase().includes('raw') || a.name.toLowerCase().includes('cost')));
 
         const totalPrjSales = projects.reduce((s, p) => s + (p.totalSales || 0), 0);
@@ -622,7 +639,7 @@ export const AppProvider: React.FC<{
 
         let coaNeedsUpdate = false;
         const updatedCOA = chartOfAccounts.map(acc => {
-            // 1. Dedicated Project Expense Account (5100)
+            // 1. Dedicated Project Expense Account
             if (expAcc && acc.id === expAcc.id) {
                 if (acc.currentBalance < totalPrjExpenses) {
                     coaNeedsUpdate = true;
@@ -637,7 +654,14 @@ export const AppProvider: React.FC<{
                     return { ...acc, currentBalance: correctedBal };
                 }
             }
-            // 3. Dedicated Project Revenue Account (4051)
+            // 3. Fix: If any non-project expense account (like 5100 Wastage Expense) wrongly had totalPrjExpenses assigned, revert it:
+            if (acc.classification === 'Expense' && (!expAcc || acc.id !== expAcc.id) && !acc.name.toLowerCase().includes('project')) {
+                if (totalPrjExpenses > 0 && acc.currentBalance === totalPrjExpenses) {
+                    coaNeedsUpdate = true;
+                    return { ...acc, currentBalance: acc.openingBalance || 0 };
+                }
+            }
+            // 4. Dedicated Project Revenue Account (4002 / 4051 Project Sales)
             if (revAcc && acc.id === revAcc.id) {
                 if (acc.currentBalance < totalPrjSales) {
                     coaNeedsUpdate = true;
@@ -936,37 +960,43 @@ export const AppProvider: React.FC<{
                     description: `POS Payment: Nagad (${data.paymentStatus}) - ${(data.items || []).map((i) => i.name).join(', ')}`,
                 });
             }
-            // Check any dynamic split payment keys
-            Object.entries(data.splitPayments).forEach(([key, val]) => {
-                if (!['cash', 'card', 'bkash', 'nagad', 'due'].includes(key) && typeof val === 'number' && val > 0) {
-                    const matchedPm = paymentMethods.find((p) => p.id === key || p.name.toLowerCase() === key.toLowerCase());
-                    let acctName = 'Office Cash';
-                    if (matchedPm) {
-                        if (matchedPm.type === 'bank' || matchedPm.type === 'cheque')
-                            acctName = matchedPm.bankName || 'BRAC Bank';
-                        else if (matchedPm.type === 'mfs' || matchedPm.type === 'gateway')
-                            acctName = matchedPm.name || 'bKash / Nagad';
-                        else if (matchedPm.type === 'cash')
-                            acctName = cashAcct;
-                        else
-                            acctName = matchedPm.name;
+            const standardPaidCovered = (data.splitPayments.cash || 0) + (data.splitPayments.card || 0) + (data.splitPayments.bkash || 0) + (data.splitPayments.nagad || 0);
+            const standardKeys = new Set(['cash', 'card', 'bkash', 'nagad', 'due', 'pm-cash', 'pm-card', 'pm-bkash', 'pm-nagad']);
+
+            // Only check dynamic split payment keys if standard keys haven't covered the entire paid amount
+            if (standardPaidCovered < data.paidAmount) {
+                Object.entries(data.splitPayments).forEach(([key, val]) => {
+                    const normKey = key.toLowerCase().replace(/[\s\-_]/g, '');
+                    if (!standardKeys.has(key.toLowerCase()) && !standardKeys.has(normKey) && typeof val === 'number' && val > 0) {
+                        const matchedPm = paymentMethods.find((p) => p.id === key || p.name.toLowerCase() === key.toLowerCase());
+                        let acctName = 'Office Cash';
+                        if (matchedPm) {
+                            if (matchedPm.type === 'bank' || matchedPm.type === 'cheque')
+                                acctName = matchedPm.bankName || 'BRAC Bank';
+                            else if (matchedPm.type === 'mfs' || matchedPm.type === 'gateway')
+                                acctName = matchedPm.name || 'bKash / Nagad';
+                            else if (matchedPm.type === 'cash')
+                                acctName = cashAcct;
+                            else
+                                acctName = matchedPm.name;
+                        }
+                        else {
+                            acctName = key;
+                        }
+                        txs.push({
+                            id: generateUniqueId('tx'),
+                            date: data.date,
+                            type: 'INCOME',
+                            category: 'Sales Revenue',
+                            amount: val,
+                            paymentAccount: acctName,
+                            refNo: invoiceNo,
+                            customerOrSupplier: data.customerName,
+                            description: `Payment: ${matchedPm?.name || key} (${data.paymentStatus}) - ${(data.items || []).map((i) => i.name).join(', ')}`,
+                        });
                     }
-                    else {
-                        acctName = key;
-                    }
-                    txs.push({
-                        id: generateUniqueId('tx'),
-                        date: data.date,
-                        type: 'INCOME',
-                        category: 'Sales Revenue',
-                        amount: val,
-                        paymentAccount: acctName,
-                        refNo: invoiceNo,
-                        customerOrSupplier: data.customerName,
-                        description: `Payment: ${matchedPm?.name || key} (${data.paymentStatus}) - ${(data.items || []).map((i) => i.name).join(', ')}`,
-                    });
-                }
-            });
+                });
+            }
             if (txs.length > 0) {
                 setTransactions((prev) => ensureUniqueTransactions([...txs, ...prev]));
             }
@@ -2787,7 +2817,8 @@ export const AppProvider: React.FC<{
     };
 
     const resolveProjectExpenseAccount = () => {
-        return chartOfAccounts.find(a => a.classification === 'Expense' && (a.code === '5100' || a.name.toLowerCase().includes('project'))) ||
+        return chartOfAccounts.find(a => a.classification === 'Expense' && (a.name.toLowerCase().includes('project') || a.code === '5206')) ||
+               chartOfAccounts.find(a => a.classification === 'Expense' && a.code === '5100' && a.name.toLowerCase().includes('project')) ||
                chartOfAccounts.find(a => a.classification === 'Expense' && (a.code === '5010' || a.name.toLowerCase().includes('raw') || a.name.toLowerCase().includes('cost'))) ||
                chartOfAccounts.find(a => a.classification === 'Expense') ||
                chartOfAccounts[0];
