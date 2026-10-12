@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useApp } from '../context/AppContext';
 import { AccountType, TransactionType } from '../types';
 import { Wallet, Building, Smartphone, TrendingUp, TrendingDown, Plus, ArrowUpRight, ArrowDownLeft, Search, Filter, DollarSign, Calendar, Layers, FileSpreadsheet, Printer, SlidersHorizontal, RefreshCw, BookOpen, Trash2, Edit2, Eye, AlertCircle, } from 'lucide-react';
@@ -31,6 +31,55 @@ export const AccountingModule: React.FC = () => {
     const [expenseAmount, setExpenseAmount] = useState<number>(1000);
     const [expenseAccount, setExpenseAccount] = useState<AccountType>('Cash in Hand');
     const [expenseNote, setExpenseNote] = useState('');
+
+    // Dynamically unified expense categories from active Expense Heads AND Chart of Accounts
+    const availableExpenseOptions = useMemo(() => {
+        const list: { id: string; name: string; nameBn?: string; group: string }[] = [];
+        const seen = new Set<string>();
+
+        // 1. From active Expense Heads
+        (expenseHeads || [])
+            .filter((h) => h.isActive)
+            .forEach((h) => {
+                const key = h.name.trim().toLowerCase();
+                if (!seen.has(key)) {
+                    seen.add(key);
+                    list.push({
+                        id: `eh-${h.id}`,
+                        name: h.name,
+                        nameBn: h.nameBn,
+                        group: h.category ? `Expense Head (${h.category})` : 'Expense Heads',
+                    });
+                }
+            });
+
+        // 2. From active Chart of Accounts (Expense classification)
+        (chartOfAccounts || [])
+            .filter((a) => a.classification === 'Expense' && a.isActive)
+            .forEach((a) => {
+                const key = a.name.trim().toLowerCase();
+                if (!seen.has(key)) {
+                    seen.add(key);
+                    list.push({
+                        id: `coa-${a.id}`,
+                        name: a.name,
+                        nameBn: a.nameBn,
+                        group: a.accountGroup || 'Chart of Accounts',
+                    });
+                }
+            });
+
+        return list;
+    }, [expenseHeads, chartOfAccounts]);
+
+    useEffect(() => {
+        if (availableExpenseOptions.length > 0) {
+            const exists = availableExpenseOptions.some((o) => o.name === expenseCategory);
+            if (!exists) {
+                setExpenseCategory(availableExpenseOptions[0].name);
+            }
+        }
+    }, [availableExpenseOptions, expenseCategory]);
     // New Income/Receipt Modal
     const [showIncomeModal, setShowIncomeModal] = useState(false);
     const [incomeTitle, setIncomeTitle] = useState('');
@@ -560,21 +609,25 @@ export const AccountingModule: React.FC = () => {
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div>
                   <label className="font-bold text-slate-700 block mb-1">
-                    {'Category'}
+                    {'Expense Category / Account *'}
                   </label>
                   <select value={expenseCategory} onChange={(e) => setExpenseCategory(e.target.value)} className="w-full px-3 py-2 border border-slate-200 rounded-xl font-medium">
-                    {expenseHeads && expenseHeads.length > 0 ? (expenseHeads
-                .filter((h) => h.isActive)
-                .map((h) => (<option key={h.id} value={h.name}>
-                            {h.name} {h.nameBn ? `(${h.nameBn})` : ''}
-                          </option>))) : (<>
+                    {availableExpenseOptions && availableExpenseOptions.length > 0 ? (
+                      availableExpenseOptions.map((opt) => (
+                        <option key={opt.id} value={opt.name}>
+                          {opt.name} {opt.nameBn ? `(${opt.nameBn})` : ''}
+                        </option>
+                      ))
+                    ) : (
+                      <>
                         <option value="Rent & Utilities">Rent & Utilities</option>
                         <option value="Payroll & Wages">Payroll & Wages</option>
                         <option value="Machine Maintenance">Maintenance</option>
                         <option value="Conveyance & Transport">Transport</option>
                         <option value="Entertainment & Tea">Tea/Refreshment</option>
                         <option value="Miscellaneous">Misc</option>
-                      </>)}
+                      </>
+                    )}
                   </select>
                 </div>
 

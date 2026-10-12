@@ -34,6 +34,31 @@ export const ExpenseHeadManager: React.FC = () => {
         return Array.from(set).sort();
     }, [expenseHeads]);
 
+    // Comprehensive category suggestions for new expense heads
+    const categorySuggestions = useMemo(() => {
+        const set = new Set<string>([
+            'Operations',
+            'Logistics',
+            'Payroll',
+            'Utilities',
+            'Facility',
+            'Maintenance',
+            'Technology',
+            'Projects',
+            'Hospitality',
+            'Marketing',
+            'Administration',
+            'Legal & Tax',
+            'Wastage',
+        ]);
+        (expenseHeads || []).forEach((h) => {
+            if (h.category && h.category.trim()) {
+                set.add(h.category.trim());
+            }
+        });
+        return Array.from(set).sort();
+    }, [expenseHeads]);
+
     // Reset filter if active category was deleted
     useEffect(() => {
         if (filterCategory !== 'ALL' && !categories.includes(filterCategory)) {
@@ -245,10 +270,15 @@ export const ExpenseHeadManager: React.FC = () => {
           </div>
 
           <select value={filterCategory} onChange={(e) => setFilterCategory(e.target.value)} className="px-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-xl font-semibold text-slate-700">
-            <option value="ALL">{'All Categories'}</option>
-            {categories.map((c) => (<option key={c} value={c}>
-                {c}
-              </option>))}
+            <option value="ALL">{'All Categories'} ({expenseHeads.length})</option>
+            {categories.map((c) => {
+              const count = (expenseHeads || []).filter((h) => h.category === c).length;
+              return (
+                <option key={c} value={c}>
+                  {c} ({count})
+                </option>
+              );
+            })}
           </select>
         </div>
 
@@ -429,7 +459,7 @@ export const ExpenseHeadManager: React.FC = () => {
                     className="w-full px-3 py-2 border border-slate-200 rounded-xl font-semibold text-slate-800"
                   />
                   <datalist id="expense-category-suggestions">
-                    {categories.map((c) => (
+                    {categorySuggestions.map((c) => (
                       <option key={c} value={c} />
                     ))}
                   </datalist>
