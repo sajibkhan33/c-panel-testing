@@ -121,15 +121,15 @@ export const ProjectManagementModule: React.FC = () => {
     }, [chartOfAccounts]);
 
     const availablePaymentAccounts = useMemo(() => {
-        const list = (chartOfAccounts || []).filter(a => a.classification === 'Asset' && (
-            a.code === '1001' || a.code === '1010' || a.code === '1006' || a.code === '1020' || a.code === '1003' || a.code === '1040' ||
+        const list = (chartOfAccounts || []).filter(a => a.classification === 'Asset' && !a.name.toLowerCase().includes('receivable') && (
+            a.code === '1001' || a.code === '1010' || a.code === '1006' || a.code === '1020' || a.code === '1040' ||
             (a.name || '').toLowerCase().includes('cash') || (a.name || '').toLowerCase().includes('bank') || (a.name || '').toLowerCase().includes('bkash') || (a.name || '').toLowerCase().includes('nagad') || (a.name || '').toLowerCase().includes('wallet')
         ));
         if (list.length === 0) {
             return [
                 { id: 'pay-cash', code: '1001', name: 'Cash in Hand' },
                 { id: 'pay-bank', code: '1006', name: 'Bank' },
-                { id: 'pay-mfs', code: '1003', name: 'bKash / Nagad' },
+                { id: 'pay-mfs', code: '1040', name: 'bKash / Nagad' },
             ];
         }
         return list;
@@ -155,19 +155,19 @@ export const ProjectManagementModule: React.FC = () => {
     const getResolvedPaymentCOA = (method: string) => {
         const m = (method || '').toLowerCase();
         if (m.includes('bank') || m.includes('brac') || m.includes('city') || m.includes('card')) {
-            const acc = chartOfAccounts.find(a => a.classification === 'Asset' && (a.code === '1030' || a.code === '1020' || a.name.toLowerCase().includes('bank') || a.name.toLowerCase().includes('plc')));
+            const acc = chartOfAccounts.find(a => a.classification === 'Asset' && (a.code === '1006' || a.code === '1030' || a.code === '1020' || a.name.toLowerCase().includes('bank') || a.name.toLowerCase().includes('plc')));
             if (acc) return { code: acc.code, name: acc.name };
-            return { code: '1020', name: 'Bank Account' };
+            return { code: '1006', name: 'Bank Account' };
         }
         if (m.includes('bkash') || m.includes('nagad') || m.includes('rocket') || m.includes('mfs')) {
-            const acc = chartOfAccounts.find(a => a.classification === 'Asset' && (a.code === '1040' || a.code === '1030' || a.name.toLowerCase().includes('bkash') || a.name.toLowerCase().includes('nagad') || a.name.toLowerCase().includes('wallet')));
+            const acc = chartOfAccounts.find(a => a.classification === 'Asset' && (a.code === '1040' || a.code === '1030' || a.name.toLowerCase().includes('bkash') || a.name.toLowerCase().includes('nagad') || a.name.toLowerCase().includes('wallet')) && !a.name.toLowerCase().includes('receivable'));
             if (acc) return { code: acc.code, name: acc.name };
             return { code: '1040', name: 'bKash & Nagad Wallet' };
         }
         if (m.includes('due') || m.includes('receivable')) {
-            const acc = chartOfAccounts.find(a => a.classification === 'Asset' && (a.code === '1050' || a.name.toLowerCase().includes('receivable')));
+            const acc = chartOfAccounts.find(a => a.classification === 'Asset' && (a.code === '1003' || a.code === '1004' || a.code === '1050' || a.name.toLowerCase().includes('receivable')));
             if (acc) return { code: acc.code, name: acc.name };
-            return { code: '1050', name: 'Accounts Receivable' };
+            return { code: '1003', name: 'Accounts Receivable - Customers' };
         }
         const cashAcc = chartOfAccounts.find(a => a.classification === 'Asset' && (a.code === '1010' || a.name.toLowerCase().includes('cash')));
         if (cashAcc) return { code: cashAcc.code, name: cashAcc.name };

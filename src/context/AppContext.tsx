@@ -672,6 +672,26 @@ export const AppProvider: React.FC<{
                     return { ...acc, currentBalance: targetRevBal };
                 }
             }
+            // 5. Dedicated Customer Accounts Receivable Account (1003 / 1050 / Accounts Receivable - Customers)
+            const isCustomerReceivable = acc.classification === 'Asset' && (
+                acc.id === 'coa-1050' ||
+                acc.code === '1003' ||
+                acc.code === '1050' ||
+                (acc.name.toLowerCase().includes('customer') && acc.name.toLowerCase().includes('receivable')) ||
+                acc.name.toLowerCase().includes('trade debtor') ||
+                acc.nameBn?.includes('কাস্টমার বকেয়া') ||
+                acc.nameBn?.includes('প্রাপ্য হিসাব') ||
+                (acc.name.toLowerCase().includes('receivable') && !acc.name.toLowerCase().includes('aggregator') && !acc.name.toLowerCase().includes('staff'))
+            );
+            if (isCustomerReceivable) {
+                const totalInvoiceCustomerDue = (invoices || []).reduce((s, inv) => s + (Number(inv.dueAmount) || 0), 0);
+                const totalCustomerRecordDue = (customers || []).reduce((s, c) => s + (Number(c.dueAmount) || 0), 0);
+                const totalCustomerDue = Math.max(totalInvoiceCustomerDue, totalCustomerRecordDue);
+                if (totalCustomerDue > 0 && acc.currentBalance !== totalCustomerDue) {
+                    coaNeedsUpdate = true;
+                    return { ...acc, currentBalance: totalCustomerDue };
+                }
+            }
             return acc;
         });
 
@@ -721,7 +741,7 @@ export const AppProvider: React.FC<{
                 setTransactions(updatedTxs);
             }
         }
-    }, [projects, chartOfAccounts]);
+    }, [projects, chartOfAccounts, invoices, customers]);
     const login = (staffIdOrPasscode: string, passcode?: string): {
         success: boolean;
         message: string;
@@ -2818,10 +2838,10 @@ export const AppProvider: React.FC<{
             return chartOfAccounts.find(a => a.classification === 'Asset' && (a.code === '1006' || a.code === '1020' || a.code === '1030' || a.name.toLowerCase().includes('bank') || a.name.toLowerCase().includes('plc'))) || chartOfAccounts.find(a => a.classification === 'Asset') || chartOfAccounts[0];
         }
         if (m.includes('bkash') || m.includes('nagad') || m.includes('rocket') || m.includes('mfs') || m.includes('wallet')) {
-            return chartOfAccounts.find(a => a.classification === 'Asset' && (a.code === '1003' || a.code === '1040' || a.code === '1030' || a.name.toLowerCase().includes('bkash') || a.name.toLowerCase().includes('nagad') || a.name.toLowerCase().includes('wallet'))) || chartOfAccounts.find(a => a.classification === 'Asset') || chartOfAccounts[0];
+            return chartOfAccounts.find(a => a.classification === 'Asset' && (a.code === '1040' || a.code === '1030' || a.name.toLowerCase().includes('bkash') || a.name.toLowerCase().includes('nagad') || a.name.toLowerCase().includes('wallet')) && !a.name.toLowerCase().includes('receivable')) || chartOfAccounts.find(a => a.classification === 'Asset') || chartOfAccounts[0];
         }
         if (m.includes('due') || m.includes('receivable')) {
-            return chartOfAccounts.find(a => a.classification === 'Asset' && (a.code === '1004' || a.code === '1050' || a.name.toLowerCase().includes('receivable'))) || chartOfAccounts.find(a => a.classification === 'Asset') || chartOfAccounts[0];
+            return chartOfAccounts.find(a => a.classification === 'Asset' && (a.code === '1003' || a.code === '1004' || a.code === '1050' || a.name.toLowerCase().includes('receivable'))) || chartOfAccounts.find(a => a.classification === 'Asset') || chartOfAccounts[0];
         }
         return chartOfAccounts.find(a => a.classification === 'Asset' && (a.code === '1001' || a.code === '1010' || a.name.toLowerCase().includes('cash'))) || chartOfAccounts[0];
     };

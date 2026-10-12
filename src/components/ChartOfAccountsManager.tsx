@@ -4,7 +4,7 @@ import { ChartOfAccount } from '../types';
 import { BookOpen, Plus, Search, Filter, Edit2, Trash2, Lock, CheckCircle2, AlertCircle, X, FileText, Printer, Layers, ArrowUpDown, Download, Upload, } from 'lucide-react';
 import * as XLSX from 'xlsx';
 export const ChartOfAccountsManager: React.FC = () => {
-    const { chartOfAccounts, transactions = [], accountBalances, suppliers = [], customers = [], language, profile, addChartOfAccount, updateChartOfAccount, deleteChartOfAccount, checkPermission, projects = [], syncProjectsWithAccounting } = useApp();
+    const { chartOfAccounts, invoices = [], transactions = [], accountBalances, suppliers = [], customers = [], language, profile, addChartOfAccount, updateChartOfAccount, deleteChartOfAccount, checkPermission, projects = [], syncProjectsWithAccounting } = useApp();
     const [searchQuery, setSearchQuery] = useState('');
     const [filterClassification, setFilterClassification] = useState<string>('ALL');
     const [showAddModal, setShowAddModal] = useState(false);
@@ -30,7 +30,9 @@ export const ChartOfAccountsManager: React.FC = () => {
     const liveAccounts = useMemo(() => {
         const totalTxIncome = (transactions || []).filter(t => t.type === 'INCOME').reduce((s, t) => s + t.amount, 0);
         const totalSupplierDue = (suppliers || []).reduce((s, sup) => s + (sup.dueAmount || sup.balancePayable || 0), 0);
-        const totalCustomerDue = (customers || []).reduce((s, c) => s + (c.dueAmount || 0), 0);
+        const totalInvoiceCustomerDue = (invoices || []).reduce((s, inv) => s + (Number(inv.dueAmount) || 0), 0);
+        const totalCustomerRecordDue = (customers || []).reduce((s, c) => s + (Number(c.dueAmount) || 0), 0);
+        const totalCustomerDue = Math.max(totalInvoiceCustomerDue, totalCustomerRecordDue);
         const totalProjectSales = (projects || []).reduce((s, p) => s + (p.totalSales || 0), 0);
         const totalProjectExpenses = (projects || []).reduce((s, p) => s + (p.totalExpenses || 0), 0);
 
@@ -56,19 +58,78 @@ export const ChartOfAccountsManager: React.FC = () => {
             let liveBal = acc.currentBalance;
 
             if (acc.classification === 'Asset') {
-                const isCash = acc.id === 'coa-1001' || acc.id === 'coa-1010' || acc.code === '1001' || acc.code === '1010' || nameLower.includes('cash') || nameBn.includes('নগদ');
-                const isBank = acc.id === 'coa-1002' || acc.id === 'coa-1020' || acc.code === '1002' || acc.code === '1020' || nameLower.includes('bank') || nameLower.includes('plc') || nameBn.includes('ব্যাংক');
-                const isMobile = acc.id === 'coa-1003' || acc.id === 'coa-1030' || acc.code === '1003' || acc.code === '1030' || nameLower.includes('bkash') || nameLower.includes('nagad') || nameBn.includes('বিকাশ') || nameBn.includes('নগদ');
-                const isReceivable = acc.id === 'coa-1004' || acc.id === 'coa-1050' || acc.code === '1003' || acc.code === '1050' || nameLower.includes('receivable') || nameBn.includes('পাওনা') || nameBn.includes('বকেয়া');
+                // 1. Customer Accounts Receivable (Trade Debtors / Customer Due)
+                const isCustomerReceivable = (
+                    acc.id === 'coa-1050' ||
+                    acc.code === '1003' ||
+                    acc.code === '1050' ||
+                    (nameLower.includes('customer') && nameLower.includes('receivable')) ||
+                    nameLower.includes('trade debtor') ||
+                    nameBn.includes('কাস্টমার বকেয়া') ||
+                    nameBn.includes('প্রাপ্য হিসাব') ||
+                    (nameLower.includes('receivable') && !nameLower.includes('aggregator') && !nameLower.includes('staff'))
+                );
 
-                if (isCash) {
+                // 2. Inventory / Raw Materials (Must NEVER be overwritten by Bank or Cash)
+                const isInventory = (
+                    acc.id === 'coa-1060' ||
+                    acc.id === 'coa-1070' ||
+                    acc.code === '1002' ||
+                    acc.code === '1060' ||
+                    acc.code === '1070' ||
+                    nameLower.includes('raw material') ||
+                    nameLower.includes('inventory') ||
+                    nameLower.includes('finished goods') ||
+                    nameLower.includes('stock') ||
+                    nameBn.includes('কাঁচামাল') ||
+                    nameBn.includes('ইনভেন্টরি')
+                );
+
+                // 3. Cash in Hand
+                const isCash = !isCustomerReceivable && !isInventory && (
+                    acc.id === 'coa-1001' ||
+                    acc.id === 'coa-1010' ||
+                    (acc.id === 'coa-1020' && nameLower.includes('cash')) ||
+                    acc.code === '1001' ||
+                    acc.code === '1010' ||
+                    (nameLower.includes('cash') && !nameLower.includes('bkash')) ||
+                    nameBn.includes('নগদ')
+                );
+
+                // 4. Bank Accounts (Code 1006 / 1020 / 1030)
+                const isBank = !isCustomerReceivable && !isInventory && (
+                    acc.id === 'coa-1030' ||
+                    acc.code === '1006' ||
+                    (acc.code === '1020' && nameLower.includes('bank')) ||
+                    acc.code === '1030' ||
+                    nameLower.includes('bank') ||
+                    nameLower.includes('plc') ||
+                    nameBn.includes('ব্যাংক')
+                );
+
+                // 5. Mobile Financial Services (bKash, Nagad, etc.)
+                const isMobile = !isCustomerReceivable && !isInventory && (
+                    acc.id === 'coa-1040' ||
+                    acc.code === '1040' ||
+                    (acc.code === '1030' && (nameLower.includes('bkash') || nameLower.includes('nagad') || nameLower.includes('wallet'))) ||
+                    nameLower.includes('bkash') ||
+                    nameLower.includes('nagad') ||
+                    nameLower.includes('rocket') ||
+                    nameLower.includes('upay') ||
+                    nameLower.includes('wallet') ||
+                    nameLower.includes('mfs') ||
+                    nameBn.includes('বিকাশ') ||
+                    nameBn.includes('নগদ')
+                );
+
+                if (isCustomerReceivable) {
+                    liveBal = totalCustomerDue > 0 ? totalCustomerDue : acc.currentBalance;
+                } else if (isCash) {
                     liveBal = accountBalances?.cash ?? acc.currentBalance;
                 } else if (isBank) {
                     liveBal = accountBalances?.bank ?? acc.currentBalance;
                 } else if (isMobile) {
                     liveBal = accountBalances?.mobile ?? acc.currentBalance;
-                } else if (isReceivable) {
-                    liveBal = totalCustomerDue > 0 ? totalCustomerDue : acc.currentBalance;
                 }
             } else if (acc.classification === 'Liability') {
                 const isPayable = acc.code === '2001' || acc.code === '2010' || nameLower.includes('payable') || nameBn.includes('দেনা');
@@ -138,7 +199,7 @@ export const ChartOfAccountsManager: React.FC = () => {
                 currentBalance: liveBal,
             };
         });
-    }, [chartOfAccounts, transactions, accountBalances, suppliers, customers, projects]);
+    }, [chartOfAccounts, transactions, accountBalances, suppliers, customers, projects, invoices]);
 
     // Classification stats
     const stats = useMemo(() => {
