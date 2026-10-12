@@ -500,6 +500,36 @@ export const AppProvider: React.FC<{
                         setUserRoles(sanitizeUserRoles(parsed));
                     }
                 }
+                else if (e.key === `${STORAGE_KEY}_SUPPLIERS`) {
+                    const parsed = JSON.parse(e.newValue);
+                    if (Array.isArray(parsed)) {
+                        setSuppliers(parsed);
+                    }
+                }
+                else if (e.key === `${STORAGE_KEY}_CUSTOMERS`) {
+                    const parsed = JSON.parse(e.newValue);
+                    if (Array.isArray(parsed)) {
+                        setCustomers(parsed);
+                    }
+                }
+                else if (e.key === `${STORAGE_KEY}_PRODUCTS`) {
+                    const parsed = JSON.parse(e.newValue);
+                    if (Array.isArray(parsed)) {
+                        setProducts(parsed);
+                    }
+                }
+                else if (e.key === `${STORAGE_KEY}_PURCHASE_ORDERS`) {
+                    const parsed = JSON.parse(e.newValue);
+                    if (Array.isArray(parsed)) {
+                        setPurchaseOrders(parsed);
+                    }
+                }
+                else if (e.key === `${STORAGE_KEY}_INVOICES`) {
+                    const parsed = JSON.parse(e.newValue);
+                    if (Array.isArray(parsed)) {
+                        setInvoices(parsed);
+                    }
+                }
             }
             catch { }
         };
@@ -1562,11 +1592,39 @@ export const AppProvider: React.FC<{
             dueAmount: 0,
             createdAt: new Date().toISOString().slice(0, 10),
         };
-        setCustomers((prev) => [newCust, ...prev]);
+        setCustomers((prev) => {
+            const next = [newCust, ...prev.filter((c) => c.id !== newCust.id)];
+            try {
+                localStorage.setItem(`${STORAGE_KEY}_CUSTOMERS`, JSON.stringify(next));
+            } catch { }
+            return next;
+        });
+        latestStateRef.current = {
+            ...latestStateRef.current,
+            customers: [newCust, ...(latestStateRef.current.customers || []).filter((c) => c.id !== newCust.id)],
+        };
+        isCloudLoadedRef.current = true;
+        setTimeout(() => {
+            syncWithCloud();
+        }, 100);
         return newCust;
     };
     const updateCustomer = (id: string, updates: Partial<Customer>) => {
-        setCustomers((prev) => prev.map((c) => (c.id === id ? { ...c, ...updates } : c)));
+        setCustomers((prev) => {
+            const next = prev.map((c) => (c.id === id ? { ...c, ...updates } : c));
+            try {
+                localStorage.setItem(`${STORAGE_KEY}_CUSTOMERS`, JSON.stringify(next));
+            } catch { }
+            return next;
+        });
+        latestStateRef.current = {
+            ...latestStateRef.current,
+            customers: (latestStateRef.current.customers || []).map((c) => (c.id === id ? { ...c, ...updates } : c)),
+        };
+        isCloudLoadedRef.current = true;
+        setTimeout(() => {
+            syncWithCloud();
+        }, 100);
     };
     const addSupplier = (sup: Omit<Supplier, 'id' | 'totalPurchased' | 'dueAmount'>): Supplier => {
         const newSup: Supplier = {
@@ -1574,16 +1632,79 @@ export const AppProvider: React.FC<{
             id: `sup-${Date.now()}`,
             totalPurchased: 0,
             dueAmount: 0,
+            balancePayable: sup.balancePayable ?? 0,
         };
-        setSuppliers((prev) => [newSup, ...prev]);
+        setSuppliers((prev) => {
+            const next = [newSup, ...prev.filter((s) => s.id !== newSup.id)];
+            try {
+                localStorage.setItem(`${STORAGE_KEY}_SUPPLIERS`, JSON.stringify(next));
+            } catch { }
+            return next;
+        });
+        latestStateRef.current = {
+            ...latestStateRef.current,
+            suppliers: [newSup, ...(latestStateRef.current.suppliers || []).filter((s) => s.id !== newSup.id)],
+        };
+        addAuditLog({
+            staffId: activeStaff?.id || 'sys',
+            staffName: activeStaff?.name || 'Staff',
+            staffRole: activeStaff?.role || 'Staff',
+            location: 'Factory',
+            actionType: 'SUPPLIER_UPDATED',
+            entityType: 'Supply Chain',
+            refNo: newSup.id,
+            details: `Enlisted new vendor / supplier: ${newSup.name} (${newSup.phone})`,
+            detailsBn: undefined,
+            severity: 'info',
+        });
+        isCloudLoadedRef.current = true;
+        setTimeout(() => {
+            syncWithCloud();
+        }, 100);
         return newSup;
     };
     const updateSupplier = (id: string, updates: Partial<Supplier>) => {
-        setSuppliers((prev) => prev.map((s) => (s.id === id ? { ...s, ...updates } : s)));
+        setSuppliers((prev) => {
+            const next = prev.map((s) => (s.id === id ? { ...s, ...updates } : s));
+            try {
+                localStorage.setItem(`${STORAGE_KEY}_SUPPLIERS`, JSON.stringify(next));
+            } catch { }
+            return next;
+        });
+        latestStateRef.current = {
+            ...latestStateRef.current,
+            suppliers: (latestStateRef.current.suppliers || []).map((s) => (s.id === id ? { ...s, ...updates } : s)),
+        };
+        addAuditLog({
+            staffId: activeStaff?.id || 'sys',
+            staffName: activeStaff?.name || 'Staff',
+            staffRole: activeStaff?.role || 'Staff',
+            location: 'Factory',
+            actionType: 'SUPPLIER_UPDATED',
+            entityType: 'Supply Chain',
+            refNo: id,
+            details: `Updated vendor details for: ${updates.name || id}`,
+            detailsBn: undefined,
+            severity: 'info',
+        });
+        isCloudLoadedRef.current = true;
+        setTimeout(() => {
+            syncWithCloud();
+        }, 100);
     };
     const deleteCustomer = (id: string) => {
         const cust = customers.find((c) => c.id === id);
-        setCustomers((prev) => prev.filter((c) => c.id !== id));
+        setCustomers((prev) => {
+            const next = prev.filter((c) => c.id !== id);
+            try {
+                localStorage.setItem(`${STORAGE_KEY}_CUSTOMERS`, JSON.stringify(next));
+            } catch { }
+            return next;
+        });
+        latestStateRef.current = {
+            ...latestStateRef.current,
+            customers: (latestStateRef.current.customers || []).filter((c) => c.id !== id),
+        };
         if (cust) {
             addAuditLog({
                 staffId: activeStaff.id,
@@ -1598,10 +1719,24 @@ export const AppProvider: React.FC<{
                 severity: 'warning',
             });
         }
+        isCloudLoadedRef.current = true;
+        setTimeout(() => {
+            syncWithCloud();
+        }, 100);
     };
     const deleteSupplier = (id: string) => {
         const sup = suppliers.find((s) => s.id === id);
-        setSuppliers((prev) => prev.filter((s) => s.id !== id));
+        setSuppliers((prev) => {
+            const next = prev.filter((s) => s.id !== id);
+            try {
+                localStorage.setItem(`${STORAGE_KEY}_SUPPLIERS`, JSON.stringify(next));
+            } catch { }
+            return next;
+        });
+        latestStateRef.current = {
+            ...latestStateRef.current,
+            suppliers: (latestStateRef.current.suppliers || []).filter((s) => s.id !== id),
+        };
         if (sup) {
             addAuditLog({
                 staffId: activeStaff.id,
@@ -1616,6 +1751,10 @@ export const AppProvider: React.FC<{
                 severity: 'warning',
             });
         }
+        isCloudLoadedRef.current = true;
+        setTimeout(() => {
+            syncWithCloud();
+        }, 100);
     };
     const deleteInvoice = (id: string) => {
         const inv = invoices.find((i) => i.id === id);
@@ -3147,22 +3286,112 @@ export const AppProvider: React.FC<{
                 setProfile(data.profile);
             }
             if (data.products && Array.isArray(data.products)) {
-                setProducts(data.products);
+                if (isCloudSync) {
+                    setProducts((prev) => {
+                        const map = new Map<string, ProductItem>();
+                        data.products.forEach((p: ProductItem) => {
+                            if (p && p.id) map.set(p.id, p);
+                        });
+                        prev.forEach((p) => {
+                            if (p && p.id && !map.has(p.id)) map.set(p.id, p);
+                        });
+                        const merged = Array.from(map.values());
+                        try { localStorage.setItem(`${STORAGE_KEY}_PRODUCTS`, JSON.stringify(merged)); } catch {}
+                        return merged;
+                    });
+                } else {
+                    setProducts(data.products);
+                }
             }
             if (data.customers && Array.isArray(data.customers)) {
-                setCustomers(data.customers);
+                if (isCloudSync) {
+                    setCustomers((prev) => {
+                        const map = new Map<string, Customer>();
+                        data.customers.forEach((c: Customer) => {
+                            if (c && c.id) map.set(c.id, c);
+                        });
+                        prev.forEach((c) => {
+                            if (c && c.id && !map.has(c.id)) map.set(c.id, c);
+                        });
+                        const merged = Array.from(map.values());
+                        try { localStorage.setItem(`${STORAGE_KEY}_CUSTOMERS`, JSON.stringify(merged)); } catch {}
+                        return merged;
+                    });
+                } else {
+                    setCustomers(data.customers);
+                }
             }
             if (data.suppliers && Array.isArray(data.suppliers)) {
-                setSuppliers(data.suppliers);
+                if (isCloudSync) {
+                    setSuppliers((prev) => {
+                        const map = new Map<string, Supplier>();
+                        data.suppliers.forEach((s: Supplier) => {
+                            if (s && s.id) map.set(s.id, s);
+                        });
+                        prev.forEach((s) => {
+                            if (s && s.id && !map.has(s.id)) map.set(s.id, s);
+                        });
+                        const merged = Array.from(map.values());
+                        try { localStorage.setItem(`${STORAGE_KEY}_SUPPLIERS`, JSON.stringify(merged)); } catch {}
+                        return merged;
+                    });
+                } else {
+                    setSuppliers(data.suppliers);
+                }
             }
             if (data.invoices && Array.isArray(data.invoices)) {
-                setInvoices(data.invoices);
+                if (isCloudSync) {
+                    setInvoices((prev) => {
+                        const map = new Map<string, SalesInvoice>();
+                        data.invoices.forEach((inv: SalesInvoice) => {
+                            if (inv && inv.id) map.set(inv.id, inv);
+                        });
+                        prev.forEach((inv) => {
+                            if (inv && inv.id && !map.has(inv.id)) map.set(inv.id, inv);
+                        });
+                        const merged = Array.from(map.values());
+                        try { localStorage.setItem(`${STORAGE_KEY}_INVOICES`, JSON.stringify(merged)); } catch {}
+                        return merged;
+                    });
+                } else {
+                    setInvoices(data.invoices);
+                }
             }
             if (data.quotations && Array.isArray(data.quotations)) {
-                setQuotations(data.quotations);
+                if (isCloudSync) {
+                    setQuotations((prev) => {
+                        const map = new Map<string, Quotation>();
+                        data.quotations.forEach((q: Quotation) => {
+                            if (q && q.id) map.set(q.id, q);
+                        });
+                        prev.forEach((q) => {
+                            if (q && q.id && !map.has(q.id)) map.set(q.id, q);
+                        });
+                        const merged = Array.from(map.values());
+                        try { localStorage.setItem(`${STORAGE_KEY}_QUOTATIONS`, JSON.stringify(merged)); } catch {}
+                        return merged;
+                    });
+                } else {
+                    setQuotations(data.quotations);
+                }
             }
             if (data.purchaseOrders && Array.isArray(data.purchaseOrders)) {
-                setPurchaseOrders(data.purchaseOrders);
+                if (isCloudSync) {
+                    setPurchaseOrders((prev) => {
+                        const map = new Map<string, PurchaseOrder>();
+                        data.purchaseOrders.forEach((po: PurchaseOrder) => {
+                            if (po && po.id) map.set(po.id, po);
+                        });
+                        prev.forEach((po) => {
+                            if (po && po.id && !map.has(po.id)) map.set(po.id, po);
+                        });
+                        const merged = Array.from(map.values());
+                        try { localStorage.setItem(`${STORAGE_KEY}_PURCHASE_ORDERS`, JSON.stringify(merged)); } catch {}
+                        return merged;
+                    });
+                } else {
+                    setPurchaseOrders(data.purchaseOrders);
+                }
             }
             if (data.transactions && Array.isArray(data.transactions)) {
                 setTransactions(ensureUniqueTransactions(data.transactions));
@@ -3238,6 +3467,10 @@ export const AppProvider: React.FC<{
                                     : new Date().toLocaleTimeString());
                                 isCloudLoadedRef.current = true;
                                 console.log('✅ Synchronized state from MongoDB Atlas!');
+                                // Flush merged local state back to MongoDB Atlas in case local had new items
+                                setTimeout(() => {
+                                    syncWithCloud();
+                                }, 300);
                             }
                             return;
                         }
@@ -3304,7 +3537,7 @@ export const AppProvider: React.FC<{
         }
         syncTimeoutRef.current = setTimeout(() => {
             syncWithCloud();
-        }, 2500);
+        }, 1200);
         return () => {
             if (syncTimeoutRef.current)
                 clearTimeout(syncTimeoutRef.current);

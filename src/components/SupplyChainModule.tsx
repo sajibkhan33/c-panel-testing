@@ -324,6 +324,7 @@ export const SupplyChainModule: React.FC = () => {
         if (editingSupplier) {
             updateSupplier(editingSupplier.id, {
                 name: newSupName,
+                company: newSupName,
                 contactPerson: newSupContact,
                 phone: newSupPhone,
                 address: newSupAddress,
@@ -332,10 +333,12 @@ export const SupplyChainModule: React.FC = () => {
                 bankName: legacyBankName,
                 bankAccounts: accountsToSave,
             });
+            setPoSuccessToast(`Vendor "${newSupName}" updated successfully!`);
         }
         else {
             const created = addSupplier({
                 name: newSupName,
+                company: newSupName,
                 contactPerson: newSupContact,
                 phone: newSupPhone,
                 address: newSupAddress,
@@ -349,6 +352,7 @@ export const SupplyChainModule: React.FC = () => {
                 setSelectedSupplierId(created.id);
                 setPoFormError(null);
             }
+            setPoSuccessToast(`Vendor "${newSupName}" enlisted successfully!`);
         }
         setShowSupplierModal(false);
         setEditingSupplier(null);
@@ -482,7 +486,7 @@ export const SupplyChainModule: React.FC = () => {
                 setShowSupplierModal(true);
             }} className="w-full md:w-auto px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 shadow-2xs">
               <Plus className="w-4 h-4 text-amber-400"/>
-              <span>{'+ Add Vendor'}</span>
+              <span>{'Add Vendor'}</span>
             </button>)}
 
           {activeSubTab === 'orders' && (<button type="button" onClick={() => openCreatePOModal()} className="w-full md:w-auto px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 shadow-2xs cursor-pointer">
