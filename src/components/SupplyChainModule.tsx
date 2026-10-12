@@ -126,14 +126,14 @@ export const SupplyChainModule: React.FC = () => {
                 : Math.max(0, (p.grandTotal ?? p.totalAmount ?? 0) - (p.paidAmount || 0))), 0);
         const pendingTotal = pendingPOs.reduce((acc, p) => acc + (p.grandTotal ?? p.totalAmount ?? 0), 0);
         const hasAnyPOs = pos.length > 0;
-        const totalBills = hasAnyPOs ? recTotal : Number(supplier.totalPurchased || 0);
+        const totalBills = hasAnyPOs ? recTotal : 0;
         const balanceDue = hasAnyPOs ? recDue : Number(supplier.balancePayable ?? supplier.dueAmount ?? 0);
-        const totalPaid = hasAnyPOs ? recPaid : Math.max(0, totalBills - balanceDue);
+        const totalPaid = hasAnyPOs ? pos.reduce((acc, p) => acc + (p.paidAmount || 0), 0) : 0;
         return { pos, receivedPOs, pendingPOs, totalBills, totalPaid, balanceDue, pendingTotal };
     };
     const totalProcurement = purchaseOrders.reduce((acc, po) => acc + (po.grandTotal ?? po.totalAmount ?? 0), 0);
     const totalPayableToSuppliers = (suppliers || []).reduce((acc, s) => acc + getSupplierFinancials(s).balanceDue, 0);
-    const totalPaidToSuppliers = Math.max((purchaseOrders || []).reduce((acc, po) => acc + (po.paidAmount || 0), 0), (suppliers || []).reduce((acc, s) => acc + getSupplierFinancials(s).totalPaid, 0));
+    const totalPaidToSuppliers = (purchaseOrders || []).reduce((acc, po) => acc + (po.paidAmount || 0), 0);
     const bankBalance = accountBalances?.bank ?? 0;
     const cashBalance = accountBalances?.cash ?? 0;
     const mobileBalance = accountBalances?.mobile ?? 0;

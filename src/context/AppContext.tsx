@@ -741,7 +741,20 @@ export const AppProvider: React.FC<{
                 setTransactions(updatedTxs);
             }
         }
-    }, [projects, chartOfAccounts, invoices, customers]);
+
+        // Sanitize orphaned supplier totalPurchased when purchase orders are empty
+        if ((purchaseOrders || []).length === 0 && (suppliers || []).some(s => (s.totalPurchased || 0) > 0)) {
+            const cleanedSuppliers = (suppliers || []).map(s => ({ ...s, totalPurchased: 0 }));
+            setSuppliers(cleanedSuppliers);
+            try {
+                localStorage.setItem(`${STORAGE_KEY}_SUPPLIERS`, JSON.stringify(cleanedSuppliers));
+            } catch {}
+            latestStateRef.current = {
+                ...latestStateRef.current,
+                suppliers: cleanedSuppliers,
+            };
+        }
+    }, [projects, chartOfAccounts, invoices, customers, purchaseOrders, suppliers]);
     const login = (staffIdOrPasscode: string, passcode?: string): {
         success: boolean;
         message: string;
@@ -3558,11 +3571,20 @@ export const AppProvider: React.FC<{
             });
         }
         else if (moduleKey === 'PURCHASES') {
+            const currentSuppliers = latestStateRef.current.suppliers || suppliers;
+            const zeroDuesSuppliers = currentSuppliers.map((s: Supplier) => ({
+                ...s,
+                totalPurchased: 0,
+                balancePayable: 0,
+                dueAmount: 0,
+            }));
+            setSuppliers(zeroDuesSuppliers);
             setPurchaseOrders([]);
             try {
+                localStorage.setItem(`${STORAGE_KEY}_SUPPLIERS`, JSON.stringify(zeroDuesSuppliers));
                 localStorage.setItem(`${STORAGE_KEY}_PURCHASE_ORDERS`, JSON.stringify([]));
             } catch {}
-            latestStateRef.current = { ...latestStateRef.current, purchaseOrders: [] };
+            latestStateRef.current = { ...latestStateRef.current, purchaseOrders: [], suppliers: zeroDuesSuppliers };
             addAuditLog({
                 staffId: activeStaff.id,
                 staffName: activeStaff.name,
@@ -3716,7 +3738,7 @@ export const AppProvider: React.FC<{
             const zeroStockProducts = (latestStateRef.current.products || products).map((p: ProductItem) => ({ ...p, stockFactory: 0, stockOffice: 0 }));
             const zeroBalCOA = (latestStateRef.current.chartOfAccounts || chartOfAccounts).map((acc: ChartOfAccount) => ({ ...acc, openingBalance: 0, currentBalance: 0 }));
             const zeroDuesCustomers = (latestStateRef.current.customers || customers).map((c: Customer) => ({ ...c, totalPurchased: 0, dueAmount: 0 }));
-            const zeroDuesSuppliers = (latestStateRef.current.suppliers || suppliers).map((s: Supplier) => ({ ...s, balancePayable: 0, dueAmount: 0 }));
+            const zeroDuesSuppliers = (latestStateRef.current.suppliers || suppliers).map((s: Supplier) => ({ ...s, totalPurchased: 0, balancePayable: 0, dueAmount: 0 }));
 
             setInvoices([]);
             setQuotations([]);
