@@ -666,13 +666,23 @@ export const AppProvider: React.FC<{
                 }
             }
             // 4. Dedicated Project Revenue Account (4002 / 4051 Project Sales)
-            const isProjectRev = (revAcc && acc.id === revAcc.id) || acc.code === '4002' || acc.code === '4051' || acc.name.toLowerCase().trim() === 'project sales';
+            const isProjectRev = acc.classification === 'Revenue' && (
+                (revAcc && acc.id === revAcc.id) || 
+                acc.code === '4002' || 
+                acc.code === '4051' || 
+                acc.code === '4060' ||
+                acc.id === 'coa-4002' ||
+                acc.id === 'coa-4051' ||
+                acc.name.toLowerCase().includes('project') ||
+                acc.nameBn?.includes('প্রজেক্ট')
+            );
             if (isProjectRev) {
                 const targetRevBal = (acc.openingBalance || 0) + totalPrjSales;
                 if (acc.currentBalance !== targetRevBal) {
                     coaNeedsUpdate = true;
                     return { ...acc, currentBalance: targetRevBal };
                 }
+                return acc;
             }
             // 5. Dedicated Customer Accounts Receivable Account (1003 / 1050 / Accounts Receivable - Customers)
             const isCustomerReceivable = acc.classification === 'Asset' && (
@@ -694,6 +704,7 @@ export const AppProvider: React.FC<{
                     coaNeedsUpdate = true;
                     return { ...acc, currentBalance: targetReceivableBal };
                 }
+                return acc;
             }
 
             // 4. Dedicated Accounts Payable (Suppliers) Account (2001 / 2010 / coa-2010)
@@ -715,18 +726,18 @@ export const AppProvider: React.FC<{
                     coaNeedsUpdate = true;
                     return { ...acc, currentBalance: targetPayableBal };
                 }
+                return acc;
             }
 
-            // 5. Sales Revenue Account (4001)
-            const isSalesRevenue = (
-                acc.classification === 'Revenue' && (
-                    acc.code === '4001' ||
-                    acc.code === '4010' ||
-                    acc.id === 'coa-4001' ||
-                    acc.name.toLowerCase().includes('sales revenue') ||
-                    acc.nameBn?.includes('বিক্রয়') ||
-                    acc.nameBn?.includes('বিক্রয়')
-                )
+            // 5. Sales Revenue Account (4001 / General Invoices) - strictly exclude Project Revenue
+            const isSalesRevenue = !isProjectRev && acc.classification === 'Revenue' && (
+                acc.code === '4001' ||
+                acc.code === '4010' ||
+                acc.id === 'coa-4001' ||
+                acc.name.toLowerCase().includes('sales revenue') ||
+                acc.name.toLowerCase().trim() === 'sales' ||
+                acc.nameBn?.includes('বিক্রয়') ||
+                acc.nameBn?.includes('বিক্রয়')
             );
             if (isSalesRevenue) {
                 const totalInvoiceSales = (invoices || []).reduce((s, inv) => s + (Number(inv.grandTotal) || (Number(inv.paidAmount) + Number(inv.dueAmount)) || 0), 0);
@@ -751,6 +762,7 @@ export const AppProvider: React.FC<{
                     coaNeedsUpdate = true;
                     return { ...acc, currentBalance: targetSalesBal };
                 }
+                return acc;
             }
 
             // 6. Customer Advance Liability (2020 / 2002 / coa-2020)
@@ -792,7 +804,7 @@ export const AppProvider: React.FC<{
             }
 
             // 6. Any other dynamic User-created Revenue Account
-            const isOtherRevenue = acc.classification === 'Revenue' && !isSalesRevenue && !acc.name.toLowerCase().includes('project');
+            const isOtherRevenue = acc.classification === 'Revenue' && !isSalesRevenue && !isProjectRev;
             if (isOtherRevenue) {
                 const accNameLower = (acc.name || '').toLowerCase();
                 const accNameBn = (acc.nameBn || '').toLowerCase();
@@ -3371,7 +3383,7 @@ export const AppProvider: React.FC<{
     };
 
     const resolveProjectRevenueAccount = () => {
-        return chartOfAccounts.find(a => a.classification === 'Revenue' && (a.code === '4051' || a.name.toLowerCase().includes('project') || a.code === '4060')) ||
+        return chartOfAccounts.find(a => a.classification === 'Revenue' && (a.code === '4002' || a.code === '4051' || a.id === 'coa-4002' || a.id === 'coa-4051' || a.name.toLowerCase().includes('project') || a.code === '4060')) ||
                chartOfAccounts.find(a => a.classification === 'Revenue' && a.code === '4020') ||
                chartOfAccounts.find(a => a.classification === 'Revenue') ||
                chartOfAccounts[0];

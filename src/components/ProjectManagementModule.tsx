@@ -138,7 +138,7 @@ export const ProjectManagementModule: React.FC = () => {
 
 
     const projectRevAcc = useMemo(() => {
-        return chartOfAccounts.find(a => a.classification === 'Revenue' && (a.code === '4051' || a.name.toLowerCase().includes('project') || a.code === '4060')) || { code: '4051', name: 'Project Sales Income', id: 'coa-4051' };
+        return chartOfAccounts.find(a => a.classification === 'Revenue' && (a.code === '4002' || a.code === '4051' || a.id === 'coa-4002' || a.id === 'coa-4051' || a.name.toLowerCase().includes('project') || a.code === '4060')) || { code: '4002', name: 'Project Sales', id: 'coa-4002' };
     }, [chartOfAccounts]);
 
     const projectExpAcc = useMemo(() => {

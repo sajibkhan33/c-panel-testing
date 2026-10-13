@@ -66,13 +66,16 @@ export const ChartOfAccountsManager: React.FC = () => {
             !a.name.toLowerCase().includes('project') && 
             !a.nameBn?.includes('প্রজেক্ট') && 
             a.code !== '4002' && 
-            a.id !== 'coa-4002'
+            a.code !== '4051' &&
+            a.code !== '4060' &&
+            a.id !== 'coa-4002' &&
+            a.id !== 'coa-4051'
         );
         const primarySalesAccountId = (
             nonProjectRevenueAccounts.find(a => a.id === 'coa-4001') ||
             nonProjectRevenueAccounts.find(a => a.isSystem) ||
-            nonProjectRevenueAccounts.find(a => a.name.toLowerCase().includes('sales') || a.nameBn?.includes('বিক্রয়') || a.nameBn?.includes('বিক্রয়')) ||
             nonProjectRevenueAccounts.find(a => a.code === '4001' || a.code === '4010') ||
+            nonProjectRevenueAccounts.find(a => a.name.toLowerCase().includes('sales') || a.nameBn?.includes('বিক্রয়') || a.nameBn?.includes('বিক্রয়')) ||
             nonProjectRevenueAccounts[0]
         )?.id;
 
@@ -149,14 +152,31 @@ export const ChartOfAccountsManager: React.FC = () => {
                     }
                 }
             } else if (acc.classification === 'Revenue') {
-                const isProjectRev = acc.id === 'coa-4002' || acc.code === '4002' || acc.code === '4051' || acc.code === '4060' || nameLower.includes('project') || nameBn.includes('প্রজেক্ট');
-                const isSalesRev = acc.id === primarySalesAccountId || acc.code === '4001' || acc.code === '4010' || nameLower.includes('sales') || nameBn.includes('বিক্রয়') || nameBn.includes('বিক্রয়');
+                const isProjectRev = (
+                    acc.id === 'coa-4002' || 
+                    acc.id === 'coa-4051' || 
+                    acc.code === '4002' || 
+                    acc.code === '4051' || 
+                    acc.code === '4060' || 
+                    nameLower.includes('project') || 
+                    nameBn.includes('প্রজেক্ট')
+                );
+                const isSalesRev = !isProjectRev && (
+                    acc.id === primarySalesAccountId || 
+                    acc.code === '4001' || 
+                    acc.code === '4010' || 
+                    acc.id === 'coa-4001' ||
+                    nameLower.includes('sales revenue') || 
+                    nameLower.trim() === 'sales' ||
+                    (nameLower.includes('sales') && !nameLower.includes('project')) || 
+                    ((nameBn.includes('বিক্রয়') || nameBn.includes('বিক্রয়')) && !nameBn.includes('প্রজেক্ট'))
+                );
 
                 if (isProjectRev) {
                     const projectMatching = (transactions || [])
                         .filter(t => t.type === 'INCOME' && isProjectTransaction(t))
                         .reduce((s, t) => s + t.amount, 0);
-                    liveBal = Math.max(acc.currentBalance, projectMatching, totalProjectSales);
+                    liveBal = (acc.openingBalance || 0) + Math.max(projectMatching, totalProjectSales);
                 } else if (isSalesRev) {
                     // Invoice payments are already counted in totalInvoiceSales (accrual basis).
                     // We also include invoiceSalesFromTx as fallback if invoices array is empty.
@@ -265,6 +285,8 @@ export const ChartOfAccountsManager: React.FC = () => {
         let totalEquity = 0;
         let totalRevenue = 0;
         let totalExpenses = 0;
+        let salesRevenue = 0;
+        let projectRevenue = 0;
         liveAccounts.forEach((acc) => {
             if (acc.classification === 'Asset')
                 totalAssets += acc.currentBalance;
@@ -272,8 +294,23 @@ export const ChartOfAccountsManager: React.FC = () => {
                 totalLiabilities += acc.currentBalance;
             else if (acc.classification === 'Equity')
                 totalEquity += acc.currentBalance;
-            else if (acc.classification === 'Revenue')
+            else if (acc.classification === 'Revenue') {
                 totalRevenue += acc.currentBalance;
+                const isPrj = (
+                    acc.code === '4002' || 
+                    acc.code === '4051' || 
+                    acc.code === '4060' || 
+                    acc.id === 'coa-4002' || 
+                    acc.id === 'coa-4051' || 
+                    (acc.name || '').toLowerCase().includes('project') || 
+                    (acc.nameBn || '').includes('প্রজেক্ট')
+                );
+                if (isPrj) {
+                    projectRevenue += acc.currentBalance;
+                } else {
+                    salesRevenue += acc.currentBalance;
+                }
+            }
             else if (acc.classification === 'Expense')
                 totalExpenses += acc.currentBalance;
         });
@@ -285,9 +322,12 @@ export const ChartOfAccountsManager: React.FC = () => {
             totalLiabilities, 
             totalEquity, 
             totalRevenue, 
+            salesRevenue,
+            projectRevenue,
             totalExpenses: Math.max(totalExpenses, txExpense) 
         };
     }, [liveAccounts, transactions]);
+
     const filteredAccounts = useMemo(() => {
         return liveAccounts.filter((acc) => {
             if (filterClassification !== 'ALL' && acc.classification !== filterClassification) {
@@ -302,6 +342,10 @@ export const ChartOfAccountsManager: React.FC = () => {
                 acc.accountGroup.toLowerCase().includes(q));
         });
     }, [liveAccounts, filterClassification, searchQuery]);
+
+    const filteredAccountsTotal = useMemo(() => {
+        return filteredAccounts.reduce((sum, acc) => sum + (Number(acc.currentBalance) || 0), 0);
+    }, [filteredAccounts]);
     const generateNextCode = (cls: string, group: string): string => {
         // 1. Find max code within exact same Classification + Account Group
         const sameGroupAccounts = chartOfAccounts.filter((a) => a.classification === cls && a.accountGroup.toLowerCase() === group.toLowerCase());
@@ -522,6 +566,9 @@ export const ChartOfAccountsManager: React.FC = () => {
           <span className="text-base sm:text-lg font-black text-emerald-600">
             {profile.currencySymbol}{stats.totalRevenue.toLocaleString()}
           </span>
+          <span className="text-[10px] text-slate-400 font-semibold block mt-0.5 truncate" title={`Sales Revenue: ${profile.currencySymbol}${stats.salesRevenue.toLocaleString()} + Project Sales: ${profile.currencySymbol}${stats.projectRevenue.toLocaleString()}`}>
+            Sales: {profile.currencySymbol}{stats.salesRevenue.toLocaleString()} + Prj: {profile.currencySymbol}{stats.projectRevenue.toLocaleString()}
+          </span>
         </div>
 
         <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-2xs col-span-2 sm:col-span-1">
@@ -536,8 +583,8 @@ export const ChartOfAccountsManager: React.FC = () => {
 
       {/* Projects Integration Status Bar */}
       {(() => {
-        const projectRevAcc = chartOfAccounts.find(a => a.classification === 'Revenue' && (a.name.toLowerCase().includes('project') || a.code === '4002' || a.code === '4051' || a.code === '4060')) || { code: '4002', name: 'Project Sales' };
-        const projectExpAcc = chartOfAccounts.find(a => a.classification === 'Expense' && (a.name.toLowerCase().includes('project') || a.code === '5206')) || { code: '5206', name: 'Project Expense' };
+        const projectRevAcc = chartOfAccounts.find(a => a.classification === 'Revenue' && (a.code === '4002' || a.code === '4051' || a.code === '4060' || a.name.toLowerCase().includes('project'))) || { code: '4002', name: 'Project Sales' };
+        const projectExpAcc = chartOfAccounts.find(a => a.classification === 'Expense' && (a.code === '5206' || a.name.toLowerCase().includes('project'))) || { code: '5206', name: 'Project Expense' };
         const totalSales = (projects || []).reduce((s, p) => s + (p.totalSales || 0), 0);
         const totalExpenses = (projects || []).reduce((s, p) => s + (p.totalExpenses || 0), 0);
 
@@ -546,9 +593,10 @@ export const ChartOfAccountsManager: React.FC = () => {
             <div className="flex items-center gap-2 text-emerald-900 font-bold">
               <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
               <span>
-                Projects Dynamic Alignment Active: {(projects || []).length} Projects Synced • 
-                Revenue: {profile.currencySymbol}{totalSales.toLocaleString()} ([{projectRevAcc.code}] {projectRevAcc.name}) | 
-                Expenses: {profile.currencySymbol}{totalExpenses.toLocaleString()} ([{projectExpAcc.code}] {projectExpAcc.name})
+                Projects Dynamic Alignment: {(projects || []).length} Synced • 
+                Project Sales: {profile.currencySymbol}{totalSales.toLocaleString()} ([{projectRevAcc.code}] {projectRevAcc.name}) | 
+                Project Expenses: {profile.currencySymbol}{totalExpenses.toLocaleString()} ([{projectExpAcc.code}] {projectExpAcc.name}) • 
+                <span className="text-emerald-950 font-black ml-1">Total System Revenue: {profile.currencySymbol}{stats.totalRevenue.toLocaleString()}</span>
               </span>
             </div>
             <button
@@ -628,12 +676,12 @@ export const ChartOfAccountsManager: React.FC = () => {
           <table className="w-full text-left text-xs border-collapse">
             <thead>
               <tr className="bg-slate-50 text-[11px] font-bold text-slate-500 uppercase border-b border-slate-200">
-                <th className="py-3 px-4"></th>
+                <th className="py-3 px-4">Code</th>
                 <th className="py-3 px-4">Description</th>
                 <th className="py-3 px-4">Class</th>
                 <th className="py-3 px-4">Account Group</th>
-                <th className="py-3 px-4 text-center"></th>
-                <th className="py-3 px-4 text-right"></th>
+                <th className="py-3 px-4 text-center">Normal Bal</th>
+                <th className="py-3 px-4 text-right">Current Balance</th>
                 <th className="py-3 px-4 text-center">Status</th>
                 <th className="py-3 px-4 text-right">Actions</th>
               </tr>
@@ -685,6 +733,23 @@ export const ChartOfAccountsManager: React.FC = () => {
                     </td>
                   </tr>)))}
             </tbody>
+            {filteredAccounts.length > 0 && (
+              <tfoot>
+                <tr className="bg-slate-50/90 border-t-2 border-slate-300 font-bold">
+                  <td colSpan={5} className="py-3.5 px-4 text-right text-xs uppercase tracking-wider text-slate-700">
+                    {filterClassification === 'ALL'
+                      ? 'Total Balance (Filtered Accounts):'
+                      : `Total ${filterClassification}:`}
+                  </td>
+                  <td className="py-3.5 px-4 text-right font-black font-mono text-emerald-700 text-sm">
+                    {profile.currencySymbol}{filteredAccountsTotal.toLocaleString()}
+                  </td>
+                  <td colSpan={2} className="py-3.5 px-4 text-center text-[11px] text-slate-500 font-medium">
+                    {filteredAccounts.length} {filteredAccounts.length === 1 ? 'Account' : 'Accounts'}
+                  </td>
+                </tr>
+              </tfoot>
+            )}
           </table>
         </div>
       </div>
