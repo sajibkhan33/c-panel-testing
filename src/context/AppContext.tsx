@@ -631,24 +631,77 @@ export const AppProvider: React.FC<{
     useEffect(() => {
         if (!chartOfAccounts || chartOfAccounts.length === 0) return;
 
-        const revAcc = chartOfAccounts.find(a => a.classification === 'Revenue' && (a.name.toLowerCase().includes('project') || a.code === '4002' || a.code === '4051' || a.code === '4060'));
-        const expAcc = chartOfAccounts.find(a => a.classification === 'Expense' && (a.name.toLowerCase().includes('project') || a.code === '5206')) ||
+        const totalPrjSales = (projects || []).reduce((s, p) => s + (p.totalSales || 0), 0);
+        const totalPrjExpenses = (projects || []).reduce((s, p) => s + (p.totalExpenses || 0), 0);
+
+        let revAcc = chartOfAccounts.find(a => a.classification === 'Revenue' && (a.code === '4002' || a.code === '4051' || a.code === '4060' || a.id === 'coa-4002' || a.id === 'coa-4051' || a.name.toLowerCase().includes('project')));
+        let expAcc = chartOfAccounts.find(a => a.classification === 'Expense' && (a.code === '5206' || a.id === 'coa-5206' || a.name.toLowerCase().includes('project'))) ||
                        chartOfAccounts.find(a => a.classification === 'Expense' && a.code === '5100' && a.name.toLowerCase().includes('project'));
         const cogsAcc = chartOfAccounts.find(a => a.classification === 'Expense' && (a.code === '5010' || a.name.toLowerCase().includes('raw') || a.name.toLowerCase().includes('cost')));
 
-        const totalPrjSales = (projects || []).reduce((s, p) => s + (p.totalSales || 0), 0);
-        const totalPrjExpenses = (projects || []).reduce((s, p) => s + (p.totalExpenses || 0), 0);
+        // Auto-provision 5206 Project Expense if missing from Chart of Accounts
+        if (!expAcc) {
+            const newExpAcc: ChartOfAccount = {
+                id: 'coa-5206',
+                code: '5206',
+                name: 'Project Expense',
+                nameBn: 'প্রজেক্ট খরচ',
+                classification: 'Expense',
+                accountGroup: 'Operating Expenses',
+                normalBalance: 'Debit',
+                openingBalance: 0,
+                currentBalance: totalPrjExpenses,
+                description: 'Direct expenditures, venue execution, logistics, transport, and site installation for customer projects',
+                isSystem: true,
+                isActive: true,
+            };
+            const withExp = [...chartOfAccounts, newExpAcc];
+            setChartOfAccounts(withExp);
+            try {
+                localStorage.setItem(`${STORAGE_KEY}_COA`, JSON.stringify(withExp));
+            } catch {}
+            latestStateRef.current = { ...latestStateRef.current, chartOfAccounts: withExp };
+            triggerImmediatePush();
+            return;
+        }
+
+        // Auto-provision 4002 Project Sales if missing from Chart of Accounts
+        if (!revAcc) {
+            const newRevAcc: ChartOfAccount = {
+                id: 'coa-4002',
+                code: '4002',
+                name: 'Project Sales',
+                nameBn: 'প্রজেক্ট সেলস',
+                classification: 'Revenue',
+                accountGroup: 'Operating Revenue',
+                normalBalance: 'Credit',
+                openingBalance: 0,
+                currentBalance: totalPrjSales,
+                description: 'Revenue from large-scale corporate projects, outdoor signboards, and event fabrications',
+                isSystem: true,
+                isActive: true,
+            };
+            const withRev = [...chartOfAccounts, newRevAcc];
+            setChartOfAccounts(withRev);
+            try {
+                localStorage.setItem(`${STORAGE_KEY}_COA`, JSON.stringify(withRev));
+            } catch {}
+            latestStateRef.current = { ...latestStateRef.current, chartOfAccounts: withRev };
+            triggerImmediatePush();
+            return;
+        }
 
         let coaNeedsUpdate = false;
         const updatedCOA = chartOfAccounts.map(acc => {
             // 1. Dedicated Project Expense Account
-            const isProjectExp = (expAcc && acc.id === expAcc.id) || acc.code === '5206' || acc.name.toLowerCase().trim() === 'project expense';
+            const isProjectExp = (expAcc && acc.id === expAcc.id) || acc.code === '5206' || acc.id === 'coa-5206' || acc.name.toLowerCase().trim() === 'project expense';
             if (isProjectExp) {
                 const targetExpBal = (acc.openingBalance || 0) + totalPrjExpenses;
                 if (acc.currentBalance !== targetExpBal) {
                     coaNeedsUpdate = true;
                     return { ...acc, currentBalance: targetExpBal };
                 }
+                return acc;
             }
             // 2. Cost of Goods Sold Account (5010) - recover if it mistakenly absorbed project expenses
             if (cogsAcc && acc.id === cogsAcc.id) {
@@ -658,7 +711,7 @@ export const AppProvider: React.FC<{
                     return { ...acc, currentBalance: correctedBal };
                 }
             }
-            // 3. Fix: If any non-project expense account (like 5100 Wastage Expense) wrongly had totalPrjExpenses assigned, revert it:
+            // 3. Fix: If any non-project expense account (like 5100 or 5201 Staff Salaries) wrongly had totalPrjExpenses assigned, revert it:
             if (acc.classification === 'Expense' && !isProjectExp && !acc.name.toLowerCase().includes('project')) {
                 if (totalPrjExpenses > 0 && acc.currentBalance === totalPrjExpenses) {
                     coaNeedsUpdate = true;
@@ -3332,7 +3385,7 @@ export const AppProvider: React.FC<{
     };
 
     const resolveProjectExpenseAccount = () => {
-        return chartOfAccounts.find(a => a.classification === 'Expense' && (a.name.toLowerCase().includes('project') || a.code === '5206')) ||
+        return chartOfAccounts.find(a => a.classification === 'Expense' && (a.code === '5206' || a.id === 'coa-5206' || a.name.toLowerCase().includes('project'))) ||
                chartOfAccounts.find(a => a.classification === 'Expense' && a.code === '5100' && a.name.toLowerCase().includes('project')) ||
                chartOfAccounts.find(a => a.classification === 'Expense' && (a.code === '5010' || a.name.toLowerCase().includes('raw') || a.name.toLowerCase().includes('cost'))) ||
                chartOfAccounts.find(a => a.classification === 'Expense') ||

@@ -772,8 +772,8 @@ export const INITIAL_CHART_OF_ACCOUNTS: ChartOfAccount[] = [
         isActive: true,
     },
     {
-        id: 'coa-5100',
-        code: '5100',
+        id: 'coa-5206',
+        code: '5206',
         name: 'Project Expense',
         nameBn: 'প্রজেক্ট খরচ',
         classification: 'Expense',

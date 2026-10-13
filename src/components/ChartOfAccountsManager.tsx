@@ -244,20 +244,30 @@ export const ChartOfAccountsManager: React.FC = () => {
                     liveBal = Math.max(acc.currentBalance, (acc.openingBalance || 0) + matchingDirect);
                 }
             } else if (acc.classification === 'Expense') {
-                const isProjectExp = nameLower.includes('project') || acc.code === '5206';
-                const matching = (transactions || [])
-                    .filter(t => t.type === 'EXPENSE' && (
-                        (t.category && nameLower.includes(t.category.toLowerCase())) ||
-                        (t.accountHead && nameLower.includes(t.accountHead.toLowerCase())) ||
-                        (isProjectExp && (t.category?.toLowerCase().includes('project') || t.refNo?.startsWith('PRJ-')))
-                    ))
-                    .reduce((s, t) => s + t.amount, 0);
+                const isProjectExp = (
+                    acc.id === 'coa-5206' || 
+                    acc.code === '5206' || 
+                    nameLower.includes('project') || 
+                    nameBn.includes('প্রজেক্ট')
+                );
+
+                const isPrjTx = (t: any) => (
+                    isProjectTransaction(t) || 
+                    (t.refNo && (t.refNo.startsWith('PRJ-') || (projects || []).some(p => p.code === t.refNo)))
+                );
 
                 if (isProjectExp) {
-                    liveBal = Math.max(acc.currentBalance, matching, totalProjectExpenses);
+                    const projectMatching = (transactions || [])
+                        .filter(t => t.type === 'EXPENSE' && (
+                            isPrjTx(t) ||
+                            (t.category && (t.category.toLowerCase().includes('project') || t.category.toLowerCase().includes('প্রজেক্ট'))) ||
+                            (t.accountHead && (t.accountHead.toLowerCase().includes('project') || t.accountHead.toLowerCase().includes('প্রজেক্ট')))
+                        ))
+                        .reduce((s, t) => s + t.amount, 0);
+                    liveBal = (acc.openingBalance || 0) + Math.max(projectMatching, totalProjectExpenses);
                 } else if (acc.code === '5010') {
                     const poExpenses = (transactions || [])
-                        .filter(t => t.type === 'EXPENSE' && !t.refNo?.startsWith('PRJ-') && (
+                        .filter(t => t.type === 'EXPENSE' && !isPrjTx(t) && (
                             (t.category && (t.category.toLowerCase().includes('raw') || t.category.toLowerCase().includes('purchase') || t.category.toLowerCase().includes('po'))) ||
                             (t.description && (t.description.toLowerCase().includes('purchase') || t.description.toLowerCase().includes('po')))
                         ))
@@ -266,8 +276,18 @@ export const ChartOfAccountsManager: React.FC = () => {
                         ? (acc.openingBalance || 0)
                         : (acc.currentBalance > totalProjectExpenses ? acc.currentBalance - totalProjectExpenses : acc.currentBalance);
                     liveBal = Math.max(base5010, poExpenses);
-                } else if (matching > 0) {
-                    liveBal = Math.max(acc.currentBalance, matching);
+                } else {
+                    const matching = (transactions || [])
+                        .filter(t => t.type === 'EXPENSE' && !isPrjTx(t) && (
+                            (t.category && nameLower.includes(t.category.toLowerCase())) ||
+                            (t.accountHead && nameLower.includes(t.accountHead.toLowerCase()))
+                        ))
+                        .reduce((s, t) => s + t.amount, 0);
+                    // Reclaim if non-project account mistakenly absorbed project expenses
+                    const baseBal = (acc.currentBalance === totalProjectExpenses && totalProjectExpenses > 0)
+                        ? (acc.openingBalance || 0)
+                        : acc.currentBalance;
+                    liveBal = Math.max(baseBal, matching);
                 }
             }
 
@@ -287,6 +307,8 @@ export const ChartOfAccountsManager: React.FC = () => {
         let totalExpenses = 0;
         let salesRevenue = 0;
         let projectRevenue = 0;
+        let generalExpenses = 0;
+        let projectExpenses = 0;
         liveAccounts.forEach((acc) => {
             if (acc.classification === 'Asset')
                 totalAssets += acc.currentBalance;
@@ -311,8 +333,20 @@ export const ChartOfAccountsManager: React.FC = () => {
                     salesRevenue += acc.currentBalance;
                 }
             }
-            else if (acc.classification === 'Expense')
+            else if (acc.classification === 'Expense') {
                 totalExpenses += acc.currentBalance;
+                const isPrj = (
+                    acc.code === '5206' || 
+                    acc.id === 'coa-5206' || 
+                    (acc.name || '').toLowerCase().includes('project') || 
+                    (acc.nameBn || '').includes('প্রজেক্ট')
+                );
+                if (isPrj) {
+                    projectExpenses += acc.currentBalance;
+                } else {
+                    generalExpenses += acc.currentBalance;
+                }
+            }
         });
 
         const txExpense = (transactions || []).filter(t => t.type === 'EXPENSE').reduce((s, t) => s + t.amount, 0);
@@ -324,6 +358,8 @@ export const ChartOfAccountsManager: React.FC = () => {
             totalRevenue, 
             salesRevenue,
             projectRevenue,
+            generalExpenses,
+            projectExpenses,
             totalExpenses: Math.max(totalExpenses, txExpense) 
         };
     }, [liveAccounts, transactions]);
@@ -578,13 +614,16 @@ export const ChartOfAccountsManager: React.FC = () => {
           <span className="text-base sm:text-lg font-black text-rose-600">
             {profile.currencySymbol}{stats.totalExpenses.toLocaleString()}
           </span>
+          <span className="text-[10px] text-slate-400 font-semibold block mt-0.5 truncate" title={`General Expenses: ${profile.currencySymbol}${stats.generalExpenses.toLocaleString()} + Project Expenses: ${profile.currencySymbol}${stats.projectExpenses.toLocaleString()}`}>
+            General: {profile.currencySymbol}{stats.generalExpenses.toLocaleString()} + Prj: {profile.currencySymbol}{stats.projectExpenses.toLocaleString()}
+          </span>
         </div>
       </div>
 
       {/* Projects Integration Status Bar */}
       {(() => {
-        const projectRevAcc = chartOfAccounts.find(a => a.classification === 'Revenue' && (a.code === '4002' || a.code === '4051' || a.code === '4060' || a.name.toLowerCase().includes('project'))) || { code: '4002', name: 'Project Sales' };
-        const projectExpAcc = chartOfAccounts.find(a => a.classification === 'Expense' && (a.code === '5206' || a.name.toLowerCase().includes('project'))) || { code: '5206', name: 'Project Expense' };
+        const projectRevAcc = chartOfAccounts.find(a => a.classification === 'Revenue' && (a.code === '4002' || a.code === '4051' || a.code === '4060' || a.id === 'coa-4002' || a.name.toLowerCase().includes('project'))) || { code: '4002', name: 'Project Sales' };
+        const projectExpAcc = chartOfAccounts.find(a => a.classification === 'Expense' && (a.code === '5206' || a.id === 'coa-5206' || a.name.toLowerCase().includes('project'))) || { code: '5206', name: 'Project Expense' };
         const totalSales = (projects || []).reduce((s, p) => s + (p.totalSales || 0), 0);
         const totalExpenses = (projects || []).reduce((s, p) => s + (p.totalExpenses || 0), 0);
 
