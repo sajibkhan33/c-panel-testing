@@ -2,7 +2,7 @@ import React, { createContext, useContext, useState, useEffect, useMemo, useRef 
 import { CompanyProfile, ProductItem, Customer, Supplier, SalesInvoice, Quotation, PurchaseOrder, AccountingTransaction, StockMovement, Language, LocationType, AccountBalances, StaffMember, StaffRole, AuditLogEntry, ChartOfAccount, ExpenseHead, ProductCategory, UserRole, RolePermission, JournalEntry, Project, ProjectExpenseItem, ProjectSalesItem, PaymentMethodConfig, PaymentStatus } from '../types';
 import { INITIAL_COMPANY_PROFILE, INITIAL_PRODUCTS, INITIAL_CUSTOMERS, INITIAL_SUPPLIERS, INITIAL_INVOICES, INITIAL_PURCHASE_ORDERS, INITIAL_TRANSACTIONS, INITIAL_QUOTATIONS, INITIAL_STOCK_MOVEMENTS, INITIAL_STAFF_MEMBERS, INITIAL_AUDIT_LOGS, } from '../data/initialData';
 import { INITIAL_CHART_OF_ACCOUNTS, INITIAL_EXPENSE_HEADS, INITIAL_PRODUCT_CATEGORIES, INITIAL_USER_ROLES, INITIAL_JOURNAL_ENTRIES, INITIAL_PROJECTS, ALL_SYSTEM_PERMISSIONS, INITIAL_PAYMENT_METHODS, } from '../data/accountingAndConfigData';
-import { matchChannelToAccount, calculateSingleAccountBalance, getBankAccountsBreakdown, getMfsAccountsBreakdown, getCashAccountsBreakdown } from '../utils/accountUtils';
+import { matchChannelToAccount, calculateSingleAccountBalance, getBankAccountsBreakdown, getMfsAccountsBreakdown, getCashAccountsBreakdown, isInvoiceTransaction, isProjectTransaction } from '../utils/accountUtils';
 const STORAGE_KEY = 'DOT_COLOR_ERP_V1_STATE';
 interface AppContextType {
     profile: CompanyProfile;
@@ -707,18 +707,41 @@ export const AppProvider: React.FC<{
             );
             if (isSalesRevenue) {
                 const totalInvoiceSales = (invoices || []).reduce((s, inv) => s + (Number(inv.grandTotal) || (Number(inv.paidAmount) + Number(inv.dueAmount)) || 0), 0);
-                const txSalesRevenue = (transactions || []).filter(t => t.type === 'INCOME' && (
-                    t.category?.toLowerCase().includes('sales') ||
-                    t.category?.toLowerCase().includes('due collection') ||
-                    t.category?.toLowerCase().includes('pos') ||
-                    t.refNo?.startsWith('DCC-INV-') ||
-                    t.description?.toLowerCase().includes('invoice') ||
-                    t.description?.toLowerCase().includes('pos payment')
+                const invoiceSalesFromTx = (transactions || []).filter(t => t.type === 'INCOME' && isInvoiceTransaction(t)).reduce((s, t) => s + t.amount, 0);
+                const effectiveInvoiceSales = Math.max(totalInvoiceSales, invoiceSalesFromTx);
+                const directSalesRevenue = (transactions || []).filter(t => t.type === 'INCOME' && !isInvoiceTransaction(t) && !isProjectTransaction(t) && (
+                    (t.category && (
+                        t.category.toLowerCase().includes('sales') ||
+                        t.category.toLowerCase().includes('বিক্রয়') ||
+                        t.category.toLowerCase().includes('বিক্রয়')
+                    )) ||
+                    t.refNo?.startsWith('INC-')
                 )).reduce((s, t) => s + t.amount, 0);
-                const targetSalesBal = Math.max(acc.openingBalance || 0, totalInvoiceSales, txSalesRevenue);
+                const targetSalesBal = (acc.openingBalance || 0) + effectiveInvoiceSales + directSalesRevenue;
                 if (targetSalesBal > 0 && acc.currentBalance !== targetSalesBal) {
                     coaNeedsUpdate = true;
                     return { ...acc, currentBalance: targetSalesBal };
+                }
+            }
+
+            // 5. Customer Advance Liability (2020)
+            const isAdvanceLiability = acc.classification === 'Liability' && (
+                acc.code === '2020' ||
+                acc.id === 'coa-2020' ||
+                acc.name.toLowerCase().includes('advance') ||
+                acc.nameBn?.includes('অগ্রিম')
+            );
+            if (isAdvanceLiability) {
+                const matchingAdvance = (transactions || []).filter(t => t.type === 'INCOME' && !isInvoiceTransaction(t) && (
+                    t.category?.toLowerCase().includes('advance') ||
+                    t.category?.toLowerCase().includes('অগ্রিম') ||
+                    t.description?.toLowerCase().includes('advance') ||
+                    t.description?.toLowerCase().includes('অগ্রিম')
+                )).reduce((s, t) => s + t.amount, 0);
+                const targetAdvanceBal = (acc.openingBalance || 0) + matchingAdvance;
+                if (matchingAdvance > 0 && acc.currentBalance !== targetAdvanceBal) {
+                    coaNeedsUpdate = true;
+                    return { ...acc, currentBalance: targetAdvanceBal };
                 }
             }
             return acc;

@@ -158,12 +158,67 @@ export const AccountingModule: React.FC = () => {
         }
     }, [availableExpenseOptions, expenseCategory]);
 
+    // Dynamically unified income categories from active Revenue & Advance accounts in Chart of Accounts
+    const availableIncomeOptions = useMemo(() => {
+        const list: { id: string; name: string; nameBn?: string; group: string }[] = [];
+        const seen = new Set<string>();
+
+        // 1. Primary & Active Revenue heads and Customer Advance from Chart of Accounts
+        (chartOfAccounts || [])
+            .filter((a) => (a.classification === 'Revenue' || a.id === 'coa-2020' || a.code === '2020') && a.isActive)
+            .forEach((a) => {
+                const key = a.name.toLowerCase().trim();
+                if (!seen.has(key)) {
+                    seen.add(key);
+                    list.push({
+                        id: a.id,
+                        name: a.name,
+                        nameBn: a.nameBn,
+                        group: a.accountGroup || (a.classification === 'Liability' ? 'Customer Advance' : 'Operating Revenue'),
+                    });
+                }
+            });
+
+        // 2. Standard convenient direct income / scrap heads if not already present
+        const standardHeads = [
+            { name: 'Sales Revenue', nameBn: 'বিক্রয় আয়', group: 'Operating Revenue' },
+            { name: 'Scrap & Waste Material Sale', nameBn: 'স্ক্র্যাপ ও ঝুট বিক্রয়', group: 'Operating Revenue' },
+            { name: 'Direct Service Income', nameBn: 'সরাসরি সার্ভিস আয়', group: 'Operating Revenue' },
+            { name: 'Customer Advance & Job Deposits', nameBn: 'কাস্টমার অগ্রিম জমা', group: 'Customer Advance' },
+            { name: 'Other Operating Income', nameBn: 'অন্যান্য অপারেটিং আয়', group: 'Operating Revenue' },
+        ];
+
+        standardHeads.forEach((sh, idx) => {
+            const key = sh.name.toLowerCase().trim();
+            if (!seen.has(key)) {
+                seen.add(key);
+                list.push({
+                    id: `std-inc-${idx}`,
+                    name: sh.name,
+                    nameBn: sh.nameBn,
+                    group: sh.group,
+                });
+            }
+        });
+
+        return list;
+    }, [chartOfAccounts]);
+
     // New Income/Receipt Modal
     const [showIncomeModal, setShowIncomeModal] = useState(false);
     const [incomeTitle, setIncomeTitle] = useState('');
     const [incomeCategory, setIncomeCategory] = useState('Sales Revenue');
     const [incomeAmount, setIncomeAmount] = useState<number>(5000);
     const [incomeAccount, setIncomeAccount] = useState<string>('');
+
+    useEffect(() => {
+        if (availableIncomeOptions.length > 0) {
+            const exists = availableIncomeOptions.some((o) => o.name === incomeCategory);
+            if (!exists) {
+                setIncomeCategory(availableIncomeOptions[0].name);
+            }
+        }
+    }, [availableIncomeOptions, incomeCategory]);
 
     useEffect(() => {
         if (availablePaymentAccounts.length > 0) {
@@ -830,23 +885,11 @@ export const AccountingModule: React.FC = () => {
                     {'Category'}
                   </label>
                   <select value={incomeCategory} onChange={(e) => setIncomeCategory(e.target.value)} className="w-full px-3 py-2 border border-slate-200 rounded-xl font-medium">
-                    {(chartOfAccounts || []).filter((a) => a.classification === 'Revenue' && a.isActive).length > 0 ? (
-                      (chartOfAccounts || [])
-                        .filter((a) => a.classification === 'Revenue' && a.isActive)
-                        .map((a) => (
-                          <option key={a.id} value={a.name}>
-                            {a.name} {a.nameBn ? `(${a.nameBn})` : ''}
-                          </option>
-                        ))
-                    ) : (
-                      <>
-                        <option value="Sales Revenue">Sales Revenue</option>
-                        <option value="Direct Service Income">Direct Service Income</option>
-                        <option value="Advance Received">Advance Received</option>
-                        <option value="Interest & Investments">Interest & Investments</option>
-                        <option value="Other Non-Operating Income">Other Non-Operating</option>
-                      </>
-                    )}
+                    {availableIncomeOptions.map((opt) => (
+                      <option key={opt.id} value={opt.name}>
+                        {opt.name} {opt.nameBn ? `(${opt.nameBn})` : ''}
+                      </option>
+                    ))}
                   </select>
                 </div>
 

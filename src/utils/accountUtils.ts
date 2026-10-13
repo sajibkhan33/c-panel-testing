@@ -451,3 +451,39 @@ export const getCashAccountsBreakdown = (
         accounts,
     };
 };
+
+/**
+ * Checks whether an accounting transaction is linked to an existing sales invoice or receivable collection
+ * (e.g. POS invoice payments, automated invoice payment sync, client due collection).
+ * These transactions represent collections of accounts receivable, rather than new sales revenue.
+ */
+export const isInvoiceTransaction = (tx: Partial<AccountingTransaction>): boolean => {
+    if (!tx) return false;
+    const ref = (tx.refNo || '').toUpperCase();
+    const desc = (tx.description || '').toLowerCase();
+    const cat = (tx.category || '').toLowerCase();
+    const id = (tx.id || '').toLowerCase();
+
+    if (id.startsWith('tx-auto-inv')) return true;
+    if (ref.startsWith('DCC-INV-') || ref.startsWith('INV-')) return true;
+    if (cat.includes('due collection') || cat.includes('pos payment') || cat.includes('invoice payment')) return true;
+    if (desc.includes('sales invoice payment') || desc.includes('due collection against invoice') || desc.includes('pos payment') || desc.includes('invoice payment')) return true;
+    return false;
+};
+
+/**
+ * Checks whether an accounting transaction is linked to a project sales billing or expense
+ */
+export const isProjectTransaction = (tx: Partial<AccountingTransaction>): boolean => {
+    if (!tx) return false;
+    const ref = (tx.refNo || '').toUpperCase();
+    const desc = (tx.description || '').toLowerCase();
+    const cat = (tx.category || '').toLowerCase();
+    const id = (tx.id || '').toLowerCase();
+
+    if (id.startsWith('tx-prj-')) return true;
+    if (ref.startsWith('PRJ-')) return true;
+    if (cat.includes('project')) return true;
+    if (desc.includes('project income') || desc.includes('project sales') || desc.includes('project expense')) return true;
+    return false;
+};
