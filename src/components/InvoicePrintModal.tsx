@@ -468,7 +468,7 @@ export const InvoicePrintModal: React.FC<InvoicePrintModalProps> = ({ invoiceId,
                   }
                   @page {
                     size: ${template === 'POS' ? '80mm auto !important' : 'A4 portrait !important'};
-                    margin: ${template === 'POS' ? '0mm !important' : '6mm 8mm !important'};
+                    margin: ${template === 'POS' ? '0mm !important' : '8mm 10mm !important'};
                   }
                   html, body {
                     background: #ffffff !important;
@@ -510,8 +510,8 @@ export const InvoicePrintModal: React.FC<InvoicePrintModalProps> = ({ invoiceId,
                       max-width: 100% !important;
                       min-width: 0 !important;
                       transform: none !important;
-                      min-height: calc(297mm - 14mm) !important;
-                      height: calc(297mm - 14mm) !important;
+                      min-height: calc(297mm - 16mm) !important;
+                      height: auto !important;
                       page-break-after: always !important;
                       break-after: page !important;
                       page-break-inside: avoid !important;
@@ -524,6 +524,7 @@ export const InvoicePrintModal: React.FC<InvoicePrintModalProps> = ({ invoiceId,
                       margin: 0 auto !important;
                       border: none !important;
                       box-shadow: none !important;
+                      border-radius: 0 !important;
                     }
                     .a4-page-sheet:last-child {
                       page-break-after: auto !important;
@@ -700,8 +701,8 @@ export const InvoicePrintModal: React.FC<InvoicePrintModalProps> = ({ invoiceId,
               box-sizing: border-box !important;
             }
             @page {
-              size: ${template === 'POS' ? '80mm auto' : 'A4 portrait'};
-              margin: ${template === 'POS' ? '0' : '6mm 8mm'};
+              size: ${template === 'POS' ? '80mm auto !important' : 'A4 portrait !important'};
+              margin: ${template === 'POS' ? '0mm !important' : '8mm 10mm !important'};
             }
             html, body {
               background: white !important;
@@ -751,6 +752,9 @@ export const InvoicePrintModal: React.FC<InvoicePrintModalProps> = ({ invoiceId,
               flex-direction: column !important;
               justify-content: space-between !important;
               box-sizing: border-box !important;
+              border: none !important;
+              box-shadow: none !important;
+              border-radius: 0 !important;
             }
             .a4-page-content {
               flex: 1 0 auto !important;
@@ -772,16 +776,17 @@ export const InvoicePrintModal: React.FC<InvoicePrintModalProps> = ({ invoiceId,
                 max-width: 100% !important;
                 min-width: 0 !important;
                 transform: none !important;
-                min-height: calc(297mm - 14mm) !important;
-                height: calc(297mm - 14mm) !important;
+                min-height: calc(297mm - 16mm) !important;
+                height: auto !important;
                 page-break-after: always !important;
                 break-after: page !important;
                 page-break-inside: avoid !important;
                 break-inside: avoid !important;
                 border: none !important;
                 box-shadow: none !important;
+                border-radius: 0 !important;
                 padding: 0 !important;
-                margin: 0 !important;
+                margin: 0 auto !important;
                 box-sizing: border-box !important;
               }
               .a4-page-sheet:last-child {
@@ -897,8 +902,25 @@ export const InvoicePrintModal: React.FC<InvoicePrintModalProps> = ({ invoiceId,
                 const sheet = targetElements[i];
                 const prevTransform = sheet.style.transform;
                 const prevTransformOrigin = sheet.style.transformOrigin;
+                const prevBoxShadow = sheet.style.boxShadow;
+                const prevBorder = sheet.style.border;
+                const prevBorderRadius = sheet.style.borderRadius;
+                const prevMargin = sheet.style.margin;
+
                 sheet.style.transform = 'none';
                 sheet.style.transformOrigin = 'initial';
+                sheet.style.boxShadow = 'none';
+                sheet.style.border = 'none';
+                sheet.style.borderRadius = '0px';
+                sheet.style.margin = '0 auto';
+
+                const parentWrapper = sheet.parentElement;
+                const prevParentHeight = parentWrapper?.style.height;
+                const prevParentOverflow = parentWrapper?.style.overflow;
+                if (parentWrapper) {
+                    parentWrapper.style.height = 'auto';
+                    parentWrapper.style.overflow = 'visible';
+                }
 
                 let imgData = '';
                 try {
@@ -908,21 +930,48 @@ export const InvoicePrintModal: React.FC<InvoicePrintModalProps> = ({ invoiceId,
                         pixelRatio: 2,
                         skipFonts: true,
                         cacheBust: false,
+                        width: isPos ? (sheet.offsetWidth || 300) : 794,
+                        height: isPos ? (sheet.offsetHeight || 600) : 1123,
+                        style: {
+                            transform: 'none',
+                            boxShadow: 'none',
+                            border: 'none',
+                            borderRadius: '0px',
+                            margin: '0 auto',
+                        },
                     });
                 }
                 catch (pngErr) {
                     console.warn('htmlToImage toPng error, falling back to toJpeg:', pngErr);
                     imgData = await htmlToImage.toJpeg(sheet, {
-                        quality: 0.95,
+                        quality: 0.98,
                         backgroundColor: '#ffffff',
                         pixelRatio: 2,
                         skipFonts: true,
                         cacheBust: false,
+                        width: isPos ? (sheet.offsetWidth || 300) : 794,
+                        height: isPos ? (sheet.offsetHeight || 600) : 1123,
+                        style: {
+                            transform: 'none',
+                            boxShadow: 'none',
+                            border: 'none',
+                            borderRadius: '0px',
+                            margin: '0 auto',
+                        },
                     });
                 }
 
                 sheet.style.transform = prevTransform;
                 sheet.style.transformOrigin = prevTransformOrigin;
+                sheet.style.boxShadow = prevBoxShadow;
+                sheet.style.border = prevBorder;
+                sheet.style.borderRadius = prevBorderRadius;
+                sheet.style.margin = prevMargin;
+
+                if (parentWrapper) {
+                    parentWrapper.style.height = prevParentHeight || '';
+                    parentWrapper.style.overflow = prevParentOverflow || '';
+                }
 
                 if (i > 0) {
                     pdf.addPage();
@@ -1033,7 +1082,7 @@ export const InvoicePrintModal: React.FC<InvoicePrintModalProps> = ({ invoiceId,
           }
           @page {
             size: ${template === 'POS' ? '80mm auto !important' : 'A4 portrait !important'};
-            margin: ${template === 'POS' ? '0mm !important' : '6mm 8mm !important'};
+            margin: ${template === 'POS' ? '0mm !important' : '8mm 10mm !important'};
           }
           html, body {
             background: #ffffff !important;
@@ -1064,8 +1113,8 @@ export const InvoicePrintModal: React.FC<InvoicePrintModalProps> = ({ invoiceId,
               max-width: 100% !important;
               min-width: 0 !important;
               transform: none !important;
-              min-height: calc(297mm - 14mm) !important;
-              height: calc(297mm - 14mm) !important;
+              min-height: calc(297mm - 16mm) !important;
+              height: auto !important;
               page-break-after: always !important;
               break-after: page !important;
               page-break-inside: avoid !important;
@@ -1078,6 +1127,7 @@ export const InvoicePrintModal: React.FC<InvoicePrintModalProps> = ({ invoiceId,
               margin: 0 auto !important;
               border: none !important;
               box-shadow: none !important;
+              border-radius: 0 !important;
             }
             .a4-page-sheet:last-child {
               page-break-after: auto !important;
@@ -1318,7 +1368,7 @@ export const InvoicePrintModal: React.FC<InvoicePrintModalProps> = ({ invoiceId,
                         transformOrigin: 'top center',
                       }
                     : undefined}
-                  className="a4-page-sheet bg-white w-[794px] min-w-[794px] print:w-full print:min-w-0 print:max-w-full print:shrink min-h-[1123px] print:min-h-0 mx-auto print:mx-0 p-8 print:p-0 rounded-xl print:rounded-none shadow-md print:shadow-none border-2 border-black print:border-none flex flex-col justify-between text-black text-xs shrink-0"
+                  className="a4-page-sheet bg-white w-[794px] min-w-[794px] print:w-full print:min-w-0 print:max-w-full print:shrink min-h-[1123px] print:min-h-0 mx-auto print:mx-0 p-8 print:p-0 rounded-none shadow-xl print:shadow-none border-0 border-transparent print:border-none flex flex-col justify-between text-black text-xs shrink-0"
                 >
                   <div className="a4-page-content space-y-5 flex-1">
                     {page.isFirstPage ? (
@@ -1664,7 +1714,7 @@ export const InvoicePrintModal: React.FC<InvoicePrintModalProps> = ({ invoiceId,
                     transform: `scale(${scale})`,
                     transformOrigin: 'top center',
                 }
-                : undefined} className="a4-page-sheet bg-white w-[794px] min-w-[794px] print:w-full print:min-w-0 print:max-w-full print:shrink min-h-[1123px] print:min-h-0 mx-auto print:mx-0 p-8 print:p-0 rounded-xl print:rounded-none shadow-md print:shadow-none border-2 border-amber-400 print:border-none flex flex-col justify-between text-xs text-slate-900 shrink-0">
+                : undefined} className="a4-page-sheet bg-white w-[794px] min-w-[794px] print:w-full print:min-w-0 print:max-w-full print:shrink min-h-[1123px] print:min-h-0 mx-auto print:mx-0 p-8 print:p-0 rounded-none shadow-xl print:shadow-none border-0 border-transparent print:border-none flex flex-col justify-between text-xs text-slate-900 shrink-0">
               <div className="a4-page-content space-y-6 flex-1">
               {/* Header with Brand Logo on Left, QR Banner on Right */}
               <DocumentHeader documentTitle="PRODUCTION WORK ORDER" documentSubtitle={`${profile.name || 'DotColorCommunication'} • Technical Work Order & Service Unit`} documentNo={`WO-${invoice.invoiceNo}`} documentDate={invoice.date} referenceNo={invoice.referenceNo} isPadMode={isPadMode} padTopMarginMm={padTopMarginMm}/>
@@ -1788,7 +1838,7 @@ export const InvoicePrintModal: React.FC<InvoicePrintModalProps> = ({ invoiceId,
                     transform: `scale(${scale})`,
                     transformOrigin: 'top center',
                 }
-                : undefined} className="a4-page-sheet bg-white w-[794px] min-w-[794px] print:w-full print:min-w-0 print:max-w-full print:shrink min-h-[1123px] print:min-h-0 mx-auto print:mx-0 p-8 print:p-0 rounded-xl print:rounded-none shadow-md print:shadow-none border-2 border-slate-400 print:border-none flex flex-col justify-between text-black text-xs shrink-0">
+                : undefined} className="a4-page-sheet bg-white w-[794px] min-w-[794px] print:w-full print:min-w-0 print:max-w-full print:shrink min-h-[1123px] print:min-h-0 mx-auto print:mx-0 p-8 print:p-0 rounded-none shadow-xl print:shadow-none border-0 border-transparent print:border-none flex flex-col justify-between text-black text-xs shrink-0">
                 <div className="a4-page-content space-y-6 flex-1">
                 {/* Header with Brand Logo on Left, QR Banner on Right */}
                 <DocumentHeader documentTitle="DELIVERY CHALLAN" documentSubtitle={`${profile.name || 'DotColorCommunication'} • Official Goods & Services Delivery Note`} documentNo={`CH-${invoice.invoiceNo}`} documentDate={invoice.date} referenceNo={invoice.referenceNo} isPadMode={isPadMode} padTopMarginMm={padTopMarginMm}/>
