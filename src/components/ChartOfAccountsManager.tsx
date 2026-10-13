@@ -147,12 +147,27 @@ export const ChartOfAccountsManager: React.FC = () => {
 
                     liveBal = (acc.openingBalance || 0) + effectiveInvoiceSales + directMatchingSales;
                 } else {
-                    // Other specific revenue accounts (e.g. Scrap & Waste Sales, Graphic Design, Direct Service Income)
+                    // Other specific revenue accounts (dynamically matching any category added by the user)
                     const matchingDirect = (transactions || [])
                         .filter(t => t.type === 'INCOME' && !isInvoiceTransaction(t) && !isProjectTransaction(t) && (
-                            (t.category && (nameLower.includes(t.category.toLowerCase()) || (acc.nameBn && acc.nameBn.toLowerCase().includes(t.category.toLowerCase())))) ||
-                            (t.accountHead && (nameLower.includes(t.accountHead.toLowerCase()) || (acc.nameBn && acc.nameBn.toLowerCase().includes(t.accountHead.toLowerCase())))) ||
-                            (t.description && (nameLower.includes(t.description.toLowerCase()) || (acc.nameBn && acc.nameBn.toLowerCase().includes(t.description.toLowerCase()))))
+                            (t.category && (
+                                nameLower.includes(t.category.toLowerCase()) || 
+                                t.category.toLowerCase().includes(nameLower) ||
+                                (acc.nameBn && acc.nameBn.toLowerCase().includes(t.category.toLowerCase())) ||
+                                (acc.nameBn && t.category.toLowerCase().includes(acc.nameBn.toLowerCase()))
+                            )) ||
+                            (t.accountHead && (
+                                nameLower.includes(t.accountHead.toLowerCase()) || 
+                                t.accountHead.toLowerCase().includes(nameLower) ||
+                                (acc.nameBn && acc.nameBn.toLowerCase().includes(t.accountHead.toLowerCase())) ||
+                                (acc.nameBn && t.accountHead.toLowerCase().includes(acc.nameBn.toLowerCase()))
+                            )) ||
+                            (t.description && (
+                                nameLower.includes(t.description.toLowerCase()) || 
+                                t.description.toLowerCase().includes(nameLower) ||
+                                (acc.nameBn && acc.nameBn.toLowerCase().includes(t.description.toLowerCase())) ||
+                                (acc.nameBn && t.description.toLowerCase().includes(acc.nameBn.toLowerCase()))
+                            ))
                         ))
                         .reduce((s, t) => s + t.amount, 0);
 

@@ -163,9 +163,9 @@ export const AccountingModule: React.FC = () => {
         const list: { id: string; name: string; nameBn?: string; group: string }[] = [];
         const seen = new Set<string>();
 
-        // 1. Primary & Active Revenue heads and Customer Advance from Chart of Accounts
+        // 1. ALL active Revenue heads directly from Chart of Accounts (dynamically reflects user additions/deletions)
         (chartOfAccounts || [])
-            .filter((a) => (a.classification === 'Revenue' || a.id === 'coa-2020' || a.code === '2020') && a.isActive)
+            .filter((a) => a.classification === 'Revenue' && a.isActive)
             .forEach((a) => {
                 const key = a.name.toLowerCase().trim();
                 if (!seen.has(key)) {
@@ -174,32 +174,31 @@ export const AccountingModule: React.FC = () => {
                         id: a.id,
                         name: a.name,
                         nameBn: a.nameBn,
-                        group: a.accountGroup || (a.classification === 'Liability' ? 'Customer Advance' : 'Operating Revenue'),
+                        group: a.accountGroup || 'Operating Revenue',
                     });
                 }
             });
 
-        // 2. Standard convenient direct income / scrap heads if not already present
-        const standardHeads = [
-            { name: 'Sales Revenue', nameBn: 'বিক্রয় আয়', group: 'Operating Revenue' },
-            { name: 'Scrap & Waste Material Sale', nameBn: 'স্ক্র্যাপ ও ঝুট বিক্রয়', group: 'Operating Revenue' },
-            { name: 'Direct Service Income', nameBn: 'সরাসরি সার্ভিস আয়', group: 'Operating Revenue' },
-            { name: 'Customer Advance & Job Deposits', nameBn: 'কাস্টমার অগ্রিম জমা', group: 'Customer Advance' },
-            { name: 'Other Operating Income', nameBn: 'অন্যান্য অপারেটিং আয়', group: 'Operating Revenue' },
-        ];
+        // 2. Active Customer Advance liability heads from Chart of Accounts
+        (chartOfAccounts || [])
+            .filter((a) => a.classification === 'Liability' && a.isActive && (a.code === '2020' || a.id === 'coa-2020' || a.name.toLowerCase().includes('advance') || a.nameBn?.includes('অগ্রিম')))
+            .forEach((a) => {
+                const key = a.name.toLowerCase().trim();
+                if (!seen.has(key)) {
+                    seen.add(key);
+                    list.push({
+                        id: a.id,
+                        name: a.name,
+                        nameBn: a.nameBn,
+                        group: 'Customer Advance',
+                    });
+                }
+            });
 
-        standardHeads.forEach((sh, idx) => {
-            const key = sh.name.toLowerCase().trim();
-            if (!seen.has(key)) {
-                seen.add(key);
-                list.push({
-                    id: `std-inc-${idx}`,
-                    name: sh.name,
-                    nameBn: sh.nameBn,
-                    group: sh.group,
-                });
-            }
-        });
+        // Fallback only if Chart of Accounts is completely empty
+        if (list.length === 0) {
+            list.push({ id: 'fallback-sales', name: 'Sales Revenue', nameBn: 'বিক্রয় আয়', group: 'Operating Revenue' });
+        }
 
         return list;
     }, [chartOfAccounts]);

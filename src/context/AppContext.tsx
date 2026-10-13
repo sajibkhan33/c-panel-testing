@@ -744,6 +744,30 @@ export const AppProvider: React.FC<{
                     return { ...acc, currentBalance: targetAdvanceBal };
                 }
             }
+
+            // 6. Any other dynamic User-created Revenue Account
+            const isOtherRevenue = acc.classification === 'Revenue' && !isSalesRevenue && !acc.name.toLowerCase().includes('project');
+            if (isOtherRevenue) {
+                const accNameLower = (acc.name || '').toLowerCase();
+                const accNameBn = (acc.nameBn || '').toLowerCase();
+                const matchingDirect = (transactions || []).filter(t => t.type === 'INCOME' && !isInvoiceTransaction(t) && !isProjectTransaction(t) && (
+                    (t.category && (
+                        accNameLower.includes(t.category.toLowerCase()) ||
+                        t.category.toLowerCase().includes(accNameLower) ||
+                        (accNameBn && t.category.toLowerCase().includes(accNameBn)) ||
+                        (accNameBn && accNameBn.includes(t.category.toLowerCase()))
+                    )) ||
+                    (t.accountHead && (
+                        accNameLower.includes(t.accountHead.toLowerCase()) ||
+                        t.accountHead.toLowerCase().includes(accNameLower)
+                    ))
+                )).reduce((s, t) => s + t.amount, 0);
+                const targetBal = (acc.openingBalance || 0) + matchingDirect;
+                if (matchingDirect > 0 && acc.currentBalance !== targetBal) {
+                    coaNeedsUpdate = true;
+                    return { ...acc, currentBalance: targetBal };
+                }
+            }
             return acc;
         });
 
@@ -818,10 +842,15 @@ export const AppProvider: React.FC<{
                 .map(t => (t.refNo || '').toLowerCase().trim())
         );
 
+        const deletedRefs = new Set(
+            safeGetLocalStorage<string[]>(`${STORAGE_KEY}_DELETED_TX_REFS`, [])
+                .map(r => r.toLowerCase().trim())
+        );
+
         const missingTxs: AccountingTransaction[] = [];
         invoices.forEach(inv => {
             const ref = (inv.invoiceNo || '').toLowerCase().trim();
-            if (!ref || recordedRefs.has(ref)) return;
+            if (!ref || recordedRefs.has(ref) || deletedRefs.has(ref)) return;
 
             if (inv.splitPayments && Object.keys(inv.splitPayments).length > 0) {
                 Object.entries(inv.splitPayments).forEach(([channel, amt]) => {
@@ -2777,7 +2806,18 @@ export const AppProvider: React.FC<{
             paymentMethod: tx.paymentMethod || resolvedAccount,
             id: generateUniqueId('tx'),
         };
-        setTransactions((prev) => ensureUniqueTransactions([newTx, ...prev]));
+        const currentList = latestStateRef.current.transactions || transactions;
+        const nextTxs = ensureUniqueTransactions([newTx, ...currentList]);
+        setTransactions(nextTxs);
+        latestStateRef.current = {
+            ...latestStateRef.current,
+            transactions: nextTxs,
+        };
+        try {
+            localStorage.setItem(`${STORAGE_KEY}_TRANSACTIONS`, JSON.stringify(nextTxs));
+        } catch {}
+        triggerImmediatePush();
+
         const isExp = tx.type === 'EXPENSE';
         addAuditLog({
             staffId: activeStaff.id,
@@ -2794,7 +2834,8 @@ export const AppProvider: React.FC<{
         });
     };
     const updateTransaction = (id: string, updates: Partial<AccountingTransaction>) => {
-        setTransactions((prev) => prev.map((t) => {
+        const currentList = latestStateRef.current.transactions || transactions;
+        const nextTxs = currentList.map((t) => {
             if (t.id !== id) return t;
             const updatedAccount = updates.paymentAccount || updates.account || updates.accountHead || updates.paymentMethod || t.paymentAccount || t.account;
             return {
@@ -2805,10 +2846,55 @@ export const AppProvider: React.FC<{
                 accountHead: updatedAccount,
                 paymentMethod: updates.paymentMethod || updatedAccount,
             };
-        }));
+        });
+        setTransactions(nextTxs);
+        latestStateRef.current = {
+            ...latestStateRef.current,
+            transactions: nextTxs,
+        };
+        try {
+            localStorage.setItem(`${STORAGE_KEY}_TRANSACTIONS`, JSON.stringify(nextTxs));
+        } catch {}
+        triggerImmediatePush();
     };
     const deleteTransaction = (id: string) => {
-        setTransactions((prev) => prev.filter((t) => t.id !== id));
+        const currentList = latestStateRef.current.transactions || transactions;
+        const txToDelete = currentList.find(t => t.id === id || (id && t.refNo === id));
+        const nextTxs = currentList.filter(t => t.id !== id && (!txToDelete || t !== txToDelete));
+        setTransactions(nextTxs);
+        latestStateRef.current = {
+            ...latestStateRef.current,
+            transactions: nextTxs,
+        };
+        try {
+            localStorage.setItem(`${STORAGE_KEY}_TRANSACTIONS`, JSON.stringify(nextTxs));
+        } catch {}
+
+        if (txToDelete?.refNo) {
+            const existingDeleted = safeGetLocalStorage<string[]>(`${STORAGE_KEY}_DELETED_TX_REFS`, []);
+            const updatedDeleted = Array.from(new Set([...existingDeleted, id, txToDelete.refNo]));
+            try {
+                localStorage.setItem(`${STORAGE_KEY}_DELETED_TX_REFS`, JSON.stringify(updatedDeleted));
+            } catch {}
+        }
+
+        triggerImmediatePush();
+
+        if (txToDelete) {
+            addAuditLog({
+                staffId: activeStaff.id,
+                staffName: activeStaff.name,
+                staffRole: activeStaff.role,
+                location: 'Office',
+                actionType: 'PROFILE_UPDATED',
+                entityType: 'Accounting',
+                refNo: txToDelete.refNo || `TX-${id.slice(-6)}`,
+                details: `Deleted ledger transaction: ${txToDelete.description} (${txToDelete.category}) - Tk ${txToDelete.amount.toLocaleString()}`,
+                detailsBn: undefined,
+                amount: txToDelete.amount,
+                severity: 'warning',
+            });
+        }
     };
     const updateJournalEntry = (id: string, updates: Partial<JournalEntry>) => {
         setJournalEntries((prev) => prev.map((je) => (je.id === id ? { ...je, ...updates } : je)));
