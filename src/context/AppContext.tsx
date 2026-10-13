@@ -2,7 +2,7 @@ import React, { createContext, useContext, useState, useEffect, useMemo, useRef 
 import { CompanyProfile, ProductItem, Customer, Supplier, SalesInvoice, Quotation, PurchaseOrder, AccountingTransaction, StockMovement, Language, LocationType, AccountBalances, StaffMember, StaffRole, AuditLogEntry, ChartOfAccount, ExpenseHead, ProductCategory, UserRole, RolePermission, JournalEntry, Project, ProjectExpenseItem, ProjectSalesItem, PaymentMethodConfig, PaymentStatus } from '../types';
 import { INITIAL_COMPANY_PROFILE, INITIAL_PRODUCTS, INITIAL_CUSTOMERS, INITIAL_SUPPLIERS, INITIAL_INVOICES, INITIAL_PURCHASE_ORDERS, INITIAL_TRANSACTIONS, INITIAL_QUOTATIONS, INITIAL_STOCK_MOVEMENTS, INITIAL_STAFF_MEMBERS, INITIAL_AUDIT_LOGS, } from '../data/initialData';
 import { INITIAL_CHART_OF_ACCOUNTS, INITIAL_EXPENSE_HEADS, INITIAL_PRODUCT_CATEGORIES, INITIAL_USER_ROLES, INITIAL_JOURNAL_ENTRIES, INITIAL_PROJECTS, ALL_SYSTEM_PERMISSIONS, INITIAL_PAYMENT_METHODS, } from '../data/accountingAndConfigData';
-import { matchChannelToAccount, calculateSingleAccountBalance, getBankAccountsBreakdown, getMfsAccountsBreakdown, getCashAccountsBreakdown, isInvoiceTransaction, isProjectTransaction, isInvoiceMatchingCustomer, isAdvanceAdjustmentTransaction, isAdvanceDepositTransaction } from '../utils/accountUtils';
+import { matchChannelToAccount, calculateSingleAccountBalance, getBankAccountsBreakdown, getMfsAccountsBreakdown, getCashAccountsBreakdown, isInvoiceTransaction, isProjectTransaction, isInvoiceMatchingCustomer, isAdvanceAdjustmentTransaction, isAdvanceDepositTransaction, calculateTotalSupplierPayables, calculateInventoryValuation } from '../utils/accountUtils';
 const STORAGE_KEY = 'DOT_COLOR_ERP_V1_STATE';
 interface AppContextType {
     profile: CompanyProfile;
@@ -760,6 +760,29 @@ export const AppProvider: React.FC<{
                 return acc;
             }
 
+            // 5b. Dedicated Inventory & Raw Materials Asset Account (1002 / 1060 / 1070 / coa-1060 / coa-1070)
+            const isInventory = acc.classification === 'Asset' && (
+                acc.id === 'coa-1060' ||
+                acc.id === 'coa-1070' ||
+                acc.code === '1002' ||
+                acc.code === '1060' ||
+                acc.code === '1070' ||
+                acc.name.toLowerCase().includes('raw material') ||
+                acc.name.toLowerCase().includes('inventory') ||
+                acc.name.toLowerCase().includes('finished goods') ||
+                acc.name.toLowerCase().includes('stock') ||
+                acc.nameBn?.includes('কাঁচামাল') ||
+                acc.nameBn?.includes('ইনভেন্টরি')
+            );
+            if (isInventory) {
+                const targetInventoryBal = calculateInventoryValuation(products, purchaseOrders, acc);
+                if (acc.currentBalance !== targetInventoryBal) {
+                    coaNeedsUpdate = true;
+                    return { ...acc, currentBalance: targetInventoryBal };
+                }
+                return acc;
+            }
+
             // 4. Dedicated Accounts Payable (Suppliers) Account (2001 / 2010 / coa-2010)
             const isPayable = acc.classification === 'Liability' && (
                 acc.code === '2001' ||
@@ -771,9 +794,7 @@ export const AppProvider: React.FC<{
                 acc.nameBn?.includes('প্রদেয় হিসাব')
             );
             if (isPayable) {
-                const totalSupplierRecordDue = (suppliers || []).reduce((s, sup) => s + (Number(sup.dueAmount) || Number(sup.balancePayable) || 0), 0);
-                const totalPoDue = (purchaseOrders || []).reduce((s, po) => s + (Number(po.dueAmount) || 0), 0);
-                const totalSupplierDue = Math.max(totalSupplierRecordDue, totalPoDue);
+                const totalSupplierDue = calculateTotalSupplierPayables(suppliers, purchaseOrders);
                 const targetPayableBal = totalSupplierDue > 0 ? totalSupplierDue : (acc.openingBalance || 0);
                 if (acc.currentBalance !== targetPayableBal) {
                     coaNeedsUpdate = true;
@@ -947,7 +968,7 @@ export const AppProvider: React.FC<{
                 suppliers: cleanedSuppliers,
             };
         }
-    }, [projects, chartOfAccounts, invoices, customers, purchaseOrders, suppliers]);
+    }, [projects, chartOfAccounts, invoices, customers, purchaseOrders, suppliers, products]);
 
     // Automatic reconciliation of Customer totalPurchased and dueAmount from live Sales Invoices
     useEffect(() => {
@@ -980,6 +1001,61 @@ export const AppProvider: React.FC<{
             triggerImmediatePush();
         }
     }, [invoices, customers]);
+
+    // Automatic reconciliation of Supplier totalPurchased, dueAmount, and balancePayable from live Purchase Orders
+    useEffect(() => {
+        if (!suppliers || suppliers.length === 0) return;
+
+        let suppsChanged = false;
+        const reconciled = suppliers.map(s => {
+            const sId = s.id;
+            const sName = (s.name || '').toLowerCase().trim();
+            const sCompany = (s.company || '').toLowerCase().trim();
+            const sPhone = (s.phone || '').replace(/\D/g, '');
+
+            const pos = (purchaseOrders || []).filter(p => {
+                const pSuppId = p.supplierId || '';
+                const pSuppName = (p.supplierName || '').toLowerCase().trim();
+                const pSuppPhone = (p.supplierPhone || '').replace(/\D/g, '');
+                return (
+                    (sId && pSuppId === sId) ||
+                    (sName && pSuppName === sName) ||
+                    (sName && pSuppName && (pSuppName.includes(sName) || sName.includes(pSuppName))) ||
+                    (sCompany && pSuppName === sCompany) ||
+                    (sCompany && pSuppName && (pSuppName.includes(sCompany) || sCompany.includes(pSuppName))) ||
+                    (sPhone && pSuppPhone && sPhone === pSuppPhone)
+                );
+            });
+
+            if (pos.length > 0) {
+                const receivedPOs = pos.filter(p => p.status === 'Received');
+                const totalPurchased = pos.reduce((sum, p) => sum + (Number(p.grandTotal ?? p.totalAmount) || 0), 0);
+                const recDue = receivedPOs.reduce((acc, p) => acc + (
+                    p.dueAmount !== undefined
+                        ? Number(p.dueAmount)
+                        : Math.max(0, (Number(p.grandTotal ?? p.totalAmount ?? 0)) - (Number(p.paidAmount || 0)))
+                ), 0);
+
+                if (Number(s.totalPurchased) !== totalPurchased || Number(s.dueAmount) !== recDue || Number(s.balancePayable) !== recDue) {
+                    suppsChanged = true;
+                    return { ...s, totalPurchased, dueAmount: recDue, balancePayable: recDue };
+                }
+            }
+            return s;
+        });
+
+        if (suppsChanged) {
+            setSuppliers(reconciled);
+            try {
+                localStorage.setItem(`${STORAGE_KEY}_SUPPLIERS`, JSON.stringify(reconciled));
+            } catch {}
+            latestStateRef.current = {
+                ...latestStateRef.current,
+                suppliers: reconciled,
+            };
+            triggerImmediatePush();
+        }
+    }, [purchaseOrders, suppliers]);
 
     // Automatic real-time synchronization between Sales Invoices and Accounting Transactions
     useEffect(() => {
@@ -1992,14 +2068,42 @@ export const AppProvider: React.FC<{
         }
         // Auto receive stock if marked Received
         if (data.status === 'Received' && data.items.length > 0) {
-            setProducts((prev) => prev.map((p) => {
-                const item = data.items.find((i) => i.productId === p.id);
-                if (item) {
-                    const locKey = data.destination === 'Factory' ? 'stockFactory' : 'stockOffice';
-                    return { ...p, [locKey]: p[locKey] + item.qty };
-                }
-                return p;
-            }));
+            setProducts((prev) => {
+                const existingProductIds = new Set(prev.map(p => p.id));
+                const updated = prev.map((p) => {
+                    const item = data.items.find((i) => i.productId === p.id);
+                    if (item) {
+                        const locKey = data.destination === 'Factory' ? 'stockFactory' : 'stockOffice';
+                        return { 
+                            ...p, 
+                            [locKey]: (p[locKey] || 0) + item.qty,
+                            costPrice: p.costPrice > 0 ? p.costPrice : item.unitCost
+                        };
+                    }
+                    return p;
+                });
+                const toAdd: ProductItem[] = [];
+                data.items.forEach(item => {
+                    if (!existingProductIds.has(item.productId)) {
+                        toAdd.push({
+                            id: item.productId,
+                            name: item.name,
+                            nameBn: '',
+                            code: `RM-${Math.floor(100 + Math.random() * 900)}`,
+                            category: 'Raw Materials',
+                            unit: item.unit || 'pcs',
+                            costPrice: item.unitCost,
+                            sellingPrice: Math.round(item.unitCost * 1.2),
+                            stockOffice: data.destination === 'Office' ? item.qty : 0,
+                            stockFactory: data.destination === 'Factory' ? item.qty : 0,
+                            minStockAlert: 5,
+                            isRawMaterial: true,
+                            description: `Purchased via PO ${poNo}`,
+                        });
+                    }
+                });
+                return [...updated, ...toAdd];
+            });
             const movements: StockMovement[] = data.items.map((item, idx) => ({
                 id: generateUniqueId(`sm-${idx}-${item.productId}`),
                 date: new Date().toISOString().replace('T', ' ').slice(0, 16),
@@ -2076,15 +2180,44 @@ export const AppProvider: React.FC<{
             return s;
         }));
         if (updatedItems.length > 0) {
-            setProducts((prev) => prev.map((p) => {
-                const item = updatedItems.find((i) => i.productId === p.id);
-                if (item) {
-                    const rQty = item.receivedQty !== undefined ? item.receivedQty : item.qty;
-                    const locKey = po.destination === 'Factory' ? 'stockFactory' : 'stockOffice';
-                    return { ...p, [locKey]: p[locKey] + rQty };
-                }
-                return p;
-            }));
+            setProducts((prev) => {
+                const existingProductIds = new Set(prev.map(p => p.id));
+                const updated = prev.map((p) => {
+                    const item = updatedItems.find((i) => i.productId === p.id);
+                    if (item) {
+                        const rQty = item.receivedQty !== undefined ? item.receivedQty : item.qty;
+                        const locKey = po.destination === 'Factory' ? 'stockFactory' : 'stockOffice';
+                        return { 
+                            ...p, 
+                            [locKey]: (p[locKey] || 0) + rQty,
+                            costPrice: p.costPrice > 0 ? p.costPrice : item.unitCost
+                        };
+                    }
+                    return p;
+                });
+                const toAdd: ProductItem[] = [];
+                updatedItems.forEach(item => {
+                    if (!existingProductIds.has(item.productId)) {
+                        const rQty = item.receivedQty !== undefined ? item.receivedQty : item.qty;
+                        toAdd.push({
+                            id: item.productId,
+                            name: item.name,
+                            nameBn: '',
+                            code: `RM-${Math.floor(100 + Math.random() * 900)}`,
+                            category: 'Raw Materials',
+                            unit: item.unit || 'pcs',
+                            costPrice: item.unitCost,
+                            sellingPrice: Math.round(item.unitCost * 1.2),
+                            stockOffice: po.destination === 'Office' ? rQty : 0,
+                            stockFactory: po.destination === 'Factory' ? rQty : 0,
+                            minStockAlert: 5,
+                            isRawMaterial: true,
+                            description: `Purchased via PO ${po.poNo}`,
+                        });
+                    }
+                });
+                return [...updated, ...toAdd];
+            });
             const movements: StockMovement[] = updatedItems.map((item, idx) => {
                 const rQty = item.receivedQty !== undefined ? item.receivedQty : item.qty;
                 return {
@@ -2140,12 +2273,15 @@ export const AppProvider: React.FC<{
             : p));
         // 2. Also reduce the Supplier's due amount / balance payable
         const poSupName = po.supplierName?.toLowerCase().trim();
+        const poSupPhone = (po.supplierPhone || '').replace(/\D/g, '');
         setSuppliers((prev) => prev.map((s) => {
             const sName = s.name?.toLowerCase().trim();
             const sCompany = s.company?.toLowerCase().trim();
+            const sPhone = (s.phone || '').replace(/\D/g, '');
             const matches = (po.supplierId && s.id === po.supplierId) ||
-                (poSupName && sName && sName === poSupName) ||
-                (poSupName && sCompany && sCompany === poSupName);
+                (poSupName && sName && (sName === poSupName || sName.includes(poSupName) || poSupName.includes(sName))) ||
+                (poSupName && sCompany && (sCompany === poSupName || sCompany.includes(poSupName) || poSupName.includes(sCompany))) ||
+                (poSupPhone && sPhone && poSupPhone === sPhone);
             if (matches) {
                 const currentSupDue = Number(s.dueAmount ?? s.balancePayable ?? 0);
                 const updatedSupDue = Math.max(0, currentSupDue - safeAmount);

@@ -3,9 +3,9 @@ import { useApp } from '../context/AppContext';
 import { ChartOfAccount } from '../types';
 import { BookOpen, Plus, Search, Filter, Edit2, Trash2, Lock, CheckCircle2, AlertCircle, X, FileText, Printer, Layers, ArrowUpDown, Download, Upload, } from 'lucide-react';
 import * as XLSX from 'xlsx';
-import { calculateSingleAccountBalance, isInvoiceTransaction, isProjectTransaction, isAdvanceAdjustmentTransaction, isAdvanceDepositTransaction } from '../utils/accountUtils';
+import { calculateSingleAccountBalance, calculateTotalSupplierPayables, calculateInventoryValuation, isInvoiceTransaction, isProjectTransaction, isAdvanceAdjustmentTransaction, isAdvanceDepositTransaction } from '../utils/accountUtils';
 export const ChartOfAccountsManager: React.FC = () => {
-    const { chartOfAccounts, invoices = [], transactions = [], accountBalances, suppliers = [], customers = [], purchaseOrders = [], language, profile, addChartOfAccount, updateChartOfAccount, deleteChartOfAccount, checkPermission, projects = [], syncProjectsWithAccounting } = useApp();
+    const { chartOfAccounts, invoices = [], transactions = [], accountBalances, suppliers = [], customers = [], purchaseOrders = [], products = [], language, profile, addChartOfAccount, updateChartOfAccount, deleteChartOfAccount, checkPermission, projects = [], syncProjectsWithAccounting } = useApp();
     const [searchQuery, setSearchQuery] = useState('');
     const [filterClassification, setFilterClassification] = useState<string>('ALL');
     const [showAddModal, setShowAddModal] = useState(false);
@@ -30,9 +30,7 @@ export const ChartOfAccountsManager: React.FC = () => {
     // Real-time dynamic Chart of Accounts synced with Ledger Transactions, Projects & Balances
     const liveAccounts = useMemo(() => {
         const totalTxIncome = (transactions || []).filter(t => t.type === 'INCOME').reduce((s, t) => s + t.amount, 0);
-        const totalSupplierRecordDue = (suppliers || []).reduce((s, sup) => s + (Number(sup.dueAmount) || Number(sup.balancePayable) || 0), 0);
-        const totalPoDue = (purchaseOrders || []).reduce((s, po) => s + (Number(po.dueAmount) || 0), 0);
-        const totalSupplierDue = Math.max(totalSupplierRecordDue, totalPoDue);
+        const totalSupplierDue = calculateTotalSupplierPayables(suppliers, purchaseOrders);
         const totalInvoiceCustomerDue = (invoices || []).reduce((s, inv) => s + (Number(inv.dueAmount) || 0), 0);
         const totalCustomerRecordDue = (customers || []).reduce((s, c) => s + (Number(c.dueAmount) || 0), 0);
         const totalCustomerDue = Math.max(totalInvoiceCustomerDue, totalCustomerRecordDue);
@@ -115,7 +113,7 @@ export const ChartOfAccountsManager: React.FC = () => {
                 if (isCustomerReceivable) {
                     liveBal = totalCustomerDue > 0 ? totalCustomerDue : (acc.openingBalance || 0);
                 } else if (isInventory) {
-                    liveBal = acc.currentBalance;
+                    liveBal = calculateInventoryValuation(products, purchaseOrders, acc);
                 } else {
                     // Dynamic individual live balance calculation for Cash, City Bank PLC, Southeast Bank, Nagad, bKash, etc.
                     liveBal = calculateSingleAccountBalance(acc, transactions, invoices);
@@ -297,7 +295,7 @@ export const ChartOfAccountsManager: React.FC = () => {
                 currentBalance: liveBal,
             };
         });
-    }, [chartOfAccounts, transactions, accountBalances, suppliers, customers, projects, invoices, purchaseOrders]);
+    }, [chartOfAccounts, transactions, accountBalances, suppliers, customers, projects, invoices, purchaseOrders, products]);
 
     // Classification stats
     const stats = useMemo(() => {

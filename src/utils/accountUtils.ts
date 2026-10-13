@@ -1,4 +1,4 @@
-import { ChartOfAccount, AccountingTransaction, SalesInvoice, PaymentMethodConfig, AccountBalances } from '../types';
+import { ChartOfAccount, AccountingTransaction, SalesInvoice, PaymentMethodConfig, AccountBalances, Supplier, PurchaseOrder, ProductItem } from '../types';
 
 /**
  * Normalizes account or channel string for fuzzy matching
@@ -685,4 +685,114 @@ export const getInvoicePayments = (
     }
 
     return [];
+};
+
+/**
+ * Calculates dynamic real-time Accounts Payable (Suppliers) due from Suppliers and Purchase Orders
+ */
+export const calculateTotalSupplierPayables = (
+    suppliers: Supplier[] = [],
+    purchaseOrders: PurchaseOrder[] = []
+): number => {
+    let totalDue = 0;
+    const matchedPoIds = new Set<string>();
+
+    (suppliers || []).forEach((s) => {
+        const sId = s.id;
+        const sName = (s.name || '').toLowerCase().trim();
+        const sCompany = (s.company || '').toLowerCase().trim();
+        const sPhone = (s.phone || '').replace(/\D/g, '');
+
+        const pos = (purchaseOrders || []).filter((p) => {
+            const pSuppId = p.supplierId || '';
+            const pSuppName = (p.supplierName || '').toLowerCase().trim();
+            const pSuppPhone = (p.supplierPhone || '').replace(/\D/g, '');
+            const isMatch = (
+                (sId && pSuppId === sId) ||
+                (sName && pSuppName === sName) ||
+                (sName && pSuppName && (pSuppName.includes(sName) || sName.includes(pSuppName))) ||
+                (sCompany && pSuppName === sCompany) ||
+                (sCompany && pSuppName && (pSuppName.includes(sCompany) || sCompany.includes(pSuppName))) ||
+                (sPhone && pSuppPhone && sPhone === pSuppPhone)
+            );
+            if (isMatch) {
+                matchedPoIds.add(p.id);
+            }
+            return isMatch;
+        });
+
+        // Received POs: only confirmed received goods create active payable dues
+        const receivedPOs = pos.filter((p) => p.status === 'Received');
+        const recDue = receivedPOs.reduce((acc, p) => acc + (
+            p.dueAmount !== undefined
+                ? Number(p.dueAmount)
+                : Math.max(0, (Number(p.grandTotal ?? p.totalAmount ?? 0)) - (Number(p.paidAmount || 0)))
+        ), 0);
+
+        if (pos.length > 0) {
+            totalDue += recDue;
+        } else {
+            totalDue += Number(s.balancePayable ?? s.dueAmount ?? 0);
+        }
+    });
+
+    // Also include any orphan Received POs not matched to any listed supplier
+    (purchaseOrders || []).forEach((po) => {
+        if (po.status === 'Received' && !matchedPoIds.has(po.id)) {
+            const due = po.dueAmount !== undefined
+                ? Number(po.dueAmount)
+                : Math.max(0, (Number(po.grandTotal ?? po.totalAmount ?? 0)) - (Number(po.paidAmount || 0)));
+            totalDue += due;
+        }
+    });
+
+    return Math.max(0, totalDue);
+};
+
+/**
+ * Calculates dynamic real-time Raw Materials & Inventory Asset balance from Products, Purchase Orders & Opening Balance
+ */
+export const calculateInventoryValuation = (
+    products: ProductItem[] = [],
+    purchaseOrders: PurchaseOrder[] = [],
+    account?: ChartOfAccount
+): number => {
+    const totalStockValuation = (products || []).reduce(
+        (acc, p) => acc + ((Number(p.stockFactory) || 0) + (Number(p.stockOffice) || 0)) * (Number(p.costPrice) || 0),
+        0
+    );
+    const rawStockValuation = (products || [])
+        .filter((p) => p.isRawMaterial)
+        .reduce(
+            (acc, p) => acc + ((Number(p.stockFactory) || 0) + (Number(p.stockOffice) || 0)) * (Number(p.costPrice) || 0),
+            0
+        );
+    const finishedStockValuation = (products || [])
+        .filter((p) => !p.isRawMaterial)
+        .reduce(
+            (acc, p) => acc + ((Number(p.stockFactory) || 0) + (Number(p.stockOffice) || 0)) * (Number(p.costPrice) || 0),
+            0
+        );
+
+    // Total purchase value of received POs
+    const totalReceivedPurchases = (purchaseOrders || [])
+        .filter((p) => p.status === 'Received')
+        .reduce((acc, po) => acc + Number(po.grandTotal ?? po.totalAmount ?? 0), 0);
+
+    const nameLower = (account?.name || '').toLowerCase();
+    const nameBn = (account?.nameBn || '').toLowerCase();
+    const isFinishedOnly = (account?.code === '1070' || nameLower.includes('finished goods') || nameBn.includes('প্রস্তুতকৃত পণ্য')) && !nameLower.includes('raw');
+
+    if (isFinishedOnly) {
+        return Math.max(finishedStockValuation, account?.openingBalance || 0);
+    }
+
+    // For Raw Materials or unified Raw Materials & Inventory account (like 1002 / 1060):
+    const effectiveStockVal = rawStockValuation > 0 ? rawStockValuation : totalStockValuation;
+    return Math.max(
+        effectiveStockVal,
+        totalReceivedPurchases,
+        totalStockValuation,
+        account?.openingBalance || 0
+    );
 };
