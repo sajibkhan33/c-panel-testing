@@ -114,13 +114,14 @@ export const doesTransactionMatchAccount = (
 ): boolean => {
     const accNameLower = (acc.name || '').toLowerCase().trim();
     const accCode = (acc.code || '').trim();
-    const payAcc = (tx.paymentAccount || '').toLowerCase().trim();
-    const head = (tx.accountHead || '').toLowerCase().trim();
+    const payAcc = (tx.paymentAccount || tx.account || tx.accountHead || tx.paymentMethod || '').toLowerCase().trim();
+    const head = (tx.accountHead || tx.account || tx.paymentAccount || '').toLowerCase().trim();
     const desc = (tx.description || '').toLowerCase();
 
-    // 1. Exact match by account name or code
+    // 1. Exact match by account ID, code, or name
+    if (tx.account === acc.id || tx.paymentAccount === acc.id || tx.accountHead === acc.id) return true;
     if (payAcc === accNameLower || head === accNameLower) return true;
-    if (accCode && (payAcc === accCode || head === accCode || payAcc.startsWith(accCode + ' ') || head.startsWith(accCode + ' '))) return true;
+    if (accCode && (payAcc === accCode || head === accCode || payAcc.startsWith(accCode + ' ') || head.startsWith(accCode + ' ') || payAcc.endsWith(' ' + accCode))) return true;
 
     const isBkash = accNameLower.includes('bkash') || (acc.nameBn && acc.nameBn.includes('বিকাশ'));
     const isNagad = accNameLower.includes('nagad') || (acc.nameBn && acc.nameBn.includes('নগদ'));
@@ -166,9 +167,9 @@ export const doesTransactionMatchAccount = (
 
     // 4. Cash separation
     if (isCash) {
-        const isOtherChannel = payAcc.includes('bank') || payAcc.includes('bkash') || payAcc.includes('nagad') || payAcc.includes('city') || payAcc.includes('southeast') || payAcc.includes('card');
+        const isOtherChannel = payAcc.includes('bank') || payAcc.includes('bkash') || payAcc.includes('nagad') || payAcc.includes('city') || payAcc.includes('southeast') || payAcc.includes('brac') || payAcc.includes('card') || payAcc.includes('rocket') || payAcc.includes('upay');
         if (!isOtherChannel) {
-            return payAcc.includes('cash') || payAcc === 'office cash' || payAcc === 'factory cash' || head.includes('cash') || payAcc === '';
+            return payAcc.includes('cash') || payAcc === 'office cash' || payAcc === 'factory cash' || head.includes('cash') || (payAcc === '' && head === '');
         }
         return false;
     }

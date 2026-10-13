@@ -1638,19 +1638,20 @@ export const SupplyChainModule: React.FC = () => {
                   </div>
 
                   <select value={supplierPayAccount} onChange={(e) => setSupplierPayAccount(e.target.value)} className="w-full px-2.5 py-2 border border-slate-200 rounded-xl text-xs font-semibold focus:outline-hidden bg-white">
-                    <option value="BRAC Bank">
-                      🏦 BRAC Bank PLC — {'Balance: '} {profile.currencySymbol}{bankBalance.toLocaleString()}
-                    </option>
-                    <option value="Office Cash">💵 Office CashNagad —{'Balance: '} {profile.currencySymbol}{cashBalance.toLocaleString()}
-                    </option>
-                    <option value="Factory Cash">🏭 Factory CashFactory Cash —{'Balance: '} {profile.currencySymbol}{cashBalance.toLocaleString()}
-                    </option>
-                    <option value="bKash / Nagad">
-                      📱 bKash / Nagad — {'Balance: '} {profile.currencySymbol}{mobileBalance.toLocaleString()}
-                    </option>
-                    <option value="City Bank">
-                      🏦 City Bank PLC — {'Balance: '} {profile.currencySymbol}{bankBalance.toLocaleString()}
-                    </option>
+                    {paymentMethods && paymentMethods.filter((p) => p.isEnabled).length > 0 ? (
+                      paymentMethods.filter((p) => p.isEnabled).map((pm) => (
+                        <option key={pm.id} value={pm.name}>
+                          {pm.type === 'bank' ? '🏦' : pm.type === 'mfs' ? '📱' : '💵'} {pm.name} {pm.nameBn ? `(${pm.nameBn})` : ''}
+                        </option>
+                      ))
+                    ) : (
+                      <>
+                        <option value="City Bank PLC">🏦 City Bank PLC — {profile.currencySymbol}{bankBalance.toLocaleString()}</option>
+                        <option value="Cash">💵 Cash in Hand — {profile.currencySymbol}{cashBalance.toLocaleString()}</option>
+                        <option value="bKash">📱 bKash — {profile.currencySymbol}{mobileBalance.toLocaleString()}</option>
+                        <option value="Nagad">📱 Nagad — {profile.currencySymbol}{mobileBalance.toLocaleString()}</option>
+                      </>
+                    )}
                   </select>
                 </div>
 
@@ -1855,21 +1856,20 @@ export const SupplyChainModule: React.FC = () => {
                     else if (val.includes('bKash') || val.includes('Nagad'))
                         setPoPayMethod('bKash');
                 }} className="w-full px-2.5 py-2 border border-slate-200 rounded-xl text-xs font-semibold focus:outline-hidden">
-                      <option value="BRAC Bank">
-                        🏦 BRAC Bank — {'Bal: '}Tk{bankBalance.toLocaleString()}
-                      </option>
-                      <option value="Office Cash">
-                        💵 Office Cash — {'Bal: '}Tk{cashBalance.toLocaleString()}
-                      </option>
-                      <option value="Factory Cash">
-                        🏭 Factory Cash — {'Bal: '}Tk{cashBalance.toLocaleString()}
-                      </option>
-                      <option value="bKash / Nagad">
-                        📱 bKash / Nagad — {'Bal: '}Tk{mobileBalance.toLocaleString()}
-                      </option>
-                      <option value="City Bank">
-                        🏦 City Bank — {'Bal: '}Tk{bankBalance.toLocaleString()}
-                      </option>
+                      {paymentMethods && paymentMethods.filter((p) => p.isEnabled).length > 0 ? (
+                        paymentMethods.filter((p) => p.isEnabled).map((pm) => (
+                          <option key={pm.id} value={pm.name}>
+                            {pm.type === 'bank' ? '🏦' : pm.type === 'mfs' ? '📱' : '💵'} {pm.name} {pm.nameBn ? `(${pm.nameBn})` : ''}
+                          </option>
+                        ))
+                      ) : (
+                        <>
+                          <option value="City Bank PLC">🏦 City Bank PLC</option>
+                          <option value="Cash">💵 Cash in Hand</option>
+                          <option value="bKash">📱 bKash</option>
+                          <option value="Nagad">📱 Nagad</option>
+                        </>
+                      )}
                     </select>
                   </div>
                 </div>

@@ -2745,8 +2745,13 @@ export const AppProvider: React.FC<{
     };
     // Accounting
     const addTransaction = (tx: Omit<AccountingTransaction, 'id'>) => {
+        const resolvedAccount = tx.paymentAccount || tx.account || tx.accountHead || tx.paymentMethod || 'Cash in Hand';
         const newTx: AccountingTransaction = {
             ...tx,
+            account: resolvedAccount,
+            paymentAccount: resolvedAccount,
+            accountHead: resolvedAccount,
+            paymentMethod: tx.paymentMethod || resolvedAccount,
             id: generateUniqueId('tx'),
         };
         setTransactions((prev) => ensureUniqueTransactions([newTx, ...prev]));
@@ -2759,14 +2764,25 @@ export const AppProvider: React.FC<{
             actionType: isExp ? 'EXPENSE_RECORDED' : 'PAYMENT_COLLECTED',
             entityType: 'Accounting',
             refNo: tx.refNo || `TX-${newTx.id.slice(-6)}`,
-            details: `Recorded ${isExp ? 'expense' : 'income'}: ${tx.description} (${tx.category}) - Tk ${tx.amount.toLocaleString()} via ${tx.account || tx.paymentAccount || 'Cash'}`,
+            details: `Recorded ${isExp ? 'expense' : 'income'}: ${tx.description} (${tx.category}) - Tk ${tx.amount.toLocaleString()} via ${resolvedAccount}`,
             detailsBn: undefined,
             amount: tx.amount,
             severity: isExp ? 'info' : 'success',
         });
     };
     const updateTransaction = (id: string, updates: Partial<AccountingTransaction>) => {
-        setTransactions((prev) => prev.map((t) => (t.id === id ? { ...t, ...updates } : t)));
+        setTransactions((prev) => prev.map((t) => {
+            if (t.id !== id) return t;
+            const updatedAccount = updates.paymentAccount || updates.account || updates.accountHead || updates.paymentMethod || t.paymentAccount || t.account;
+            return {
+                ...t,
+                ...updates,
+                account: updatedAccount,
+                paymentAccount: updatedAccount,
+                accountHead: updatedAccount,
+                paymentMethod: updates.paymentMethod || updatedAccount,
+            };
+        }));
     };
     const deleteTransaction = (id: string) => {
         setTransactions((prev) => prev.filter((t) => t.id !== id));
@@ -4344,12 +4360,12 @@ export const AppProvider: React.FC<{
 
         // Apply ledger transactions
         transactions.forEach((tx) => {
-            const acct = (tx.paymentAccount || tx.account || '').toLowerCase();
+            const acct = (tx.paymentAccount || tx.account || tx.accountHead || tx.paymentMethod || '').toLowerCase();
             const delta = tx.type === 'INCOME' ? tx.amount : tx.type === 'EXPENSE' ? -tx.amount : 0;
             
             if (acct.includes('bkash') || acct.includes('nagad') || acct.includes('rocket') || acct.includes('wallet') || acct.includes('mobile') || acct.includes('বিকাশ') || acct.includes('নগদ')) {
                 mobile += delta;
-            } else if (acct.includes('bank') || acct.includes('brac') || acct.includes('city') || acct.includes('card') || acct.includes('cheque') || acct.includes('plc') || (profile.bankName && acct.includes(profile.bankName.toLowerCase()))) {
+            } else if (acct.includes('bank') || acct.includes('brac') || acct.includes('city') || acct.includes('southeast') || acct.includes('card') || acct.includes('cheque') || acct.includes('plc') || (profile.bankName && acct.includes(profile.bankName.toLowerCase()))) {
                 bank += delta;
             } else {
                 cash += delta;

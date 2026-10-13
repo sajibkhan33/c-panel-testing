@@ -7,9 +7,9 @@ import { ReportPrintModal } from './ReportPrintModal';
 import { ChartOfAccountsManager } from './ChartOfAccountsManager';
 import { ExpenseHeadManager } from './ExpenseHeadManager';
 import { JournalEntriesManager } from './JournalEntriesManager';
-import { getBankAccountsBreakdown, getMfsAccountsBreakdown } from '../utils/accountUtils';
+import { getBankAccountsBreakdown, getMfsAccountsBreakdown, getPaymentMethodLiveBalance, calculateSingleAccountBalance } from '../utils/accountUtils';
 export const AccountingModule: React.FC = () => {
-    const { accountBalances: rawBalances, transactions, chartOfAccounts, expenseHeads, journalEntries, profile, language, invoices = [], addTransaction, updateTransaction, deleteTransaction, } = useApp();
+    const { accountBalances: rawBalances, transactions, chartOfAccounts, expenseHeads, journalEntries, profile, language, invoices = [], paymentMethods = [], addTransaction, updateTransaction, deleteTransaction, } = useApp();
     const accountBalances = {
         cash: rawBalances?.cash ?? 0,
         bank: rawBalances?.bank ?? 0,
@@ -31,6 +31,66 @@ export const AccountingModule: React.FC = () => {
         : `${profile.bankName || 'City Bank PLC'} • ${(profile.bankAccount ? profile.bankAccount.slice(-6) : '314001')}`;
 
     const mfsBreakdownText = `bKash: ${profile.currencySymbol}${(rawBalances?.bkash ?? mfsInfo.bkash).toLocaleString()} • Nagad: ${profile.currencySymbol}${(rawBalances?.nagad ?? mfsInfo.nagad).toLocaleString()}`;
+
+    const activePaymentMethods = useMemo(() => {
+        const list = (paymentMethods || []).filter((p) => p.isEnabled);
+        return list.length > 0 ? list : [{ id: 'pm-cash', name: 'Cash', nameBn: 'নগদ ক্যাশ', type: 'cash' as const, isEnabled: true }];
+    }, [paymentMethods]);
+
+    // Unified dynamic payment channels matching Payment Gateways & Methods and Chart of Accounts
+    const availablePaymentAccounts = useMemo(() => {
+        const list: Array<{ id: string; name: string; nameBn?: string; balance: number }> = [];
+        const seen = new Set<string>();
+
+        // 1. From active Payment Methods (Settings -> Payment Gateways & Methods)
+        (activePaymentMethods || []).forEach((pm) => {
+            const key = pm.name.trim().toLowerCase();
+            if (!seen.has(key)) {
+                seen.add(key);
+                const bal = getPaymentMethodLiveBalance(pm, chartOfAccounts, transactions, invoices, accountBalances);
+                list.push({
+                    id: pm.id,
+                    name: pm.name,
+                    nameBn: pm.nameBn,
+                    balance: bal,
+                });
+            }
+        });
+
+        // 2. From Chart of Accounts (Asset liquid accounts: Cash, Bank, MFS)
+        (chartOfAccounts || [])
+            .filter((acc) => {
+                if (acc.classification !== 'Asset' || !acc.isActive) return false;
+                const n = acc.name.toLowerCase();
+                return (
+                    n.includes('cash') || n.includes('bank') || n.includes('plc') ||
+                    n.includes('bkash') || n.includes('nagad') || n.includes('rocket') ||
+                    n.includes('wallet') || n.includes('mfs') ||
+                    acc.code === '1001' || acc.code === '1004' || acc.code === '1005' ||
+                    acc.code === '1006' || acc.code === '1007' || acc.code === '1010' ||
+                    acc.code === '1020' || acc.code === '1030' || acc.code === '1040'
+                );
+            })
+            .forEach((acc) => {
+                const key = acc.name.trim().toLowerCase();
+                if (!seen.has(key)) {
+                    seen.add(key);
+                    const bal = calculateSingleAccountBalance(acc, transactions, invoices);
+                    list.push({
+                        id: acc.id,
+                        name: acc.name,
+                        nameBn: acc.nameBn,
+                        balance: bal,
+                    });
+                }
+            });
+
+        if (list.length === 0) {
+            list.push({ id: 'pm-cash', name: 'Cash', balance: accountBalances.cash });
+        }
+        return list;
+    }, [activePaymentMethods, chartOfAccounts, transactions, invoices, accountBalances]);
+
     const [accountingTab, setAccountingTab] = useState<'ledger' | 'coa' | 'expense-heads' | 'journals'>('ledger');
     const [filterType, setFilterType] = useState<string>('ALL');
     const [filterAccount, setFilterAccount] = useState<string>('ALL');
@@ -46,7 +106,7 @@ export const AccountingModule: React.FC = () => {
     const [expenseTitle, setExpenseTitle] = useState('');
     const [expenseCategory, setExpenseCategory] = useState('Rent & Utilities');
     const [expenseAmount, setExpenseAmount] = useState<number>(1000);
-    const [expenseAccount, setExpenseAccount] = useState<AccountType>('Cash in Hand');
+    const [expenseAccount, setExpenseAccount] = useState<string>('');
     const [expenseNote, setExpenseNote] = useState('');
 
     // Dynamically unified expense categories from active Expense Heads AND Chart of Accounts
@@ -97,12 +157,24 @@ export const AccountingModule: React.FC = () => {
             }
         }
     }, [availableExpenseOptions, expenseCategory]);
+
     // New Income/Receipt Modal
     const [showIncomeModal, setShowIncomeModal] = useState(false);
     const [incomeTitle, setIncomeTitle] = useState('');
     const [incomeCategory, setIncomeCategory] = useState('Sales Revenue');
     const [incomeAmount, setIncomeAmount] = useState<number>(5000);
-    const [incomeAccount, setIncomeAccount] = useState<AccountType>('Cash in Hand');
+    const [incomeAccount, setIncomeAccount] = useState<string>('');
+
+    useEffect(() => {
+        if (availablePaymentAccounts.length > 0) {
+            if (!expenseAccount || !availablePaymentAccounts.some((a) => a.name === expenseAccount)) {
+                setExpenseAccount(availablePaymentAccounts[0].name);
+            }
+            if (!incomeAccount || !availablePaymentAccounts.some((a) => a.name === incomeAccount)) {
+                setIncomeAccount(availablePaymentAccounts[0].name);
+            }
+        }
+    }, [availablePaymentAccounts, expenseAccount, incomeAccount]);
     // Edit/View/Delete states for Ledger Transactions
     const [editingTransaction, setEditingTransaction] = useState<any | null>(null);
     const [viewingTransaction, setViewingTransaction] = useState<any | null>(null);
@@ -112,7 +184,7 @@ export const AccountingModule: React.FC = () => {
     const [editTxDescription, setEditTxDescription] = useState(''); // narration
     const [editTxCategory, setEditTxCategory] = useState('');
     const [editTxAmount, setEditTxAmount] = useState<number>(0);
-    const [editTxAccount, setEditTxAccount] = useState<AccountType>('Cash in Hand');
+    const [editTxAccount, setEditTxAccount] = useState<string>('Cash');
     const [editTxType, setEditTxType] = useState<TransactionType>('EXPENSE');
     const [editTxRefNo, setEditTxRefNo] = useState('');
     const handleDatePreset = (preset: 'ALL' | 'TODAY' | '7D' | 'THIS_MONTH' | 'LAST_30' | 'CUSTOM') => {
@@ -158,13 +230,21 @@ export const AccountingModule: React.FC = () => {
     // Filtered transactions
     const filteredTransactions = transactions.filter((tx) => {
         const matchType = filterType === 'ALL' ? true : tx.type === filterType;
-        const matchAccount = filterAccount === 'ALL' ? true : tx.account === filterAccount;
+        const txAcct = (tx.paymentAccount || tx.account || tx.accountHead || tx.paymentMethod || '').toLowerCase();
+        const fAcct = filterAccount.toLowerCase();
+        const matchAccount = filterAccount === 'ALL' ? true : (
+            txAcct === fAcct ||
+            txAcct.includes(fAcct) ||
+            fAcct.includes(txAcct) ||
+            (fAcct.includes('cash') && txAcct.includes('cash'))
+        );
         const matchDate = (!startDate || tx.date >= startDate) && (!endDate || tx.date <= endDate);
         const q = (searchQuery || '').toLowerCase().trim();
         const matchSearch = !q ||
             (tx.description && tx.description.toLowerCase().includes(q)) ||
             (tx.category && tx.category.toLowerCase().includes(q)) ||
-            (tx.refNo && tx.refNo.toLowerCase().includes(q));
+            (tx.refNo && tx.refNo.toLowerCase().includes(q)) ||
+            (txAcct && txAcct.includes(q));
         return matchType && matchAccount && matchDate && matchSearch;
     });
     // Calculate totals from transactions, with fallback for any unrecorded invoices
@@ -210,13 +290,17 @@ export const AccountingModule: React.FC = () => {
         e.preventDefault();
         if (!expenseTitle || expenseAmount <= 0)
             return;
+        const selectedAccount = expenseAccount || availablePaymentAccounts[0]?.name || 'Cash';
         addTransaction({
             date: new Date().toISOString().slice(0, 10),
             type: 'EXPENSE',
             category: expenseCategory,
             description: expenseTitle,
             amount: expenseAmount,
-            account: expenseAccount,
+            account: selectedAccount,
+            paymentAccount: selectedAccount,
+            accountHead: selectedAccount,
+            paymentMethod: selectedAccount,
             refNo: `EXP-${Date.now().toString().slice(-4)}`,
         });
         setShowExpenseModal(false);
@@ -228,13 +312,17 @@ export const AccountingModule: React.FC = () => {
         e.preventDefault();
         if (!incomeTitle || incomeAmount <= 0)
             return;
+        const selectedAccount = incomeAccount || availablePaymentAccounts[0]?.name || 'Cash';
         addTransaction({
             date: new Date().toISOString().slice(0, 10),
             type: 'INCOME',
             category: incomeCategory,
             description: incomeTitle,
             amount: incomeAmount,
-            account: incomeAccount,
+            account: selectedAccount,
+            paymentAccount: selectedAccount,
+            accountHead: selectedAccount,
+            paymentMethod: selectedAccount,
             refNo: `INC-${Date.now().toString().slice(-4)}`,
         });
         setShowIncomeModal(false);
@@ -247,7 +335,7 @@ export const AccountingModule: React.FC = () => {
         setEditTxDescription(tx.description);
         setEditTxCategory(tx.category);
         setEditTxAmount(tx.amount);
-        setEditTxAccount(tx.account || 'Cash in Hand');
+        setEditTxAccount(tx.paymentAccount || tx.account || tx.accountHead || tx.paymentMethod || availablePaymentAccounts[0]?.name || 'Cash');
         setEditTxType(tx.type);
         setEditTxRefNo(tx.refNo || '');
     };
@@ -261,6 +349,9 @@ export const AccountingModule: React.FC = () => {
             category: editTxCategory,
             amount: Number(editTxAmount),
             account: editTxAccount,
+            paymentAccount: editTxAccount,
+            accountHead: editTxAccount,
+            paymentMethod: editTxAccount,
             type: editTxType,
             refNo: editTxRefNo,
         });
@@ -510,9 +601,11 @@ export const AccountingModule: React.FC = () => {
 
             <select value={filterAccount} onChange={(e) => setFilterAccount(e.target.value)} className="px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-semibold">
               <option value="ALL">{'All Accounts'}</option>
-              <option value="Cash in Hand">Cash in Hand</option>
-              <option value="BRAC Bank A/C">BRAC Bank A/C</option>
-              <option value="bKash / Nagad">bKash / Nagad</option>
+              {availablePaymentAccounts.map((acc) => (
+                <option key={acc.id} value={acc.name}>
+                  {acc.name} {acc.nameBn ? `(${acc.nameBn})` : ''}
+                </option>
+              ))}
             </select>
           </div>
         </div>
@@ -574,7 +667,7 @@ export const AccountingModule: React.FC = () => {
                     <div className="font-bold text-slate-900">{tx.description}</div>
                     <div className="text-[10px] text-amber-700 font-medium">{tx.category}</div>
                   </td>
-                  <td className="py-3 px-4 font-medium text-slate-700">{tx.account || tx.paymentAccount || 'Cash in Hand'}</td>
+                  <td className="py-3 px-4 font-medium text-slate-700">{tx.paymentAccount || tx.account || tx.accountHead || 'Cash in Hand'}</td>
                   <td className="py-3 px-4 text-center">
                     <span className={`inline-block px-2.5 py-0.5 rounded-full text-[10px] font-extrabold ${tx.type === 'INCOME'
                     ? 'bg-emerald-100 text-emerald-800'
@@ -673,19 +766,26 @@ export const AccountingModule: React.FC = () => {
                 </div>
 
                 <div>
-                  <label className="font-bold text-slate-700 block mb-1">
-                    {'Paid From Account *'}
-                  </label>
-                  <select value={expenseAccount} onChange={(e) => setExpenseAccount(e.target.value as any)} className="w-full px-3 py-2 border border-slate-200 rounded-xl font-medium">
-                    <option value="Cash in Hand">Cash in Hand (Nagad  - :{profile.currencySymbol}
-                      {accountBalances.cash.toLocaleString()})
-                    </option>
-                    <option value="BRAC Bank A/C">BRAC Bank A/C (Bank - :{profile.currencySymbol}
-                      {accountBalances.bank.toLocaleString()})
-                    </option>
-                    <option value="bKash / Nagad">bKashNagad ( - :{profile.currencySymbol}
-                      {accountBalances.mobile.toLocaleString()})
-                    </option>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="font-bold text-slate-700 block">
+                      {'Paid From Account *'}
+                    </label>
+                    {(() => {
+                      const selectedAcc = availablePaymentAccounts.find((a) => a.name === expenseAccount || a.id === expenseAccount) || availablePaymentAccounts[0];
+                      if (!selectedAcc) return null;
+                      return (
+                        <span className="text-[11px] font-bold text-rose-700 bg-rose-50 px-2 py-0.5 rounded border border-rose-200">
+                          Live: {profile.currencySymbol}{selectedAcc.balance.toLocaleString()}
+                        </span>
+                      );
+                    })()}
+                  </div>
+                  <select value={expenseAccount} onChange={(e) => setExpenseAccount(e.target.value)} className="w-full px-3 py-2 border border-slate-200 rounded-xl font-medium text-xs">
+                    {availablePaymentAccounts.map((acc) => (
+                      <option key={acc.id} value={acc.name}>
+                        {acc.name} {acc.nameBn ? `(${acc.nameBn})` : ''} — [{profile.currencySymbol}{acc.balance.toLocaleString()}]
+                      </option>
+                    ))}
                   </select>
                 </div>
               </div>
@@ -758,19 +858,26 @@ export const AccountingModule: React.FC = () => {
                 </div>
 
                 <div>
-                  <label className="font-bold text-slate-700 block mb-1">
-                    {'Deposit Into Account *'}
-                  </label>
-                  <select value={incomeAccount} onChange={(e) => setIncomeAccount(e.target.value as any)} className="w-full px-3 py-2 border border-slate-200 rounded-xl font-medium">
-                    <option value="Cash in Hand">Cash in Hand (Nagad  - :{profile.currencySymbol}
-                      {accountBalances.cash.toLocaleString()})
-                    </option>
-                    <option value="BRAC Bank A/C">BRAC Bank A/C (Bank - :{profile.currencySymbol}
-                      {accountBalances.bank.toLocaleString()})
-                    </option>
-                    <option value="bKash / Nagad">bKashNagad ( - :{profile.currencySymbol}
-                      {accountBalances.mobile.toLocaleString()})
-                    </option>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="font-bold text-slate-700 block">
+                      {'Deposit Into Account *'}
+                    </label>
+                    {(() => {
+                      const selectedAcc = availablePaymentAccounts.find((a) => a.name === incomeAccount || a.id === incomeAccount) || availablePaymentAccounts[0];
+                      if (!selectedAcc) return null;
+                      return (
+                        <span className="text-[11px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
+                          Live: {profile.currencySymbol}{selectedAcc.balance.toLocaleString()}
+                        </span>
+                      );
+                    })()}
+                  </div>
+                  <select value={incomeAccount} onChange={(e) => setIncomeAccount(e.target.value)} className="w-full px-3 py-2 border border-slate-200 rounded-xl font-medium text-xs">
+                    {availablePaymentAccounts.map((acc) => (
+                      <option key={acc.id} value={acc.name}>
+                        {acc.name} {acc.nameBn ? `(${acc.nameBn})` : ''} — [{profile.currencySymbol}{acc.balance.toLocaleString()}]
+                      </option>
+                    ))}
                   </select>
                 </div>
               </div>
@@ -921,13 +1028,26 @@ export const AccountingModule: React.FC = () => {
                 </div>
 
                 <div>
-                  <label className="font-bold text-slate-700 block mb-1">
-                    {'Fund Account *'}
-                  </label>
-                  <select value={editTxAccount} onChange={(e) => setEditTxAccount(e.target.value as any)} className="w-full px-3 py-2 border border-slate-200 rounded-xl font-medium">
-                    <option value="Cash in Hand">Cash in Hand</option>
-                    <option value="BRAC Bank A/C">BRAC Bank A/C</option>
-                    <option value="bKash / Nagad">bKash / Nagad</option>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="font-bold text-slate-700 block">
+                      {'Fund Account *'}
+                    </label>
+                    {(() => {
+                      const selectedAcc = availablePaymentAccounts.find((a) => a.name === editTxAccount || a.id === editTxAccount) || availablePaymentAccounts[0];
+                      if (!selectedAcc) return null;
+                      return (
+                        <span className="text-[11px] font-bold text-blue-700 bg-blue-50 px-2 py-0.5 rounded border border-blue-200">
+                          Live: {profile.currencySymbol}{selectedAcc.balance.toLocaleString()}
+                        </span>
+                      );
+                    })()}
+                  </div>
+                  <select value={editTxAccount} onChange={(e) => setEditTxAccount(e.target.value)} className="w-full px-3 py-2 border border-slate-200 rounded-xl font-medium text-xs">
+                    {availablePaymentAccounts.map((acc) => (
+                      <option key={acc.id} value={acc.name}>
+                        {acc.name} {acc.nameBn ? `(${acc.nameBn})` : ''} — [{profile.currencySymbol}{acc.balance.toLocaleString()}]
+                      </option>
+                    ))}
                   </select>
                 </div>
               </div>
