@@ -3932,12 +3932,14 @@ export const AppProvider: React.FC<{
             // 4. Remove Sales Revenue transactions and POS invoice payment records
             const currentTxs = latestStateRef.current.transactions || transactions;
             const nextTxs = currentTxs.filter((t: AccountingTransaction) => {
-                const isSalesCategory = t.category === 'Sales Revenue' || t.category === 'Customer Payment';
+                const isSalesCategory = t.category === 'Sales Revenue' || t.category === 'Customer Payment' || t.category === 'Customer Advance Adjustment';
                 const isInvoiceRef = Boolean(t.refNo && (t.refNo.startsWith('DCC-INV-') || t.refNo.startsWith('inv-')));
                 const isPosDesc = Boolean(t.description && (
                     t.description.startsWith('POS Payment:') ||
                     t.description.startsWith('Sales Invoice payment') ||
-                    t.description.startsWith('Invoice Due Payment:')
+                    t.description.startsWith('Invoice Due Payment:') ||
+                    t.description.startsWith('Adjusted Tk') ||
+                    t.description.includes('Customer Advance')
                 ));
                 return !(isSalesCategory || isInvoiceRef || isPosDesc);
             });
@@ -4169,7 +4171,7 @@ export const AppProvider: React.FC<{
         else if (moduleKey === 'WIPE_ALL_EXCEPT_PRODUCTS' || moduleKey === 'RESET_ALL_TRANSACTIONS') {
             const zeroStockProducts = (latestStateRef.current.products || products).map((p: ProductItem) => ({ ...p, stockFactory: 0, stockOffice: 0 }));
             const zeroBalCOA = (latestStateRef.current.chartOfAccounts || chartOfAccounts).map((acc: ChartOfAccount) => ({ ...acc, openingBalance: 0, currentBalance: 0 }));
-            const zeroDuesCustomers = (latestStateRef.current.customers || customers).map((c: Customer) => ({ ...c, totalPurchased: 0, dueAmount: 0 }));
+            const zeroDuesCustomers = (latestStateRef.current.customers || customers).map((c: Customer) => ({ ...c, totalPurchased: 0, dueAmount: 0, advanceBalance: 0 }));
             const zeroDuesSuppliers = (latestStateRef.current.suppliers || suppliers).map((s: Supplier) => ({ ...s, totalPurchased: 0, balancePayable: 0, dueAmount: 0 }));
 
             setInvoices([]);
@@ -4205,8 +4207,8 @@ export const AppProvider: React.FC<{
                 location: 'All',
                 actionType: 'DATA_CLEANED',
                 entityType: 'System',
-                details: 'Full transactional reset: Wiped all invoices, quotes, POs, accounting transactions, journal entries, projects, and stock movements. Reset customer/supplier dues to 0, product stock to 0, and account balances to 0.',
-                detailsBn: 'সম্পূর্ণ ট্রানজ্যাকশনাল ডেটা রিসেট করা হয়েছে (বিক্রয়, ক্রয়, ক্যাশ লেনদেন, জার্নাল, প্রজেক্ট, স্টক ও ব্যালেন্স শূন্য)।',
+                details: 'Full transactional reset: Wiped all invoices, quotes, POs, accounting transactions, journal entries, projects, and stock movements. Reset customer dues and advances to 0, supplier dues to 0, product stock to 0, and account balances to 0.',
+                detailsBn: 'সম্পূর্ণ ট্রানজ্যাকশনাল ডেটা রিসেট করা হয়েছে (বিক্রয়, ক্রয়, ক্যাশ লেনদেন, জার্নাল, প্রজেক্ট, স্টক, কাস্টমার বকেয়া ও অগ্রিম এবং ব্যালেন্স শূন্য)।',
                 severity: 'critical',
             });
 
