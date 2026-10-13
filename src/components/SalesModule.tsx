@@ -1010,7 +1010,7 @@ export const SalesModule: React.FC<SalesModuleProps> = ({ onOpenInvoiceModal, on
                   <th className="py-3 px-4">Phone / Contact</th>
                   <th className="py-3 px-4">Address</th>
                   <th className="py-3 px-4 text-right">Advance Balance</th>
-                  <th className="py-3 px-4 text-right">Total Purchase</th>
+                  <th className="py-3 px-4 text-right">Total Sales</th>
                   <th className="py-3 px-4 text-right">Total Paid</th>
                   <th className="py-3 px-4 text-right">Current Due</th>
                   <th className="py-3 px-4 text-center">Actions</th>
@@ -2512,7 +2512,7 @@ export const SalesModule: React.FC<SalesModuleProps> = ({ onOpenInvoiceModal, on
               {/* Financial Metrics Banner */}
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 my-4 shrink-0 text-center">
                 <div className="bg-slate-50 p-3 rounded-xl border border-slate-200">
-                  <div className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Total Purchase</div>
+                  <div className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Total Sales</div>
                   <div className="text-base sm:text-lg font-black text-slate-900 mt-1">
                     {profile.currencySymbol}{totalPurchased.toLocaleString()}
                   </div>
