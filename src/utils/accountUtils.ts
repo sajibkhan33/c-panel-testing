@@ -745,7 +745,11 @@ export const calculateInventoryValuation = (
     const nameBn = (account?.nameBn || '').toLowerCase();
     const isFinishedOnly = (account?.code === '1070' || nameLower.includes('finished goods') || nameBn.includes('প্রস্তুতকৃত পণ্য')) && !nameLower.includes('raw');
 
-    // Calculate net adjustment from posted Journal Entries (Debit increases Asset, Credit decreases Asset)
+    // Calculate net adjustment from posted Journal Entries
+    // For Raw Materials & Inventory asset:
+    // - Debit to Raw Materials & Inventory adds to asset (+amt)
+    // - Credit to Raw Materials & Inventory subtracts from asset (-amt)
+    // - Debit to Cost of Goods Sold (COGS) consumes/expenses raw materials (-amt)
     let journalDelta = 0;
     const accId = account?.id;
     const accCode = account?.code;
@@ -755,30 +759,47 @@ export const calculateInventoryValuation = (
         // Exclude project revenue/expense journals
         if (j.source === 'PROJECT_SALES' || j.source === 'PROJECT_EXPENSE') return;
 
-        const isDebit = Boolean(
+        const dName = (j.debitAccountName || '').toLowerCase().trim();
+        const cName = (j.creditAccountName || '').toLowerCase().trim();
+
+        const isCogsDebit = Boolean(
+            dName.includes('cost of goods') ||
+            dName.includes('cogs') ||
+            (dName.includes('raw material') && (dName.includes('cost') || dName.includes('expense') || dName.includes('sold'))) ||
+            dName.includes('বিক্রিত পণ্যের ব্যয়')
+        );
+
+        const isAssetDebit = !isCogsDebit && Boolean(
             (accId && j.debitAccountId === accId) ||
-            (accCode && j.debitAccountId === accCode) ||
-            (j.debitAccountName && (
-                j.debitAccountName.toLowerCase().trim() === accNameLower ||
-                (accNameLower.includes('raw material') && j.debitAccountName.toLowerCase().includes('raw material')) ||
-                (accNameLower.includes('inventory') && j.debitAccountName.toLowerCase().includes('inventory'))
+            (accCode && (j.debitAccountId === accCode || (j as any).debitAccountCode === accCode)) ||
+            (dName && (
+                dName === accNameLower ||
+                (!dName.includes('cost') && !dName.includes('sold') && !dName.includes('expense') && (
+                    (accNameLower.includes('raw material') && dName.includes('raw material')) ||
+                    (accNameLower.includes('inventory') && dName.includes('inventory'))
+                ))
             ))
         );
 
-        const isCredit = Boolean(
+        const isAssetCredit = Boolean(
             (accId && j.creditAccountId === accId) ||
-            (accCode && j.creditAccountId === accCode) ||
-            (j.creditAccountName && (
-                j.creditAccountName.toLowerCase().trim() === accNameLower ||
-                (accNameLower.includes('raw material') && j.creditAccountName.toLowerCase().includes('raw material')) ||
-                (accNameLower.includes('inventory') && j.creditAccountName.toLowerCase().includes('inventory'))
+            (accCode && (j.creditAccountId === accCode || (j as any).creditAccountCode === accCode)) ||
+            (cName && (
+                cName === accNameLower ||
+                (!cName.includes('cost') && !cName.includes('sold') && !cName.includes('expense') && (
+                    (accNameLower.includes('raw material') && cName.includes('raw material')) ||
+                    (accNameLower.includes('inventory') && cName.includes('inventory'))
+                ))
             ))
         );
 
         const amt = Number(j.amount) || 0;
-        if (isDebit && !isCredit) {
+        if (isAssetDebit && !isAssetCredit) {
             journalDelta += amt;
-        } else if (isCredit && !isDebit) {
+        } else if (isAssetCredit && !isAssetDebit) {
+            journalDelta -= amt;
+        } else if (isCogsDebit && !isAssetDebit) {
+            // Materials expensed into Cost of Goods Sold reduce remaining raw materials inventory valuation
             journalDelta -= amt;
         }
     });

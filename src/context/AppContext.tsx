@@ -703,13 +703,64 @@ export const AppProvider: React.FC<{
                 }
                 return acc;
             }
-            // 2. Cost of Goods Sold Account (5010) - recover if it mistakenly absorbed project expenses
-            if (cogsAcc && acc.id === cogsAcc.id) {
-                if (totalPrjExpenses > 0 && expAcc && acc.currentBalance >= totalPrjExpenses && expAcc.currentBalance < totalPrjExpenses) {
-                    coaNeedsUpdate = true;
-                    const correctedBal = Math.max(acc.openingBalance || 0, acc.currentBalance - totalPrjExpenses);
-                    return { ...acc, currentBalance: correctedBal };
+            // 2. Cost of Goods Sold Account (5001 / 5010)
+            const isCogsAcc = acc.classification === 'Expense' && (
+                (cogsAcc && acc.id === cogsAcc.id) ||
+                acc.code === '5001' ||
+                acc.code === '5010' ||
+                acc.id === 'coa-5001' ||
+                acc.id === 'coa-5010' ||
+                acc.name.toLowerCase().includes('cost of goods') ||
+                acc.name.toLowerCase().includes('cogs') ||
+                (acc.name.toLowerCase().includes('raw material') && acc.classification === 'Expense') ||
+                acc.nameBn?.includes('বিক্রিত পণ্যের ব্যয়')
+            );
+            if (isCogsAcc) {
+                let currentBase = acc.currentBalance;
+                if (totalPrjExpenses > 0 && expAcc && currentBase >= totalPrjExpenses && expAcc.currentBalance < totalPrjExpenses) {
+                    currentBase = Math.max(acc.openingBalance || 0, currentBase - totalPrjExpenses);
                 }
+
+                const poExpenses = (transactions || [])
+                    .filter(t => t.type === 'EXPENSE' && (
+                        (t.category && (t.category.toLowerCase().includes('raw') || t.category.toLowerCase().includes('purchase') || t.category.toLowerCase().includes('po'))) ||
+                        (t.description && (t.description.toLowerCase().includes('purchase') || t.description.toLowerCase().includes('po') || t.description.toLowerCase().includes('raw')))
+                    ))
+                    .reduce((s, t) => s + t.amount, 0);
+
+                let journalCogsDelta = 0;
+                (journalEntries || []).forEach(j => {
+                    if (j.source === 'PROJECT_SALES' || j.source === 'PROJECT_EXPENSE') return;
+                    const dName = (j.debitAccountName || '').toLowerCase().trim();
+                    const cName = (j.creditAccountName || '').toLowerCase().trim();
+                    const isDebit = Boolean(
+                        j.debitAccountId === acc.id ||
+                        j.debitAccountId === acc.code ||
+                        dName === acc.name.toLowerCase().trim() ||
+                        dName.includes('cost of goods') ||
+                        dName.includes('cogs') ||
+                        (dName.includes('raw material') && (dName.includes('cost') || dName.includes('sold') || dName.includes('expense'))) ||
+                        dName.includes('বিক্রিত পণ্যের ব্যয়')
+                    );
+                    const isCredit = Boolean(
+                        j.creditAccountId === acc.id ||
+                        j.creditAccountId === acc.code ||
+                        cName === acc.name.toLowerCase().trim() ||
+                        cName.includes('cost of goods') ||
+                        cName.includes('cogs') ||
+                        (cName.includes('raw material') && (cName.includes('cost') || cName.includes('sold') || cName.includes('expense'))) ||
+                        cName.includes('বিক্রিত পণ্যের ব্যয়')
+                    );
+                    if (isDebit && !isCredit) journalCogsDelta += (Number(j.amount) || 0);
+                    else if (isCredit && !isDebit) journalCogsDelta -= (Number(j.amount) || 0);
+                });
+
+                const targetCogsBal = Math.max(currentBase, poExpenses, (acc.openingBalance || 0) + journalCogsDelta);
+                if (acc.currentBalance !== targetCogsBal) {
+                    coaNeedsUpdate = true;
+                    return { ...acc, currentBalance: targetCogsBal };
+                }
+                return acc;
             }
             // 3. Fix: If any non-project expense account (like 5100 or 5201 Staff Salaries) wrongly had totalPrjExpenses assigned, revert it:
             if (acc.classification === 'Expense' && !isProjectExp && !acc.name.toLowerCase().includes('project')) {
@@ -968,7 +1019,7 @@ export const AppProvider: React.FC<{
                 suppliers: cleanedSuppliers,
             };
         }
-    }, [projects, chartOfAccounts, invoices, customers, purchaseOrders, suppliers, products, journalEntries]);
+    }, [projects, chartOfAccounts, invoices, customers, purchaseOrders, suppliers, products, journalEntries, transactions]);
 
     // Automatic reconciliation of Customer totalPurchased and dueAmount from live Sales Invoices
     useEffect(() => {

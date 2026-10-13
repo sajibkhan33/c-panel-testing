@@ -255,6 +255,57 @@ export const ChartOfAccountsManager: React.FC = () => {
                     (t.refNo && (t.refNo.startsWith('PRJ-') || (projects || []).some(p => p.code === t.refNo)))
                 );
 
+                const isCogs = (
+                    acc.code === '5001' ||
+                    acc.code === '5010' ||
+                    acc.id === 'coa-5001' ||
+                    acc.id === 'coa-5010' ||
+                    nameLower.includes('cost of goods') ||
+                    nameLower.includes('cogs') ||
+                    (nameLower.includes('raw material') && acc.classification === 'Expense') ||
+                    nameBn.includes('বিক্রিত পণ্যের ব্যয়')
+                );
+
+                // Calculate net impact from posted Journal Entries (Debit increases Expense, Credit decreases Expense)
+                let journalExpDelta = 0;
+                (journalEntries || []).forEach(j => {
+                    if (j.source === 'PROJECT_SALES' || j.source === 'PROJECT_EXPENSE') return;
+                    const dName = (j.debitAccountName || '').toLowerCase().trim();
+                    const cName = (j.creditAccountName || '').toLowerCase().trim();
+                    const amt = Number(j.amount) || 0;
+
+                    const isDebit = Boolean(
+                        (acc.id && j.debitAccountId === acc.id) ||
+                        (acc.code && (j.debitAccountId === acc.code || (j as any).debitAccountCode === acc.code)) ||
+                        (dName && (
+                            dName === nameLower ||
+                            (isCogs && (
+                                dName.includes('cost of goods') ||
+                                dName.includes('cogs') ||
+                                (dName.includes('raw material') && (dName.includes('cost') || dName.includes('sold') || dName.includes('expense'))) ||
+                                dName.includes('বিক্রিত পণ্যের ব্যয়')
+                            ))
+                        ))
+                    );
+
+                    const isCredit = Boolean(
+                        (acc.id && j.creditAccountId === acc.id) ||
+                        (acc.code && (j.creditAccountId === acc.code || (j as any).creditAccountCode === acc.code)) ||
+                        (cName && (
+                            cName === nameLower ||
+                            (isCogs && (
+                                cName.includes('cost of goods') ||
+                                cName.includes('cogs') ||
+                                (cName.includes('raw material') && (cName.includes('cost') || cName.includes('sold') || cName.includes('expense'))) ||
+                                cName.includes('বিক্রিত পণ্যের ব্যয়')
+                            ))
+                        ))
+                    );
+
+                    if (isDebit && !isCredit) journalExpDelta += amt;
+                    else if (isCredit && !isDebit) journalExpDelta -= amt;
+                });
+
                 if (isProjectExp) {
                     const projectMatching = (transactions || [])
                         .filter(t => t.type === 'EXPENSE' && (
@@ -263,30 +314,30 @@ export const ChartOfAccountsManager: React.FC = () => {
                             (t.accountHead && (t.accountHead.toLowerCase().includes('project') || t.accountHead.toLowerCase().includes('প্রজেক্ট')))
                         ))
                         .reduce((s, t) => s + t.amount, 0);
-                    liveBal = (acc.openingBalance || 0) + Math.max(projectMatching, totalProjectExpenses);
-                } else if (acc.code === '5010') {
+                    liveBal = (acc.openingBalance || 0) + Math.max(projectMatching, totalProjectExpenses, journalExpDelta);
+                } else if (isCogs) {
                     const poExpenses = (transactions || [])
                         .filter(t => t.type === 'EXPENSE' && !isPrjTx(t) && (
                             (t.category && (t.category.toLowerCase().includes('raw') || t.category.toLowerCase().includes('purchase') || t.category.toLowerCase().includes('po'))) ||
-                            (t.description && (t.description.toLowerCase().includes('purchase') || t.description.toLowerCase().includes('po')))
+                            (t.description && (t.description.toLowerCase().includes('purchase') || t.description.toLowerCase().includes('po') || t.description.toLowerCase().includes('raw')))
                         ))
                         .reduce((s, t) => s + t.amount, 0);
-                    const base5010 = (acc.currentBalance === totalProjectExpenses && totalProjectExpenses > 0)
+                    const baseCogs = (acc.currentBalance === totalProjectExpenses && totalProjectExpenses > 0)
                         ? (acc.openingBalance || 0)
                         : (acc.currentBalance > totalProjectExpenses ? acc.currentBalance - totalProjectExpenses : acc.currentBalance);
-                    liveBal = Math.max(base5010, poExpenses);
+                    liveBal = Math.max(baseCogs, poExpenses, (acc.openingBalance || 0) + journalExpDelta);
                 } else {
                     const matching = (transactions || [])
                         .filter(t => t.type === 'EXPENSE' && !isPrjTx(t) && (
-                            (t.category && nameLower.includes(t.category.toLowerCase())) ||
-                            (t.accountHead && nameLower.includes(t.accountHead.toLowerCase()))
+                            (t.category && (nameLower.includes(t.category.toLowerCase()) || t.category.toLowerCase().includes(nameLower))) ||
+                            (t.accountHead && (nameLower.includes(t.accountHead.toLowerCase()) || t.accountHead.toLowerCase().includes(nameLower)))
                         ))
                         .reduce((s, t) => s + t.amount, 0);
                     // Reclaim if non-project account mistakenly absorbed project expenses
                     const baseBal = (acc.currentBalance === totalProjectExpenses && totalProjectExpenses > 0)
                         ? (acc.openingBalance || 0)
                         : acc.currentBalance;
-                    liveBal = Math.max(baseBal, matching);
+                    liveBal = Math.max(baseBal, matching, (acc.openingBalance || 0) + journalExpDelta);
                 }
             }
 
