@@ -694,59 +694,20 @@ export const calculateTotalSupplierPayables = (
     suppliers: Supplier[] = [],
     purchaseOrders: PurchaseOrder[] = []
 ): number => {
-    let totalDue = 0;
-    const matchedPoIds = new Set<string>();
+    // If purchase orders exist in system, active supplier payables are strictly the dues from Received POs
+    if (purchaseOrders && purchaseOrders.length > 0) {
+        return purchaseOrders
+            .filter((p) => p.status === 'Received')
+            .reduce((sum, p) => {
+                const due = p.dueAmount !== undefined
+                    ? Number(p.dueAmount)
+                    : Math.max(0, (Number(p.grandTotal ?? p.totalAmount ?? 0)) - (Number(p.paidAmount || 0)));
+                return sum + due;
+            }, 0);
+    }
 
-    (suppliers || []).forEach((s) => {
-        const sId = s.id;
-        const sName = (s.name || '').toLowerCase().trim();
-        const sCompany = (s.company || '').toLowerCase().trim();
-        const sPhone = (s.phone || '').replace(/\D/g, '');
-
-        const pos = (purchaseOrders || []).filter((p) => {
-            const pSuppId = p.supplierId || '';
-            const pSuppName = (p.supplierName || '').toLowerCase().trim();
-            const pSuppPhone = (p.supplierPhone || '').replace(/\D/g, '');
-            const isMatch = (
-                (sId && pSuppId === sId) ||
-                (sName && pSuppName === sName) ||
-                (sName && pSuppName && (pSuppName.includes(sName) || sName.includes(pSuppName))) ||
-                (sCompany && pSuppName === sCompany) ||
-                (sCompany && pSuppName && (pSuppName.includes(sCompany) || sCompany.includes(pSuppName))) ||
-                (sPhone && pSuppPhone && sPhone === pSuppPhone)
-            );
-            if (isMatch) {
-                matchedPoIds.add(p.id);
-            }
-            return isMatch;
-        });
-
-        // Received POs: only confirmed received goods create active payable dues
-        const receivedPOs = pos.filter((p) => p.status === 'Received');
-        const recDue = receivedPOs.reduce((acc, p) => acc + (
-            p.dueAmount !== undefined
-                ? Number(p.dueAmount)
-                : Math.max(0, (Number(p.grandTotal ?? p.totalAmount ?? 0)) - (Number(p.paidAmount || 0)))
-        ), 0);
-
-        if (pos.length > 0) {
-            totalDue += recDue;
-        } else {
-            totalDue += Number(s.balancePayable ?? s.dueAmount ?? 0);
-        }
-    });
-
-    // Also include any orphan Received POs not matched to any listed supplier
-    (purchaseOrders || []).forEach((po) => {
-        if (po.status === 'Received' && !matchedPoIds.has(po.id)) {
-            const due = po.dueAmount !== undefined
-                ? Number(po.dueAmount)
-                : Math.max(0, (Number(po.grandTotal ?? po.totalAmount ?? 0)) - (Number(po.paidAmount || 0)));
-            totalDue += due;
-        }
-    });
-
-    return Math.max(0, totalDue);
+    // Fallback if no purchase orders exist in the system yet
+    return (suppliers || []).reduce((sum, s) => sum + (Number(s.dueAmount) || Number(s.balancePayable) || 0), 0);
 };
 
 /**

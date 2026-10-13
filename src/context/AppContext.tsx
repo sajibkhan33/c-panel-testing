@@ -1040,6 +1040,11 @@ export const AppProvider: React.FC<{
                     suppsChanged = true;
                     return { ...s, totalPurchased, dueAmount: recDue, balancePayable: recDue };
                 }
+            } else if ((purchaseOrders || []).length > 0) {
+                if (Number(s.totalPurchased) !== 0 || Number(s.dueAmount) !== 0 || Number(s.balancePayable) !== 0) {
+                    suppsChanged = true;
+                    return { ...s, totalPurchased: 0, dueAmount: 0, balancePayable: 0 };
+                }
             }
             return s;
         });
