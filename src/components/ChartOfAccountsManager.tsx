@@ -247,6 +247,7 @@ export const ChartOfAccountsManager: React.FC = () => {
                 const isProjectExp = (
                     acc.id === 'coa-5206' || 
                     acc.code === '5206' || 
+                    acc.code === '5300' ||
                     nameLower.includes('project') || 
                     nameBn.includes('প্রজেক্ট')
                 );
@@ -337,6 +338,7 @@ export const ChartOfAccountsManager: React.FC = () => {
                 totalExpenses += acc.currentBalance;
                 const isPrj = (
                     acc.code === '5206' || 
+                    acc.code === '5300' || 
                     acc.id === 'coa-5206' || 
                     (acc.name || '').toLowerCase().includes('project') || 
                     (acc.nameBn || '').includes('প্রজেক্ট')
@@ -623,7 +625,7 @@ export const ChartOfAccountsManager: React.FC = () => {
       {/* Projects Integration Status Bar */}
       {(() => {
         const projectRevAcc = chartOfAccounts.find(a => a.classification === 'Revenue' && (a.code === '4002' || a.code === '4051' || a.code === '4060' || a.id === 'coa-4002' || a.name.toLowerCase().includes('project'))) || { code: '4002', name: 'Project Sales' };
-        const projectExpAcc = chartOfAccounts.find(a => a.classification === 'Expense' && (a.code === '5206' || a.id === 'coa-5206' || a.name.toLowerCase().includes('project'))) || { code: '5206', name: 'Project Expense' };
+        const projectExpAcc = chartOfAccounts.find(a => a.classification === 'Expense' && (a.code === '5206' || a.code === '5300' || a.id === 'coa-5206' || a.name.toLowerCase().includes('project'))) || { code: '5206', name: 'Project Expense' };
         const totalSales = (projects || []).reduce((s, p) => s + (p.totalSales || 0), 0);
         const totalExpenses = (projects || []).reduce((s, p) => s + (p.totalExpenses || 0), 0);
 
@@ -848,7 +850,7 @@ export const ChartOfAccountsManager: React.FC = () => {
                     <option value="Liability">Liability</option>
                     <option value="Equity">Equity</option>
                     <option value="Revenue">Revenue</option>
-                    <option value="Expense">Expense  Product</option>
+                    <option value="Expense">Expense</option>
                   </select>
                 </div>
               </div>
@@ -864,7 +866,7 @@ export const ChartOfAccountsManager: React.FC = () => {
                   <label className="font-bold text-slate-700 block mb-1">
                     {'Account Name (BN)'}
                   </label>
-                  <input type="text" value={formData.nameBn} onChange={(e) => setFormData({ ...formData, nameBn: e.target.value })} placeholder=":" className="w-full px-3 py-2 border border-slate-200 rounded-xl"/>
+                  <input type="text" value={formData.nameBn} onChange={(e) => setFormData({ ...formData, nameBn: e.target.value })} placeholder="e.g. প্রজেক্ট খরচ" className="w-full px-3 py-2 border border-slate-200 rounded-xl"/>
                 </div>
               </div>
 
@@ -896,7 +898,7 @@ export const ChartOfAccountsManager: React.FC = () => {
                         <option value="Non-Operating Revenue">Non-Operating Revenue</option>
                       </>)}
                     {formData.classification === 'Expense' && (<>
-                        <option value="Direct Expenses / COGS">Direct ExpensesCOGS</option>
+                        <option value="Direct Expenses / COGS">Direct Expenses / COGS</option>
                         <option value="Operating Expenses">Operating Expenses</option>
                         <option value="Administrative Expenses">Administrative Expenses</option>
                         <option value="Selling & Distribution">Selling & Distribution</option>
@@ -917,7 +919,7 @@ export const ChartOfAccountsManager: React.FC = () => {
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="font-bold text-slate-700 block mb-1">
-                    {"Opening BalanceTk"}
+                    {'Opening Balance (Tk)'}
                   </label>
                   <input type="number" step="any" value={formData.openingBalance} onChange={(e) => setFormData({ ...formData, openingBalance: Number(e.target.value) })} className="w-full px-3 py-2 border border-slate-200 rounded-xl font-mono font-bold"/>
                 </div>
