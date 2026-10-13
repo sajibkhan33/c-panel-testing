@@ -1984,6 +1984,7 @@ export const AppProvider: React.FC<{
             id: `cust-${Date.now()}`,
             totalPurchased: 0,
             dueAmount: 0,
+            advanceBalance: Number(cust.advanceBalance) || 0,
             createdAt: new Date().toISOString().slice(0, 10),
         };
         setCustomers((prev) => {
@@ -1998,9 +1999,7 @@ export const AppProvider: React.FC<{
             customers: [newCust, ...(latestStateRef.current.customers || []).filter((c) => c.id !== newCust.id)],
         };
         isCloudLoadedRef.current = true;
-        setTimeout(() => {
-            syncWithCloud();
-        }, 100);
+        triggerImmediatePush();
         return newCust;
     };
     const updateCustomer = (id: string, updates: Partial<Customer>) => {
@@ -2016,9 +2015,7 @@ export const AppProvider: React.FC<{
             customers: (latestStateRef.current.customers || []).map((c) => (c.id === id ? { ...c, ...updates } : c)),
         };
         isCloudLoadedRef.current = true;
-        setTimeout(() => {
-            syncWithCloud();
-        }, 100);
+        triggerImmediatePush();
     };
     const addSupplier = (sup: Omit<Supplier, 'id' | 'totalPurchased' | 'dueAmount'>): Supplier => {
         const newSup: Supplier = {

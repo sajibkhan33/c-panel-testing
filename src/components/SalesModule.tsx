@@ -1003,6 +1003,7 @@ export const SalesModule: React.FC<SalesModuleProps> = ({ onOpenInvoiceModal, on
                   <th className="py-3 px-4">Customer</th>
                   <th className="py-3 px-4">Phone / Contact</th>
                   <th className="py-3 px-4">Address</th>
+                  <th className="py-3 px-4 text-right">Advance Balance</th>
                   <th className="py-3 px-4 text-right">Total Purchase</th>
                   <th className="py-3 px-4 text-right">Total Paid</th>
                   <th className="py-3 px-4 text-right">Current Due</th>
@@ -1011,7 +1012,7 @@ export const SalesModule: React.FC<SalesModuleProps> = ({ onOpenInvoiceModal, on
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {filteredClients.length === 0 ? (<tr>
-                    <td colSpan={7} className="py-10 text-center text-slate-500">
+                    <td colSpan={8} className="py-10 text-center text-slate-500">
                       <div className="max-w-xs mx-auto space-y-2">
                         <User className="w-8 h-8 mx-auto text-slate-300"/>
                         <p className="font-bold text-xs text-slate-700">
@@ -1049,6 +1050,15 @@ export const SalesModule: React.FC<SalesModuleProps> = ({ onOpenInvoiceModal, on
                       </td>
                       <td className="py-3 px-4 text-slate-700 font-medium font-mono">{c.phone || '—'}</td>
                       <td className="py-3 px-4 text-slate-500">{c.address || 'Chattogram'}</td>
+                      <td className="py-3 px-4 text-right">
+                        <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-black ${
+                          c.advanceBalance && c.advanceBalance > 0
+                            ? 'bg-indigo-50 text-indigo-700 border border-indigo-200 shadow-2xs'
+                            : 'text-slate-400 font-medium'
+                        }`}>
+                          {profile.currencySymbol}{(c.advanceBalance || 0).toLocaleString()}
+                        </span>
+                      </td>
                       <td className="py-3 px-4 text-right font-black text-slate-900">
                         {profile.currencySymbol}
                         {totalPurchased.toLocaleString()}
@@ -2323,7 +2333,7 @@ export const SalesModule: React.FC<SalesModuleProps> = ({ onOpenInvoiceModal, on
               </div>
 
               {/* Financial Metrics Banner */}
-              <div className="grid grid-cols-3 gap-3 my-4 shrink-0 text-center">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 my-4 shrink-0 text-center">
                 <div className="bg-slate-50 p-3 rounded-xl border border-slate-200">
                   <div className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Total Purchase</div>
                   <div className="text-base sm:text-lg font-black text-slate-900 mt-1">
@@ -2337,6 +2347,13 @@ export const SalesModule: React.FC<SalesModuleProps> = ({ onOpenInvoiceModal, on
                     {profile.currencySymbol}{totalPaid.toLocaleString()}
                   </div>
                   <div className="text-[10px] text-emerald-600 mt-0.5">{customerTxList.length} payments</div>
+                </div>
+                <div className="bg-indigo-50/60 p-3 rounded-xl border border-indigo-200">
+                  <div className="text-[10px] text-indigo-700 font-bold uppercase tracking-wider">Advance Balance</div>
+                  <div className="text-base sm:text-lg font-black text-indigo-700 mt-1">
+                    {profile.currencySymbol}{(selectedCustomerHistory.advanceBalance || 0).toLocaleString()}
+                  </div>
+                  <div className="text-[10px] text-indigo-600 mt-0.5">Credit Held</div>
                 </div>
                 <div className="bg-rose-50/60 p-3 rounded-xl border border-rose-200">
                   <div className="text-[10px] text-rose-600 font-bold uppercase tracking-wider">Current Due</div>

@@ -9,7 +9,7 @@ import { ExpenseHeadManager } from './ExpenseHeadManager';
 import { JournalEntriesManager } from './JournalEntriesManager';
 import { getBankAccountsBreakdown, getMfsAccountsBreakdown, getPaymentMethodLiveBalance, calculateSingleAccountBalance } from '../utils/accountUtils';
 export const AccountingModule: React.FC = () => {
-    const { accountBalances: rawBalances, transactions, chartOfAccounts, expenseHeads, journalEntries, profile, language, invoices = [], paymentMethods = [], addTransaction, updateTransaction, deleteTransaction, } = useApp();
+    const { accountBalances: rawBalances, transactions, chartOfAccounts, expenseHeads, journalEntries, profile, language, invoices = [], paymentMethods = [], customers = [], updateCustomer, addTransaction, updateTransaction, deleteTransaction, } = useApp();
     const accountBalances = {
         cash: rawBalances?.cash ?? 0,
         bank: rawBalances?.bank ?? 0,
@@ -209,6 +209,7 @@ export const AccountingModule: React.FC = () => {
     const [incomeCategory, setIncomeCategory] = useState('Sales Revenue');
     const [incomeAmount, setIncomeAmount] = useState<number>(5000);
     const [incomeAccount, setIncomeAccount] = useState<string>('');
+    const [incomeCustomerId, setIncomeCustomerId] = useState<string>('');
 
     useEffect(() => {
         if (availableIncomeOptions.length > 0) {
@@ -379,9 +380,20 @@ export const AccountingModule: React.FC = () => {
             paymentMethod: selectedAccount,
             refNo: `INC-${Date.now().toString().slice(-4)}`,
         });
+
+        if (incomeCustomerId) {
+            const cust = customers.find((c) => c.id === incomeCustomerId);
+            if (cust) {
+                updateCustomer(cust.id, {
+                    advanceBalance: (Number(cust.advanceBalance) || 0) + Number(incomeAmount),
+                });
+            }
+        }
+
         setShowIncomeModal(false);
         setIncomeTitle('');
         setIncomeAmount(5000);
+        setIncomeCustomerId('');
     };
     const handleOpenEditTx = (tx: any) => {
         setEditingTransaction(tx);
@@ -923,6 +935,36 @@ export const AccountingModule: React.FC = () => {
                   </select>
                 </div>
               </div>
+
+              {(incomeCategory.toLowerCase().includes('advance') || incomeCategory.includes('অগ্রিম')) && (
+                <div className="bg-indigo-50/70 p-3.5 rounded-xl border border-indigo-200 space-y-1.5">
+                  <label className="font-bold text-indigo-950 block text-xs">
+                    Link to Client / Customer (Optional)
+                  </label>
+                  <select
+                    value={incomeCustomerId}
+                    onChange={(e) => {
+                      const cid = e.target.value;
+                      setIncomeCustomerId(cid);
+                      if (cid && (!incomeTitle || incomeTitle.startsWith('Advance received from'))) {
+                        const c = customers.find((x) => x.id === cid);
+                        if (c) setIncomeTitle(`Advance received from ${c.name}`);
+                      }
+                    }}
+                    className="w-full px-3 py-2 bg-white border border-indigo-200 rounded-xl font-medium text-xs text-slate-800"
+                  >
+                    <option value="">-- No Specific Client (General Advance Deposit) --</option>
+                    {customers.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.name} {c.phone ? `(${c.phone})` : ''} — Current Advance: {profile.currencySymbol}{(c.advanceBalance || 0).toLocaleString()}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="text-[11px] text-indigo-600 font-medium">
+                    💡 Selecting a client will automatically credit this deposit to their Advance Balance in Registered Clients.
+                  </p>
+                </div>
+              )}
             </div>
 
             <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">

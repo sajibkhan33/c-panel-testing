@@ -531,11 +531,14 @@ export const getCustomerInvoiceSummary = (c: any, allInvoices: SalesInvoice[]) =
         ? clientInvoices.reduce((sum, inv) => sum + (Number(inv.dueAmount) || 0), 0)
         : (Number(c.dueAmount) || 0);
 
+    const advanceBalance = Number(c.advanceBalance) || 0;
+
     return {
         clientInvoices,
         totalPurchased,
         totalPaid,
         dueAmount,
+        advanceBalance,
     };
 };
 
