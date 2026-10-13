@@ -110,7 +110,7 @@ export const ChartOfAccountsManager: React.FC = () => {
                 );
 
                 if (isCustomerReceivable) {
-                    liveBal = totalCustomerDue > 0 ? totalCustomerDue : acc.currentBalance;
+                    liveBal = totalCustomerDue > 0 ? totalCustomerDue : (acc.openingBalance || 0);
                 } else if (isInventory) {
                     liveBal = acc.currentBalance;
                 } else {
@@ -122,7 +122,7 @@ export const ChartOfAccountsManager: React.FC = () => {
                 const isAdvanceLiability = acc.code === '2020' || acc.code === '2002' || acc.id === 'coa-2020' || nameLower.includes('advance') || nameLower.includes('deposit') || nameBn.includes('অগ্রিম');
 
                 if (isPayable) {
-                    liveBal = totalSupplierDue > 0 ? totalSupplierDue : acc.currentBalance;
+                    liveBal = totalSupplierDue > 0 ? totalSupplierDue : (acc.openingBalance || 0);
                 } else if (isAdvanceLiability) {
                     const matchingAdvance = (transactions || [])
                         .filter(t => t.type === 'INCOME' && !isInvoiceTransaction(t) && (

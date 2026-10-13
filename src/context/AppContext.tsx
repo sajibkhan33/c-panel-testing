@@ -689,9 +689,10 @@ export const AppProvider: React.FC<{
                 const totalInvoiceCustomerDue = (invoices || []).reduce((s, inv) => s + (Number(inv.dueAmount) || 0), 0);
                 const totalCustomerRecordDue = (customers || []).reduce((s, c) => s + (Number(c.dueAmount) || 0), 0);
                 const totalCustomerDue = Math.max(totalInvoiceCustomerDue, totalCustomerRecordDue);
-                if (totalCustomerDue > 0 && acc.currentBalance !== totalCustomerDue) {
+                const targetReceivableBal = totalCustomerDue > 0 ? totalCustomerDue : (acc.openingBalance || 0);
+                if (acc.currentBalance !== targetReceivableBal) {
                     coaNeedsUpdate = true;
-                    return { ...acc, currentBalance: totalCustomerDue };
+                    return { ...acc, currentBalance: targetReceivableBal };
                 }
             }
 
@@ -709,8 +710,8 @@ export const AppProvider: React.FC<{
                 const totalSupplierRecordDue = (suppliers || []).reduce((s, sup) => s + (Number(sup.dueAmount) || Number(sup.balancePayable) || 0), 0);
                 const totalPoDue = (purchaseOrders || []).reduce((s, po) => s + (Number(po.dueAmount) || 0), 0);
                 const totalSupplierDue = Math.max(totalSupplierRecordDue, totalPoDue);
-                const targetPayableBal = Math.max(acc.openingBalance || 0, totalSupplierDue);
-                if (targetPayableBal > 0 && acc.currentBalance !== targetPayableBal) {
+                const targetPayableBal = totalSupplierDue > 0 ? totalSupplierDue : (acc.openingBalance || 0);
+                if (acc.currentBalance !== targetPayableBal) {
                     coaNeedsUpdate = true;
                     return { ...acc, currentBalance: targetPayableBal };
                 }
@@ -740,7 +741,7 @@ export const AppProvider: React.FC<{
                     t.refNo?.startsWith('INC-')
                 )).reduce((s, t) => s + t.amount, 0);
                 const targetSalesBal = (acc.openingBalance || 0) + effectiveInvoiceSales + directSalesRevenue;
-                if (targetSalesBal > 0 && acc.currentBalance !== targetSalesBal) {
+                if (acc.currentBalance !== targetSalesBal) {
                     coaNeedsUpdate = true;
                     return { ...acc, currentBalance: targetSalesBal };
                 }
@@ -1454,8 +1455,9 @@ export const AppProvider: React.FC<{
             localStorage.setItem(`${STORAGE_KEY}_TRANSACTIONS`, JSON.stringify(updatedTxs));
         } catch {}
 
-        // Update Chart of Accounts Customer Advance liability account immediately
+        // Update Chart of Accounts Customer Advance liability and Customer Receivable accounts immediately
         const newTotalCustomerAdvance = updatedCusts.reduce((s, c) => s + (Number(c.advanceBalance) || 0), 0);
+        const newTotalCustomerDue = updatedInvoices.reduce((s, inv) => s + (Number(inv.dueAmount) || 0), 0);
         const currentCoa = latestStateRef.current.chartOfAccounts || chartOfAccounts;
         const updatedCoa = currentCoa.map((acc) => {
             const isAdvanceLiability = acc.classification === 'Liability' && (
@@ -1469,10 +1471,24 @@ export const AppProvider: React.FC<{
             if (isAdvanceLiability) {
                 return { ...acc, currentBalance: newTotalCustomerAdvance };
             }
+            const isCustomerReceivable = acc.classification === 'Asset' && (
+                acc.id === 'coa-1050' ||
+                acc.code === '1003' ||
+                acc.code === '1050' ||
+                (acc.name.toLowerCase().includes('customer') && acc.name.toLowerCase().includes('receivable')) ||
+                acc.name.toLowerCase().includes('trade debtor') ||
+                acc.nameBn?.includes('কাস্টমার বকেয়া') ||
+                acc.nameBn?.includes('প্রাপ্য হিসাব') ||
+                (acc.name.toLowerCase().includes('receivable') && !acc.name.toLowerCase().includes('aggregator') && !acc.name.toLowerCase().includes('staff'))
+            );
+            if (isCustomerReceivable) {
+                return { ...acc, currentBalance: newTotalCustomerDue > 0 ? newTotalCustomerDue : (acc.openingBalance || 0) };
+            }
             return acc;
         });
         setChartOfAccounts(updatedCoa);
         try {
+            localStorage.setItem(`${STORAGE_KEY}_COA`, JSON.stringify(updatedCoa));
             localStorage.setItem(`${STORAGE_KEY}_CHART_OF_ACCOUNTS`, JSON.stringify(updatedCoa));
         } catch {}
 
