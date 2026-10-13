@@ -1705,6 +1705,8 @@ export const AppProvider: React.FC<{
             productionStatus: 'Queued',
             warehouseLocation: 'Factory',
             notes: `Generated from Quotation #${q.quoteNo}. ${q.notes || ''}`,
+            showRegionColumn: q.showRegionColumn,
+            showTypeColumn: q.showTypeColumn,
         });
         updateQuotation(quotationId, { status: 'Approved', isConverted: true });
         return created;

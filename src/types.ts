@@ -179,6 +179,9 @@ export interface InvoiceItem {
   productId: string;
   name: string;
   category: string;
+  region?: string;
+  type?: string;
+  itemType?: string;
   unit: UnitType;
   unitPrice: number;
   costPrice: number;
@@ -267,6 +270,8 @@ export interface SalesInvoice {
     [key: string]: number | undefined;
   };
   isQuote?: boolean;
+  showRegionColumn?: boolean;
+  showTypeColumn?: boolean;
 }
 
 export interface Quotation {
@@ -293,6 +298,8 @@ export interface Quotation {
   notes?: string;
   quoteType?: 'Sales' | 'Custom';
   isConverted?: boolean;
+  showRegionColumn?: boolean;
+  showTypeColumn?: boolean;
 }
 
 export interface PurchaseOrderItem {

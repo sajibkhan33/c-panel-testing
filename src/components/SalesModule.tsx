@@ -38,6 +38,10 @@ export const SalesModule: React.FC<SalesModuleProps> = ({ onOpenInvoiceModal, on
     const [editInvoiceRefNo, setEditInvoiceRefNo] = useState('');
     const [editInvoiceWarehouse, setEditInvoiceWarehouse] = useState<'Factory' | 'Office'>('Factory');
     const [invItemName, setInvItemName] = useState('');
+    const [invItemRegion, setInvItemRegion] = useState('');
+    const [invItemType, setInvItemType] = useState('');
+    const [editInvShowRegionColumn, setEditInvShowRegionColumn] = useState<boolean>(false);
+    const [editInvShowTypeColumn, setEditInvShowTypeColumn] = useState<boolean>(false);
     const [invItemQty, setInvItemQty] = useState(1);
     const [invItemPrice, setInvItemPrice] = useState(1000);
     const [invSelectedProductId, setInvSelectedProductId] = useState('');
@@ -95,6 +99,9 @@ export const SalesModule: React.FC<SalesModuleProps> = ({ onOpenInvoiceModal, on
             finalItems.push({
                 productId: invSelectedProductId || `custom-${Date.now()}`,
                 name: invItemName.trim(),
+                region: editInvShowRegionColumn && invItemRegion.trim() ? invItemRegion.trim() : undefined,
+                type: editInvShowTypeColumn && invItemType.trim() ? invItemType.trim() : undefined,
+                itemType: editInvShowTypeColumn && invItemType.trim() ? invItemType.trim() : undefined,
                 unit: 'pcs',
                 unitPrice: invItemPrice,
                 costPrice: Math.round(invItemPrice * 0.6),
@@ -146,11 +153,17 @@ export const SalesModule: React.FC<SalesModuleProps> = ({ onOpenInvoiceModal, on
             grandTotal: grand,
             dueAmount: due,
             paymentStatus: newPaymentStatus,
+            showRegionColumn: editInvShowRegionColumn,
+            showTypeColumn: editInvShowTypeColumn,
         });
         setEditingInvoice(null);
         setEditInvoiceItems([]);
         setEditInvoiceRefNo('');
         setInvItemName('');
+        setInvItemRegion('');
+        setInvItemType('');
+        setEditInvShowRegionColumn(false);
+        setEditInvShowTypeColumn(false);
         setInvSelectedProductId('');
         setInvItemQty(1);
         setInvItemPrice(1000);
@@ -251,6 +264,10 @@ export const SalesModule: React.FC<SalesModuleProps> = ({ onOpenInvoiceModal, on
     const [quoteCustomerAddress, setQuoteCustomerAddress] = useState('');
     const [quoteReferenceNo, setQuoteReferenceNo] = useState('');
     const [quoteItemName, setQuoteItemName] = useState('');
+    const [quoteItemRegion, setQuoteItemRegion] = useState('');
+    const [quoteItemType, setQuoteItemType] = useState('');
+    const [quoteShowRegionColumn, setQuoteShowRegionColumn] = useState<boolean>(false);
+    const [quoteShowTypeColumn, setQuoteShowTypeColumn] = useState<boolean>(false);
     const [quoteItemQty, setQuoteItemQty] = useState(1);
     const [quoteItemPrice, setQuoteItemPrice] = useState(1000);
     const [quoteDiscount, setQuoteDiscount] = useState(0);
@@ -328,6 +345,9 @@ export const SalesModule: React.FC<SalesModuleProps> = ({ onOpenInvoiceModal, on
                 productId: selectedProductId || `custom-${Date.now()}`,
                 name: quoteItemName.trim(),
                 category: 'BRANDED PROMOTIONAL GIFTS',
+                region: quoteShowRegionColumn && quoteItemRegion.trim() ? quoteItemRegion.trim() : undefined,
+                type: quoteShowTypeColumn && quoteItemType.trim() ? quoteItemType.trim() : undefined,
+                itemType: quoteShowTypeColumn && quoteItemType.trim() ? quoteItemType.trim() : undefined,
                 unit: 'pcs',
                 unitPrice: quoteItemPrice,
                 costPrice: Math.round(quoteItemPrice * 0.6),
@@ -370,6 +390,8 @@ export const SalesModule: React.FC<SalesModuleProps> = ({ onOpenInvoiceModal, on
                 grandTotal: grand,
                 notes: quoteNotes,
                 quoteType,
+                showRegionColumn: quoteShowRegionColumn,
+                showTypeColumn: quoteShowTypeColumn,
             });
             setEditingQuotation(null);
         }
@@ -395,6 +417,8 @@ export const SalesModule: React.FC<SalesModuleProps> = ({ onOpenInvoiceModal, on
                 status: 'Sent',
                 notes: quoteNotes,
                 quoteType,
+                showRegionColumn: quoteShowRegionColumn,
+                showTypeColumn: quoteShowTypeColumn,
             });
         }
         setShowNewQuoteModal(false);
@@ -407,6 +431,10 @@ export const SalesModule: React.FC<SalesModuleProps> = ({ onOpenInvoiceModal, on
         setQuoteCustomerAddress('');
         setQuoteReferenceNo('');
         setQuoteItemName('');
+        setQuoteItemRegion('');
+        setQuoteItemType('');
+        setQuoteShowRegionColumn(false);
+        setQuoteShowTypeColumn(false);
         setQuoteItemQty(1);
         setQuoteItemPrice(1000);
         setQuoteDiscount(0);
@@ -742,6 +770,10 @@ export const SalesModule: React.FC<SalesModuleProps> = ({ onOpenInvoiceModal, on
                     setInvItemQty(1);
                     setInvItemPrice(1000);
                     setInvSelectedProductId('');
+                    setEditInvShowRegionColumn(inv.showRegionColumn ?? inv.items?.some(i => Boolean(i.region)) ?? false);
+                    setEditInvShowTypeColumn(inv.showTypeColumn ?? inv.items?.some(i => Boolean(i.type || i.itemType)) ?? false);
+                    setInvItemRegion('');
+                    setInvItemType('');
                 }} className="w-6.5 h-6.5 p-1 flex items-center justify-center text-slate-700 hover:text-blue-600 hover:bg-blue-50 rounded-md border border-slate-200 transition-colors cursor-pointer" title="Edit Invoice">
                           <Edit2 className="w-3 h-3"/>
                         </button>
@@ -926,6 +958,10 @@ export const SalesModule: React.FC<SalesModuleProps> = ({ onOpenInvoiceModal, on
                         setQuoteNotes(q.notes || '');
                         setSelectedProductId('');
                         setAddedQuoteItems(q.items || []);
+                        setQuoteShowRegionColumn(q.showRegionColumn ?? q.items?.some(i => Boolean(i.region)) ?? false);
+                        setQuoteShowTypeColumn(q.showTypeColumn ?? q.items?.some(i => Boolean(i.type || i.itemType)) ?? false);
+                        setQuoteItemRegion('');
+                        setQuoteItemType('');
                         setShowNewQuoteModal(true);
                     }} className="w-6.5 h-6.5 p-1 flex items-center justify-center text-slate-700 hover:text-blue-600 hover:bg-blue-50 rounded-md border border-slate-200 transition-colors cursor-pointer" title="Edit Quotation">
                             <Edit2 className="w-3 h-3"/>
@@ -1520,14 +1556,39 @@ export const SalesModule: React.FC<SalesModuleProps> = ({ onOpenInvoiceModal, on
                 </div>
               </div>
 
+              {/* Optional Columns Banner */}
+              <div className="bg-amber-50/70 border border-amber-200/80 rounded-xl p-2.5 flex flex-wrap items-center gap-3">
+                <span className="text-amber-900 font-extrabold text-xs tracking-wide uppercase">
+                  OPTIONAL COLUMNS OPTION:
+                </span>
+                <label className="bg-white px-3 py-1.5 rounded-lg border border-amber-200/80 shadow-2xs flex items-center gap-2 cursor-pointer text-xs font-bold text-slate-700 hover:border-amber-400 transition-colors select-none">
+                  <input
+                    type="checkbox"
+                    checked={editInvShowRegionColumn}
+                    onChange={(e) => setEditInvShowRegionColumn(e.target.checked)}
+                    className="w-3.5 h-3.5 rounded border-slate-300 text-amber-600 focus:ring-amber-500 cursor-pointer accent-amber-600"
+                  />
+                  <span>Show Region Column</span>
+                </label>
+                <label className="bg-white px-3 py-1.5 rounded-lg border border-amber-200/80 shadow-2xs flex items-center gap-2 cursor-pointer text-xs font-bold text-slate-700 hover:border-amber-400 transition-colors select-none">
+                  <input
+                    type="checkbox"
+                    checked={editInvShowTypeColumn}
+                    onChange={(e) => setEditInvShowTypeColumn(e.target.checked)}
+                    className="w-3.5 h-3.5 rounded border-slate-300 text-amber-600 focus:ring-amber-500 cursor-pointer accent-amber-600"
+                  />
+                  <span>Show Type Column</span>
+                </label>
+              </div>
+
               <div className="bg-slate-50 p-3 rounded-xl border border-slate-200/80 space-y-3">
                 <div className="font-bold text-slate-800 border-b border-slate-200 pb-1 flex justify-between items-center">
                   <span>{'Add Item Row'}</span>
                   <span className="text-[10px] text-slate-400 font-medium">{'Click Add Row below to save to list'}</span>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div>
+                <div className="grid grid-cols-1 sm:grid-cols-12 gap-3">
+                  <div className={editInvShowRegionColumn && editInvShowTypeColumn ? "sm:col-span-4" : (editInvShowRegionColumn || editInvShowTypeColumn ? "sm:col-span-5" : "sm:col-span-6")}>
                     <label className="font-bold text-slate-600 block mb-1">
                       {'Service / Item Description *'}
                     </label>
@@ -1553,7 +1614,37 @@ export const SalesModule: React.FC<SalesModuleProps> = ({ onOpenInvoiceModal, on
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-2 gap-2">
+                  {editInvShowRegionColumn && (
+                    <div className="sm:col-span-2">
+                      <label className="font-bold text-slate-600 block mb-1">
+                        {'Region'}
+                      </label>
+                      <input
+                        type="text"
+                        value={invItemRegion}
+                        onChange={(e) => setInvItemRegion(e.target.value)}
+                        placeholder="e.g. Cox's Bazar"
+                        className="w-full px-3 py-1.5 border border-slate-200 rounded-lg bg-white font-medium"
+                      />
+                    </div>
+                  )}
+
+                  {editInvShowTypeColumn && (
+                    <div className="sm:col-span-2">
+                      <label className="font-bold text-slate-600 block mb-1">
+                        {'Type'}
+                      </label>
+                      <input
+                        type="text"
+                        value={invItemType}
+                        onChange={(e) => setInvItemType(e.target.value)}
+                        placeholder="e.g. Sublimation"
+                        className="w-full px-3 py-1.5 border border-slate-200 rounded-lg bg-white font-medium"
+                      />
+                    </div>
+                  )}
+
+                  <div className={editInvShowRegionColumn && editInvShowTypeColumn ? "sm:col-span-4 grid grid-cols-2 gap-2" : (editInvShowRegionColumn || editInvShowTypeColumn ? "sm:col-span-5 grid grid-cols-2 gap-2" : "sm:col-span-6 grid grid-cols-2 gap-2")}>
                     <div>
                       <label className="font-bold text-slate-600 block mb-1">
                         {'Quantity'}
@@ -1579,6 +1670,9 @@ export const SalesModule: React.FC<SalesModuleProps> = ({ onOpenInvoiceModal, on
                 const newItem = {
                     productId: invSelectedProductId || `custom-${Date.now()}`,
                     name: invItemName.trim(),
+                    region: editInvShowRegionColumn && invItemRegion.trim() ? invItemRegion.trim() : undefined,
+                    type: editInvShowTypeColumn && invItemType.trim() ? invItemType.trim() : undefined,
+                    itemType: editInvShowTypeColumn && invItemType.trim() ? invItemType.trim() : undefined,
                     unit: 'pcs',
                     unitPrice: invItemPrice,
                     costPrice: Math.round(invItemPrice * 0.6),
@@ -1587,6 +1681,8 @@ export const SalesModule: React.FC<SalesModuleProps> = ({ onOpenInvoiceModal, on
                 };
                 setEditInvoiceItems([...editInvoiceItems, newItem]);
                 setInvItemName('');
+                setInvItemRegion('');
+                setInvItemType('');
                 setInvSelectedProductId('');
                 setInvItemQty(1);
                 setInvItemPrice(1000);
@@ -1608,6 +1704,8 @@ export const SalesModule: React.FC<SalesModuleProps> = ({ onOpenInvoiceModal, on
                         <tr className="bg-slate-50 border-b border-slate-200 text-slate-500 font-bold text-[11px]">
                           <th className="p-2 text-center w-10">SL</th>
                           <th className="p-2">{'Description'}</th>
+                          {editInvShowRegionColumn && <th className="p-2 text-center w-24">{'Region'}</th>}
+                          {editInvShowTypeColumn && <th className="p-2 text-center w-24">{'Type'}</th>}
                           <th className="p-2 text-center w-28">{'Qty'}</th>
                           <th className="p-2 text-right w-32">{"RateTk"}</th>
                           <th className="p-2 text-right w-28">{"TotalTk"}</th>
@@ -1618,6 +1716,16 @@ export const SalesModule: React.FC<SalesModuleProps> = ({ onOpenInvoiceModal, on
                         {editInvoiceItems.map((item, idx) => (<tr key={idx} className="hover:bg-slate-50/50">
                             <td className="p-2 text-center text-slate-400">{idx + 1}</td>
                             <td className="p-2 font-semibold text-slate-800">{item.name}</td>
+                            {editInvShowRegionColumn && (
+                              <td className="p-2 text-center font-medium text-slate-700 text-xs">
+                                {item.region || '-'}
+                              </td>
+                            )}
+                            {editInvShowTypeColumn && (
+                              <td className="p-2 text-center font-medium text-slate-700 text-xs">
+                                {item.type || item.itemType || '-'}
+                              </td>
+                            )}
                             <td className="p-1.5 text-center">
                               <div className="flex items-center justify-center gap-1">
                                 <input type="number" step="any" min="1" value={item.qty} onChange={(e) => handleUpdateEditInvoiceItemRow(idx, 'qty', Math.max(1, Number(e.target.value)))} className="w-16 px-1.5 py-1 text-center font-bold text-slate-800 bg-white border border-slate-300 rounded-md text-xs focus:ring-1 focus:ring-slate-900"/>
@@ -1766,6 +1874,10 @@ export const SalesModule: React.FC<SalesModuleProps> = ({ onOpenInvoiceModal, on
                 setQuoteCustomerPhone('');
                 setQuoteCustomerCompany('');
                 setQuoteItemName('');
+                setQuoteItemRegion('');
+                setQuoteItemType('');
+                setQuoteShowRegionColumn(false);
+                setQuoteShowTypeColumn(false);
                 setQuoteDiscount(0);
                 setQuoteNotes('');
             }} className="text-slate-400 hover:text-slate-600 font-bold">
@@ -1894,6 +2006,31 @@ export const SalesModule: React.FC<SalesModuleProps> = ({ onOpenInvoiceModal, on
                 </div>
               </div>
 
+              {/* Optional Columns Banner */}
+              <div className="bg-amber-50/70 border border-amber-200/80 rounded-xl p-2.5 flex flex-wrap items-center gap-3">
+                <span className="text-amber-900 font-extrabold text-xs tracking-wide uppercase">
+                  OPTIONAL COLUMNS OPTION:
+                </span>
+                <label className="bg-white px-3 py-1.5 rounded-lg border border-amber-200/80 shadow-2xs flex items-center gap-2 cursor-pointer text-xs font-bold text-slate-700 hover:border-amber-400 transition-colors select-none">
+                  <input
+                    type="checkbox"
+                    checked={quoteShowRegionColumn}
+                    onChange={(e) => setQuoteShowRegionColumn(e.target.checked)}
+                    className="w-3.5 h-3.5 rounded border-slate-300 text-amber-600 focus:ring-amber-500 cursor-pointer accent-amber-600"
+                  />
+                  <span>Show Region Column</span>
+                </label>
+                <label className="bg-white px-3 py-1.5 rounded-lg border border-amber-200/80 shadow-2xs flex items-center gap-2 cursor-pointer text-xs font-bold text-slate-700 hover:border-amber-400 transition-colors select-none">
+                  <input
+                    type="checkbox"
+                    checked={quoteShowTypeColumn}
+                    onChange={(e) => setQuoteShowTypeColumn(e.target.checked)}
+                    className="w-3.5 h-3.5 rounded border-slate-300 text-amber-600 focus:ring-amber-500 cursor-pointer accent-amber-600"
+                  />
+                  <span>Show Type Column</span>
+                </label>
+              </div>
+
               {/* Service / Item Description Field */}
               <div className="bg-slate-50 p-3 rounded-xl border border-slate-200/80 space-y-3">
                 <div className="font-bold text-slate-800 border-b border-slate-200 pb-1 flex justify-between items-center">
@@ -1901,12 +2038,12 @@ export const SalesModule: React.FC<SalesModuleProps> = ({ onOpenInvoiceModal, on
                   <span className="text-[10px] text-slate-400 font-medium">{'Click Add Row below to save to list'}</span>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div>
+                <div className="grid grid-cols-1 sm:grid-cols-12 gap-3">
+                  <div className={quoteShowRegionColumn && quoteShowTypeColumn ? "sm:col-span-4" : (quoteShowRegionColumn || quoteShowTypeColumn ? "sm:col-span-5" : "sm:col-span-6")}>
                     <label className="font-bold text-slate-600 block mb-1">
                       {'Service / Item Description *'}
                     </label>
-                    {quoteType === 'Custom' ? (<input type="text" value={quoteItemName} onChange={(e) => setQuoteItemName(e.target.value)} placeholder={'Enter any custom description...'} className="w-full px-3 py-1.5 border border-slate-200 rounded-lg bg-white"/>) : (<select value={selectedProductId} onChange={(e) => {
+                    {quoteType === 'Custom' ? (<input type="text" value={quoteItemName} onChange={(e) => setQuoteItemName(e.target.value)} placeholder={'Enter any custom description...'} className="w-full px-3 py-1.5 border border-slate-200 rounded-lg bg-white font-medium"/>) : (<select value={selectedProductId} onChange={(e) => {
                     const prodId = e.target.value;
                     setSelectedProductId(prodId);
                     const prod = products.find((p) => p.id === prodId);
@@ -1925,7 +2062,37 @@ export const SalesModule: React.FC<SalesModuleProps> = ({ onOpenInvoiceModal, on
                       </select>)}
                   </div>
 
-                  <div className="grid grid-cols-2 gap-2">
+                  {quoteShowRegionColumn && (
+                    <div className="sm:col-span-2">
+                      <label className="font-bold text-slate-600 block mb-1">
+                        {'Region'}
+                      </label>
+                      <input
+                        type="text"
+                        value={quoteItemRegion}
+                        onChange={(e) => setQuoteItemRegion(e.target.value)}
+                        placeholder="e.g. Cox's Bazar"
+                        className="w-full px-3 py-1.5 border border-slate-200 rounded-lg bg-white font-medium"
+                      />
+                    </div>
+                  )}
+
+                  {quoteShowTypeColumn && (
+                    <div className="sm:col-span-2">
+                      <label className="font-bold text-slate-600 block mb-1">
+                        {'Type'}
+                      </label>
+                      <input
+                        type="text"
+                        value={quoteItemType}
+                        onChange={(e) => setQuoteItemType(e.target.value)}
+                        placeholder="e.g. Sublimation"
+                        className="w-full px-3 py-1.5 border border-slate-200 rounded-lg bg-white font-medium"
+                      />
+                    </div>
+                  )}
+
+                  <div className={quoteShowRegionColumn && quoteShowTypeColumn ? "sm:col-span-4 grid grid-cols-2 gap-2" : (quoteShowRegionColumn || quoteShowTypeColumn ? "sm:col-span-5 grid grid-cols-2 gap-2" : "sm:col-span-6 grid grid-cols-2 gap-2")}>
                     <div>
                       <label className="font-bold text-slate-600 block mb-1">
                         {'Quantity'}
@@ -1952,6 +2119,9 @@ export const SalesModule: React.FC<SalesModuleProps> = ({ onOpenInvoiceModal, on
                     productId: selectedProductId || `custom-${Date.now()}`,
                     name: quoteItemName.trim(),
                     category: 'BRANDED PROMOTIONAL GIFTS',
+                    region: quoteShowRegionColumn && quoteItemRegion.trim() ? quoteItemRegion.trim() : undefined,
+                    type: quoteShowTypeColumn && quoteItemType.trim() ? quoteItemType.trim() : undefined,
+                    itemType: quoteShowTypeColumn && quoteItemType.trim() ? quoteItemType.trim() : undefined,
                     unit: 'pcs',
                     unitPrice: quoteItemPrice,
                     costPrice: Math.round(quoteItemPrice * 0.6),
@@ -1960,6 +2130,8 @@ export const SalesModule: React.FC<SalesModuleProps> = ({ onOpenInvoiceModal, on
                 };
                 setAddedQuoteItems([...addedQuoteItems, newItem]);
                 setQuoteItemName('');
+                setQuoteItemRegion('');
+                setQuoteItemType('');
                 setSelectedProductId('');
                 setQuoteItemQty(1);
                 setQuoteItemPrice(1000);
@@ -1981,6 +2153,8 @@ export const SalesModule: React.FC<SalesModuleProps> = ({ onOpenInvoiceModal, on
                         <tr className="bg-slate-50 border-b border-slate-200 text-slate-500 font-bold text-[11px]">
                           <th className="p-2 text-center w-10">SL</th>
                           <th className="p-2">{'Description'}</th>
+                          {quoteShowRegionColumn && <th className="p-2 text-center w-24">{'Region'}</th>}
+                          {quoteShowTypeColumn && <th className="p-2 text-center w-24">{'Type'}</th>}
                           <th className="p-2 text-center w-28">{'Qty'}</th>
                           <th className="p-2 text-right w-32">{"RateTk"}</th>
                           <th className="p-2 text-right w-28">{"TotalTk"}</th>
@@ -1991,6 +2165,16 @@ export const SalesModule: React.FC<SalesModuleProps> = ({ onOpenInvoiceModal, on
                         {addedQuoteItems.map((item, idx) => (<tr key={idx} className="hover:bg-slate-50/50">
                             <td className="p-2 text-center text-slate-400">{idx + 1}</td>
                             <td className="p-2 font-semibold text-slate-800">{item.name}</td>
+                            {quoteShowRegionColumn && (
+                              <td className="p-2 text-center font-medium text-slate-700 text-xs">
+                                {item.region || '-'}
+                              </td>
+                            )}
+                            {quoteShowTypeColumn && (
+                              <td className="p-2 text-center font-medium text-slate-700 text-xs">
+                                {item.type || item.itemType || '-'}
+                              </td>
+                            )}
                             <td className="p-1.5 text-center">
                               <div className="flex items-center justify-center gap-1">
                                 <input type="number" step="any" min="1" value={item.qty} onChange={(e) => handleUpdateQuoteItemRow(idx, 'qty', Math.max(1, Number(e.target.value)))} className="w-16 px-1.5 py-1 text-center font-bold text-slate-800 bg-white border border-slate-300 rounded-md text-xs focus:ring-1 focus:ring-slate-900"/>
@@ -2120,6 +2304,10 @@ export const SalesModule: React.FC<SalesModuleProps> = ({ onOpenInvoiceModal, on
                 setQuoteCustomerCompany('');
                 setQuoteReferenceNo('');
                 setQuoteItemName('');
+                setQuoteItemRegion('');
+                setQuoteItemType('');
+                setQuoteShowRegionColumn(false);
+                setQuoteShowTypeColumn(false);
                 setQuoteDiscount(0);
                 setQuoteDiscountType('amount');
                 setQuoteVatType('percent');
