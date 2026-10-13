@@ -1,11 +1,11 @@
 import React, { useState, useMemo } from 'react';
 import { useApp } from '../context/AppContext';
 import { SalesInvoice, Quotation, Customer, ProductionStatus } from '../types';
-import { FileText, Printer, Receipt, Plus, Search, CheckCircle2, Clock, Truck, ArrowRight, DollarSign, AlertCircle, Eye, Filter, Layers, Phone, User, Calendar, FileSpreadsheet, SlidersHorizontal, RefreshCw, Edit2, Trash2, X, UserPlus, RotateCcw, AlertTriangle, } from 'lucide-react';
+import { FileText, Printer, Receipt, Plus, Search, CheckCircle2, Clock, Truck, ArrowRight, DollarSign, AlertCircle, Eye, Filter, Layers, Phone, User, Calendar, FileSpreadsheet, SlidersHorizontal, RefreshCw, Edit2, Trash2, X, UserPlus, RotateCcw, AlertTriangle, Landmark, Smartphone, Banknote, CreditCard, History, ChevronRight, } from 'lucide-react';
 import { exportSalesToExcel } from '../utils/exportUtils';
 import { ReportPrintModal } from './ReportPrintModal';
 import { CreateSalesInvoiceModal } from './CreateSalesInvoiceModal';
-import { getPaymentMethodLiveBalance } from '../utils/accountUtils';
+import { getPaymentMethodLiveBalance, isInvoiceMatchingCustomer, getCustomerInvoiceSummary, getInvoicePayments } from '../utils/accountUtils';
 interface SalesModuleProps {
     onOpenInvoiceModal: (invoiceId: string, mode?: 'invoice' | 'challan' | 'pos', options?: {
         autoPrint?: boolean;
@@ -30,6 +30,8 @@ export const SalesModule: React.FC<SalesModuleProps> = ({ onOpenInvoiceModal, on
     const [resetSalesFeedback, setResetSalesFeedback] = useState<string | null>(null);
     const [editingQuotation, setEditingQuotation] = useState<Quotation | null>(null);
     const [addedQuoteItems, setAddedQuoteItems] = useState<any[]>([]);
+    const [viewingPaymentDetailsInvoice, setViewingPaymentDetailsInvoice] = useState<SalesInvoice | null>(null);
+    const [selectedCustomerHistory, setSelectedCustomerHistory] = useState<Customer | null>(null);
     // Invoice Editing States
     const [editingInvoice, setEditingInvoice] = useState<SalesInvoice | null>(null);
     const [editInvoiceItems, setEditInvoiceItems] = useState<any[]>([]);
@@ -642,18 +644,42 @@ export const SalesModule: React.FC<SalesModuleProps> = ({ onOpenInvoiceModal, on
                     </td>
 
                     <td className="py-2.5 px-3 text-center whitespace-nowrap">
-                      <div className="flex items-center justify-center gap-1.5">
-                        <span className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-extrabold ${inv.paymentStatus === 'Paid'
-                    ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                    : inv.paymentStatus === 'Partial'
-                        ? 'bg-amber-50 text-amber-700 border border-amber-200'
-                        : 'bg-rose-50 text-rose-700 border border-rose-200'}`}>
-                          {inv.paymentStatus}
-                        </span>
-                        {inv.paymentMethod && (<span className="text-[10.5px] text-slate-500 font-medium">
-                            {inv.paymentMethod}
-                          </span>)}
-                      </div>
+                      {(() => {
+                        const invPayments = getInvoicePayments(inv, transactions, paymentMethods);
+                        return (
+                          <div className="flex flex-col items-center justify-center gap-1">
+                            <div className="flex items-center gap-1.5">
+                              <span className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-extrabold ${inv.paymentStatus === 'Paid'
+                                ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                                : inv.paymentStatus === 'Partial'
+                                    ? 'bg-amber-50 text-amber-700 border border-amber-200'
+                                    : 'bg-rose-50 text-rose-700 border border-rose-200'}`}>
+                                {inv.paymentStatus}
+                              </span>
+                            </div>
+
+                            {invPayments.length > 1 ? (
+                              <button
+                                type="button"
+                                onClick={() => setViewingPaymentDetailsInvoice(inv)}
+                                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 text-indigo-700 text-[10px] font-extrabold cursor-pointer transition-colors shadow-2xs"
+                                title={invPayments.map(p => `${p.channel}: ${profile.currencySymbol}${p.amount.toLocaleString()}`).join(' • ')}
+                              >
+                                <span>{invPayments.length} Channels</span>
+                                <span className="text-[9px]">▾</span>
+                              </button>
+                            ) : invPayments.length === 1 ? (
+                              <span className="text-[10px] text-slate-600 font-semibold bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200">
+                                {invPayments[0].channel}
+                              </span>
+                            ) : inv.paymentMethod ? (
+                              <span className="text-[10px] text-slate-500 font-medium">
+                                {inv.paymentMethod}
+                              </span>
+                            ) : null}
+                          </div>
+                        );
+                      })()}
                     </td>
 
                     <td className="py-2.5 px-3 text-center whitespace-nowrap">
@@ -975,16 +1001,17 @@ export const SalesModule: React.FC<SalesModuleProps> = ({ onOpenInvoiceModal, on
               <thead>
                 <tr className="bg-slate-50 text-[11px] font-bold text-slate-500 uppercase border-b border-slate-200">
                   <th className="py-3 px-4">Customer</th>
-                  <th className="py-3 px-4"></th>
-                  <th className="py-3 px-4"></th>
-                  <th className="py-3 px-4 text-right">Total</th>
-                  <th className="py-3 px-4 text-right">Due</th>
+                  <th className="py-3 px-4">Phone / Contact</th>
+                  <th className="py-3 px-4">Address</th>
+                  <th className="py-3 px-4 text-right">Total Purchase</th>
+                  <th className="py-3 px-4 text-right">Total Paid</th>
+                  <th className="py-3 px-4 text-right">Current Due</th>
                   <th className="py-3 px-4 text-center">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {filteredClients.length === 0 ? (<tr>
-                    <td colSpan={6} className="py-10 text-center text-slate-500">
+                    <td colSpan={7} className="py-10 text-center text-slate-500">
                       <div className="max-w-xs mx-auto space-y-2">
                         <User className="w-8 h-8 mx-auto text-slate-300"/>
                         <p className="font-bold text-xs text-slate-700">
@@ -1010,25 +1037,37 @@ export const SalesModule: React.FC<SalesModuleProps> = ({ onOpenInvoiceModal, on
                         </button>
                       </div>
                     </td>
-                  </tr>) : (filteredClients.map((c) => (<tr key={c.id} className="hover:bg-slate-50">
+                  </tr>) : (filteredClients.map((c) => {
+                    const { clientInvoices, totalPurchased, totalPaid, dueAmount } = getCustomerInvoiceSummary(c, invoices);
+                    return (<tr key={c.id} className="hover:bg-slate-50 transition-colors">
                       <td className="py-3 px-4">
                         <div className="font-bold text-slate-900">{c.name}</div>
                         {c.company && (<div className="text-[11px] text-amber-700 font-semibold">{c.company}</div>)}
+                        <span className="text-[10px] text-slate-400 font-medium">
+                          {clientInvoices.length} {clientInvoices.length === 1 ? 'invoice' : 'invoices'}
+                        </span>
                       </td>
-                      <td className="py-3 px-4 text-slate-700 font-medium font-mono">{c.phone}</td>
+                      <td className="py-3 px-4 text-slate-700 font-medium font-mono">{c.phone || '—'}</td>
                       <td className="py-3 px-4 text-slate-500">{c.address || 'Chattogram'}</td>
-                      <td className="py-3 px-4 text-right font-bold text-slate-900">
+                      <td className="py-3 px-4 text-right font-black text-slate-900">
                         {profile.currencySymbol}
-                        {c.totalPurchased.toLocaleString()}
+                        {totalPurchased.toLocaleString()}
+                      </td>
+                      <td className="py-3 px-4 text-right font-black text-emerald-700">
+                        {profile.currencySymbol}
+                        {totalPaid.toLocaleString()}
                       </td>
                       <td className="py-3 px-4 text-right">
-                        <span className={`font-black ${c.dueAmount > 0 ? 'text-rose-600 text-sm' : 'text-slate-400'}`}>
+                        <span className={`font-black ${dueAmount > 0 ? 'text-rose-600 text-sm' : 'text-slate-400'}`}>
                           {profile.currencySymbol}
-                          {c.dueAmount.toLocaleString()}
+                          {dueAmount.toLocaleString()}
                         </span>
                       </td>
                       <td className="py-3 px-4 text-center">
-                        <div className="flex items-center justify-center gap-2">
+                        <div className="flex items-center justify-center gap-1.5">
+                          <button type="button" onClick={() => setSelectedCustomerHistory(c)} className="p-1.5 text-indigo-600 hover:text-indigo-900 bg-indigo-50 hover:bg-indigo-100 rounded-lg transition-all inline-flex items-center justify-center cursor-pointer" title={'View Invoices & Payment Ledger'}>
+                            <History className="w-3.5 h-3.5"/>
+                          </button>
                           <button type="button" onClick={() => {
                     setEditingCustomer(c);
                     setCustomerFormData({
@@ -1048,84 +1087,213 @@ export const SalesModule: React.FC<SalesModuleProps> = ({ onOpenInvoiceModal, on
                           </button>
                         </div>
                       </td>
-                    </tr>)))}
+                    </tr>);
+                  }))}
               </tbody>
             </table>
           </div>
         </div>)}
 
       {/* COLLECT DUE MODAL */}
-      {paymentModalInvoice && (<div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <form onSubmit={handleCollectSubmit} className="bg-white rounded-2xl max-w-sm w-full p-6 shadow-2xl border border-slate-200 space-y-4">
-            <div className="flex items-center justify-between pb-2 border-b border-slate-100">
-              <h3 className="font-bold text-slate-900 text-base">
-                {'Collect Due Payment'}
-              </h3>
-              <button type="button" onClick={() => setPaymentModalInvoice(null)} className="text-slate-400 hover:text-slate-600 font-bold">
-                ✕
-              </button>
-            </div>
+      {/* COLLECT DUE MODAL */}
+      {paymentModalInvoice && (() => {
+        const modalPaymentHistory = getInvoicePayments(paymentModalInvoice, transactions, paymentMethods);
+        return (
+          <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
+            <form onSubmit={handleCollectSubmit} className="bg-white rounded-2xl max-w-lg w-full max-h-[92vh] flex flex-col p-5 sm:p-6 shadow-2xl border border-slate-200 animate-in fade-in zoom-in-95 duration-150">
+              <div className="flex items-center justify-between pb-3 border-b border-slate-100 shrink-0">
+                <div>
+                  <h3 className="font-black text-slate-900 text-base flex items-center gap-2">
+                    <Receipt className="w-5 h-5 text-emerald-600" />
+                    <span>Collect Due Payment</span>
+                  </h3>
+                  <div className="text-[11px] text-slate-500 font-mono mt-0.5">
+                    Invoice #{paymentModalInvoice.invoiceNo} • {paymentModalInvoice.date}
+                  </div>
+                </div>
+                <button type="button" onClick={() => setPaymentModalInvoice(null)} className="p-1 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors font-bold text-sm cursor-pointer">
+                  ✕
+                </button>
+              </div>
 
-            <div className="text-xs space-y-3">
-              <div className="bg-slate-50 p-3 rounded-xl border border-slate-200">
-                <div className="font-bold text-slate-900">
-                  {paymentModalInvoice.customerName}
+              <div className="overflow-y-auto flex-1 pr-1 my-3 space-y-4 text-xs scrollbar-thin">
+                {/* Customer & Invoice Financial Overview */}
+                <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200/80 space-y-2.5">
+                  <div className="flex items-start justify-between">
+                    <div>
+                      <div className="font-extrabold text-slate-900 text-sm">
+                        {paymentModalInvoice.customerName}
+                      </div>
+                      {paymentModalInvoice.customerPhone && (
+                        <div className="text-[11px] text-slate-500 flex items-center gap-1 mt-0.5 font-mono">
+                          <Phone className="w-3 h-3 text-slate-400" />
+                          <span>{paymentModalInvoice.customerPhone}</span>
+                        </div>
+                      )}
+                    </div>
+                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold border ${
+                      paymentModalInvoice.paymentStatus === 'Paid'
+                        ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                        : 'bg-amber-50 text-amber-700 border-amber-200'
+                    }`}>
+                      {paymentModalInvoice.paymentStatus}
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-3 gap-2 pt-2 border-t border-slate-200/70 text-center">
+                    <div className="bg-white p-2 rounded-lg border border-slate-200/60">
+                      <div className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Total Invoice</div>
+                      <div className="text-xs sm:text-sm font-black text-slate-900 mt-0.5">
+                        {profile.currencySymbol}{paymentModalInvoice.grandTotal.toLocaleString()}
+                      </div>
+                    </div>
+                    <div className="bg-white p-2 rounded-lg border border-slate-200/60">
+                      <div className="text-[10px] text-emerald-600 font-bold uppercase tracking-wider">Total Paid</div>
+                      <div className="text-xs sm:text-sm font-black text-emerald-700 mt-0.5">
+                        {profile.currencySymbol}{paymentModalInvoice.paidAmount.toLocaleString()}
+                      </div>
+                    </div>
+                    <div className="bg-white p-2 rounded-lg border border-rose-200/70 bg-rose-50/30">
+                      <div className="text-[10px] text-rose-600 font-bold uppercase tracking-wider">Current Due</div>
+                      <div className="text-xs sm:text-sm font-black text-rose-600 mt-0.5">
+                        {profile.currencySymbol}{paymentModalInvoice.dueAmount.toLocaleString()}
+                      </div>
+                    </div>
+                  </div>
                 </div>
-                <div className="text-slate-500 mt-0.5">Invoice:{paymentModalInvoice.invoiceNo}
+
+                {/* Prior Payments Breakdown / Channels Used */}
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <div className="font-bold text-slate-800 flex items-center gap-1.5 text-xs">
+                      <History className="w-3.5 h-3.5 text-indigo-600" />
+                      <span>Payment History ({modalPaymentHistory.length} receipts)</span>
+                    </div>
+                    <span className="text-[10.5px] font-semibold text-slate-500">
+                      Paid: {profile.currencySymbol}{paymentModalInvoice.paidAmount.toLocaleString()}
+                    </span>
+                  </div>
+
+                  {modalPaymentHistory.length === 0 ? (
+                    <div className="p-3 text-center bg-slate-50 rounded-xl border border-dashed border-slate-200 text-slate-400 text-xs">
+                      No prior payments received for this invoice.
+                    </div>
+                  ) : (
+                    <div className="space-y-1.5 max-h-44 overflow-y-auto pr-1 scrollbar-thin">
+                      {modalPaymentHistory.map((item, idx) => (
+                        <div key={item.id || idx} className="flex items-center justify-between p-2 rounded-lg bg-slate-50 hover:bg-slate-100/70 border border-slate-200 transition-colors">
+                          <div className="flex items-center gap-2">
+                            <span className="p-1 rounded-md bg-white border border-slate-200 text-slate-700">
+                              {item.channel.toLowerCase().includes('cash') ? (
+                                <Banknote className="w-3.5 h-3.5 text-emerald-600" />
+                              ) : item.channel.toLowerCase().includes('bkash') || item.channel.toLowerCase().includes('nagad') ? (
+                                <Smartphone className="w-3.5 h-3.5 text-pink-600" />
+                              ) : (
+                                <Landmark className="w-3.5 h-3.5 text-blue-600" />
+                              )}
+                            </span>
+                            <div>
+                              <div className="font-extrabold text-slate-800 text-[11.5px]">
+                                {item.channel}
+                              </div>
+                              <div className="text-[10px] text-slate-400">
+                                {item.date} {item.description ? `• ${item.description}` : ''}
+                              </div>
+                            </div>
+                          </div>
+                          <div className="font-black text-emerald-700 text-xs whitespace-nowrap">
+                            +{profile.currencySymbol}{item.amount.toLocaleString()}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
-                <div className="mt-2 text-rose-600 font-black text-sm">
-                  {'Current Due: '}
-                  {profile.currencySymbol}
-                  {paymentModalInvoice.dueAmount.toLocaleString()}
+
+                {/* New Due Collection Form Controls */}
+                <div className="p-3.5 bg-amber-50/50 rounded-xl border border-amber-200/80 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="font-bold text-slate-800 text-xs">
+                      New Collection Details
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setCollectAmount(paymentModalInvoice.dueAmount)}
+                      className="text-[10.5px] font-extrabold text-amber-700 hover:text-amber-800 underline cursor-pointer"
+                    >
+                      Collect Full Due ({profile.currencySymbol}{paymentModalInvoice.dueAmount.toLocaleString()})
+                    </button>
+                  </div>
+
+                  <div>
+                    <label className="font-bold text-slate-700 block mb-1">
+                      {'Amount to Collect *'}
+                    </label>
+                    <input
+                      type="number"
+                      step="any"
+                      min="1"
+                      max={paymentModalInvoice.dueAmount}
+                      required
+                      value={collectAmount}
+                      onChange={(e) => setCollectAmount(Number(e.target.value))}
+                      className="w-full px-3 py-2 border border-slate-200 rounded-xl font-black text-base text-emerald-700 bg-white"
+                    />
+                  </div>
+
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="font-bold text-slate-700 block">
+                        {'Deposit Into Payment Channel *'}
+                      </label>
+                      {(() => {
+                        const selectedPm = activePaymentMethods.find(p => p.name === collectMethod || p.id === collectMethod) || activePaymentMethods[0];
+                        if (!selectedPm) return null;
+                        const bal = getPaymentMethodLiveBalance(selectedPm, chartOfAccounts, transactions, invoices, accountBalances);
+                        return (
+                          <span className="text-[11px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
+                            Live: {profile.currencySymbol}{bal.toLocaleString()}
+                          </span>
+                        );
+                      })()}
+                    </div>
+                    <select
+                      value={collectMethod}
+                      onChange={(e) => setCollectMethod(e.target.value)}
+                      className="w-full px-3 py-2 border border-slate-200 rounded-xl font-medium text-xs bg-white cursor-pointer"
+                    >
+                      {activePaymentMethods.map((pm) => {
+                        const bal = getPaymentMethodLiveBalance(pm, chartOfAccounts, transactions, invoices, accountBalances);
+                        return (
+                          <option key={pm.id} value={pm.name}>
+                            {pm.name} {pm.nameBn ? `(${pm.nameBn})` : ''} — [{profile.currencySymbol}{bal.toLocaleString()}]
+                          </option>
+                        );
+                      })}
+                    </select>
+                  </div>
                 </div>
               </div>
 
-              <div>
-                <label className="font-bold text-slate-700 block mb-1">
-                  {'Amount to Collect *'}
-                </label>
-                <input type="number" step="any" min="1" max={paymentModalInvoice.dueAmount} required value={collectAmount} onChange={(e) => setCollectAmount(Number(e.target.value))} className="w-full px-3 py-2 border border-slate-200 rounded-xl font-black text-base text-emerald-700"/>
+              <div className="flex justify-end gap-2 pt-3 border-t border-slate-100 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setPaymentModalInvoice(null)}
+                  className="px-4 py-2 border border-slate-200 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-50 cursor-pointer"
+                >
+                  {'Cancel'}
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-2xs cursor-pointer transition-colors"
+                >
+                  {'Confirm Collection'}
+                </button>
               </div>
-
-              <div>
-                <div className="flex items-center justify-between mb-1">
-                  <label className="font-bold text-slate-700 block">
-                    {'Payment Channel *'}
-                  </label>
-                  {(() => {
-                    const selectedPm = activePaymentMethods.find(p => p.name === collectMethod || p.id === collectMethod) || activePaymentMethods[0];
-                    if (!selectedPm) return null;
-                    const bal = getPaymentMethodLiveBalance(selectedPm, chartOfAccounts, transactions, invoices, accountBalances);
-                    return (
-                      <span className="text-[11px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
-                        Live: {profile.currencySymbol}{bal.toLocaleString()}
-                      </span>
-                    );
-                  })()}
-                </div>
-                <select value={collectMethod} onChange={(e) => setCollectMethod(e.target.value)} className="w-full px-3 py-2 border border-slate-200 rounded-xl font-medium text-xs">
-                  {activePaymentMethods.map((pm) => {
-                    const bal = getPaymentMethodLiveBalance(pm, chartOfAccounts, transactions, invoices, accountBalances);
-                    return (
-                      <option key={pm.id} value={pm.name}>
-                        {pm.name} {pm.nameBn ? `(${pm.nameBn})` : ''} — [{profile.currencySymbol}{bal.toLocaleString()}]
-                      </option>
-                    );
-                  })}
-                </select>
-              </div>
-            </div>
-
-            <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
-              <button type="button" onClick={() => setPaymentModalInvoice(null)} className="px-4 py-2 border border-slate-200 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-50">
-                {'Cancel'}
-              </button>
-              <button type="submit" className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-2xs">
-                {'Confirm Collection'}
-              </button>
-            </div>
-          </form>
-        </div>)}
+            </form>
+          </div>
+        );
+      })()}
 
       {/* EDIT INVOICE MODAL */}
       {editingInvoice && (<div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-4">
@@ -1988,5 +2156,355 @@ export const SalesModule: React.FC<SalesModuleProps> = ({ onOpenInvoiceModal, on
             setActiveSubTab('invoices');
             onOpenInvoiceModal(newInvoiceId);
         }}/>
+
+      {/* INVOICE MULTI-CHANNEL PAYMENT DETAILS MODAL */}
+      {viewingPaymentDetailsInvoice && (() => {
+        const invPayments = getInvoicePayments(viewingPaymentDetailsInvoice, transactions, paymentMethods);
+        return (
+          <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
+            <div className="bg-white rounded-2xl max-w-md w-full p-5 sm:p-6 shadow-2xl border border-slate-200 animate-in fade-in zoom-in-95 duration-150 space-y-4">
+              <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+                <div className="flex items-center gap-2">
+                  <div className="p-2 rounded-xl bg-indigo-50 text-indigo-600">
+                    <Receipt className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="font-black text-slate-900 text-sm sm:text-base">
+                      Payment Channels Breakdown
+                    </h3>
+                    <div className="text-[11px] text-slate-500 font-mono mt-0.5">
+                      #{viewingPaymentDetailsInvoice.invoiceNo} • {viewingPaymentDetailsInvoice.customerName}
+                    </div>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setViewingPaymentDetailsInvoice(null)}
+                  className="p-1 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 font-bold text-sm cursor-pointer"
+                >
+                  ✕
+                </button>
+              </div>
+
+              {/* Financial summary banner */}
+              <div className="grid grid-cols-3 gap-2 p-3 bg-slate-50 rounded-xl border border-slate-200 text-center">
+                <div>
+                  <div className="text-[10px] text-slate-500 font-bold uppercase">Total Invoiced</div>
+                  <div className="text-xs sm:text-sm font-black text-slate-900 mt-0.5">
+                    {profile.currencySymbol}{viewingPaymentDetailsInvoice.grandTotal.toLocaleString()}
+                  </div>
+                </div>
+                <div className="border-x border-slate-200">
+                  <div className="text-[10px] text-emerald-600 font-bold uppercase">Total Paid</div>
+                  <div className="text-xs sm:text-sm font-black text-emerald-700 mt-0.5">
+                    {profile.currencySymbol}{viewingPaymentDetailsInvoice.paidAmount.toLocaleString()}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-[10px] text-rose-600 font-bold uppercase">Due Remaining</div>
+                  <div className="text-xs sm:text-sm font-black text-rose-600 mt-0.5">
+                    {profile.currencySymbol}{viewingPaymentDetailsInvoice.dueAmount.toLocaleString()}
+                  </div>
+                </div>
+              </div>
+
+              {/* Itemized payments list */}
+              <div className="space-y-2">
+                <div className="text-xs font-bold text-slate-700">
+                  Received Payments ({invPayments.length})
+                </div>
+                {invPayments.length === 0 ? (
+                  <div className="p-4 text-center bg-slate-50 rounded-xl border border-dashed border-slate-200 text-slate-400 text-xs">
+                    No payment transactions recorded for this invoice.
+                  </div>
+                ) : (
+                  <div className="max-h-56 overflow-y-auto space-y-2 pr-1 scrollbar-thin">
+                    {invPayments.map((p, idx) => (
+                      <div key={p.id || idx} className="flex items-center justify-between p-2.5 rounded-xl bg-slate-50 hover:bg-slate-100/70 border border-slate-200 transition-colors">
+                        <div className="flex items-center gap-2.5">
+                          <span className="p-1.5 rounded-lg bg-white border border-slate-200 text-slate-700">
+                            {p.channel.toLowerCase().includes('cash') ? (
+                              <Banknote className="w-4 h-4 text-emerald-600" />
+                            ) : p.channel.toLowerCase().includes('bkash') || p.channel.toLowerCase().includes('nagad') ? (
+                              <Smartphone className="w-4 h-4 text-pink-600" />
+                            ) : (
+                              <Landmark className="w-4 h-4 text-blue-600" />
+                            )}
+                          </span>
+                          <div>
+                            <div className="font-black text-slate-800 text-xs">
+                              {p.channel}
+                            </div>
+                            <div className="text-[10.5px] text-slate-400">
+                              {p.date} {p.description ? `• ${p.description}` : ''}
+                            </div>
+                          </div>
+                        </div>
+                        <div className="font-black text-emerald-700 text-sm whitespace-nowrap">
+                          +{profile.currencySymbol}{p.amount.toLocaleString()}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div className="flex justify-between items-center pt-3 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setViewingPaymentDetailsInvoice(null)}
+                  className="px-4 py-2 border border-slate-200 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-50 cursor-pointer"
+                >
+                  Close
+                </button>
+                {viewingPaymentDetailsInvoice.dueAmount > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const target = viewingPaymentDetailsInvoice;
+                      setViewingPaymentDetailsInvoice(null);
+                      setPaymentModalInvoice(target);
+                      setCollectAmount(target.dueAmount);
+                    }}
+                    className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-2xs cursor-pointer flex items-center gap-1.5 transition-colors"
+                  >
+                    <span>+ Collect Remaining Due</span>
+                    <ArrowRight className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* CUSTOMER INVOICES & PAYMENT HISTORY MODAL */}
+      {selectedCustomerHistory && (() => {
+        const { clientInvoices, totalPurchased, totalPaid, dueAmount } = getCustomerInvoiceSummary(selectedCustomerHistory, invoices);
+        const customerTxList = (transactions || []).filter(t => {
+          if (t.type !== 'INCOME') return false;
+          if (clientInvoices.some(inv => (inv.invoiceNo || '').toLowerCase().trim() === (t.refNo || '').toLowerCase().trim())) return true;
+          const custName = (selectedCustomerHistory.name || '').toLowerCase().trim();
+          const txCust = (t.customerOrSupplier || '').toLowerCase().trim();
+          if (custName && (txCust === custName || txCust.includes(custName))) return true;
+          return false;
+        });
+
+        return (
+          <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
+            <div className="bg-white rounded-2xl max-w-3xl w-full max-h-[92vh] flex flex-col p-5 sm:p-6 shadow-2xl border border-slate-200 animate-in fade-in zoom-in-95 duration-150">
+              <div className="flex items-center justify-between pb-3 border-b border-slate-100 shrink-0">
+                <div className="flex items-center gap-2.5">
+                  <div className="p-2.5 rounded-xl bg-indigo-50 text-indigo-600">
+                    <User className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="font-black text-slate-900 text-base sm:text-lg flex items-center gap-2">
+                      <span>{selectedCustomerHistory.name}</span>
+                      {selectedCustomerHistory.company && (
+                        <span className="text-xs font-bold text-amber-700 bg-amber-50 px-2 py-0.5 rounded-md border border-amber-200">
+                          {selectedCustomerHistory.company}
+                        </span>
+                      )}
+                    </h3>
+                    <div className="text-xs text-slate-500 flex items-center gap-3 mt-0.5">
+                      <span className="font-mono">{selectedCustomerHistory.phone || 'No phone'}</span>
+                      {selectedCustomerHistory.address && <span>• {selectedCustomerHistory.address}</span>}
+                    </div>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setSelectedCustomerHistory(null)}
+                  className="p-1 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 font-bold text-sm cursor-pointer"
+                >
+                  ✕
+                </button>
+              </div>
+
+              {/* Financial Metrics Banner */}
+              <div className="grid grid-cols-3 gap-3 my-4 shrink-0 text-center">
+                <div className="bg-slate-50 p-3 rounded-xl border border-slate-200">
+                  <div className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Total Purchase</div>
+                  <div className="text-base sm:text-lg font-black text-slate-900 mt-1">
+                    {profile.currencySymbol}{totalPurchased.toLocaleString()}
+                  </div>
+                  <div className="text-[10px] text-slate-400 mt-0.5">{clientInvoices.length} invoices</div>
+                </div>
+                <div className="bg-emerald-50/60 p-3 rounded-xl border border-emerald-200">
+                  <div className="text-[10px] text-emerald-700 font-bold uppercase tracking-wider">Total Paid</div>
+                  <div className="text-base sm:text-lg font-black text-emerald-700 mt-1">
+                    {profile.currencySymbol}{totalPaid.toLocaleString()}
+                  </div>
+                  <div className="text-[10px] text-emerald-600 mt-0.5">{customerTxList.length} payments</div>
+                </div>
+                <div className="bg-rose-50/60 p-3 rounded-xl border border-rose-200">
+                  <div className="text-[10px] text-rose-600 font-bold uppercase tracking-wider">Current Due</div>
+                  <div className="text-base sm:text-lg font-black text-rose-600 mt-1">
+                    {profile.currencySymbol}{dueAmount.toLocaleString()}
+                  </div>
+                  <div className="text-[10px] text-rose-500 mt-0.5">{dueAmount > 0 ? 'Outstanding' : 'Cleared'}</div>
+                </div>
+              </div>
+
+              <div className="overflow-y-auto flex-1 pr-1 space-y-4 text-xs scrollbar-thin">
+                {/* Invoices Section */}
+                <div className="space-y-2">
+                  <div className="font-extrabold text-slate-800 text-xs flex items-center justify-between">
+                    <span className="flex items-center gap-1.5">
+                      <FileText className="w-3.5 h-3.5 text-indigo-600" />
+                      <span>Sales Invoices ({clientInvoices.length})</span>
+                    </span>
+                  </div>
+
+                  {clientInvoices.length === 0 ? (
+                    <div className="p-4 text-center bg-slate-50 rounded-xl border border-dashed border-slate-200 text-slate-400">
+                      No invoices recorded for this customer yet.
+                    </div>
+                  ) : (
+                    <div className="border border-slate-200 rounded-xl overflow-hidden">
+                      <table className="w-full text-left text-xs">
+                        <thead className="bg-slate-50 text-[10px] font-bold text-slate-500 uppercase border-b border-slate-200">
+                          <tr>
+                            <th className="py-2.5 px-3">Invoice No</th>
+                            <th className="py-2.5 px-3">Date</th>
+                            <th className="py-2.5 px-3 text-right">Total</th>
+                            <th className="py-2.5 px-3 text-right">Paid</th>
+                            <th className="py-2.5 px-3 text-right">Due</th>
+                            <th className="py-2.5 px-3 text-center">Status</th>
+                            <th className="py-2.5 px-3 text-center">Action</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100">
+                          {clientInvoices.map((inv) => (
+                            <tr key={inv.id} className="hover:bg-slate-50">
+                              <td className="py-2 px-3 font-bold text-slate-900 font-mono">
+                                #{inv.invoiceNo}
+                              </td>
+                              <td className="py-2 px-3 text-slate-500">{inv.date}</td>
+                              <td className="py-2 px-3 text-right font-black text-slate-900">
+                                {profile.currencySymbol}{inv.grandTotal.toLocaleString()}
+                              </td>
+                              <td className="py-2 px-3 text-right font-black text-emerald-700">
+                                {profile.currencySymbol}{inv.paidAmount.toLocaleString()}
+                              </td>
+                              <td className="py-2 px-3 text-right font-black text-rose-600">
+                                {inv.dueAmount > 0 ? `${profile.currencySymbol}${inv.dueAmount.toLocaleString()}` : '—'}
+                              </td>
+                              <td className="py-2 px-3 text-center">
+                                <span className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-extrabold ${
+                                  inv.paymentStatus === 'Paid'
+                                    ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                                    : inv.paymentStatus === 'Partial'
+                                    ? 'bg-amber-50 text-amber-700 border border-amber-200'
+                                    : 'bg-rose-50 text-rose-700 border border-rose-200'
+                                }`}>
+                                  {inv.paymentStatus}
+                                </span>
+                              </td>
+                              <td className="py-2 px-3 text-center">
+                                <div className="flex items-center justify-center gap-1">
+                                  <button
+                                    type="button"
+                                    onClick={() => onOpenInvoiceModal(inv.id, 'invoice')}
+                                    className="p-1 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded cursor-pointer"
+                                    title="View / Print Invoice"
+                                  >
+                                    <Printer className="w-3.5 h-3.5" />
+                                  </button>
+                                  {inv.dueAmount > 0 && (
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setSelectedCustomerHistory(null);
+                                        setPaymentModalInvoice(inv);
+                                        setCollectAmount(inv.dueAmount);
+                                      }}
+                                      className="px-2 py-0.5 text-[10px] font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 rounded cursor-pointer"
+                                      title="Collect Due"
+                                    >
+                                      +Pay
+                                    </button>
+                                  )}
+                                </div>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+
+                {/* Payment Ledger Section */}
+                <div className="space-y-2 pt-2">
+                  <div className="font-extrabold text-slate-800 text-xs flex items-center justify-between">
+                    <span className="flex items-center gap-1.5">
+                      <Receipt className="w-3.5 h-3.5 text-emerald-600" />
+                      <span>Payment Receipts & Ledger ({customerTxList.length})</span>
+                    </span>
+                  </div>
+
+                  {customerTxList.length === 0 ? (
+                    <div className="p-4 text-center bg-slate-50 rounded-xl border border-dashed border-slate-200 text-slate-400">
+                      No payment receipts recorded for this customer yet.
+                    </div>
+                  ) : (
+                    <div className="border border-slate-200 rounded-xl overflow-hidden">
+                      <table className="w-full text-left text-xs">
+                        <thead className="bg-slate-50 text-[10px] font-bold text-slate-500 uppercase border-b border-slate-200">
+                          <tr>
+                            <th className="py-2.5 px-3">Date</th>
+                            <th className="py-2.5 px-3">Channel / Method</th>
+                            <th className="py-2.5 px-3">Invoice Ref</th>
+                            <th className="py-2.5 px-3">Description</th>
+                            <th className="py-2.5 px-3 text-right">Amount</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100">
+                          {customerTxList.map((tx) => (
+                            <tr key={tx.id} className="hover:bg-slate-50">
+                              <td className="py-2 px-3 text-slate-500 whitespace-nowrap">{tx.date}</td>
+                              <td className="py-2 px-3 font-bold text-slate-800 whitespace-nowrap">
+                                <span className="inline-flex items-center gap-1.5">
+                                  {tx.paymentAccount?.toLowerCase().includes('cash') ? (
+                                    <Banknote className="w-3 h-3 text-emerald-600" />
+                                  ) : tx.paymentAccount?.toLowerCase().includes('bkash') || tx.paymentAccount?.toLowerCase().includes('nagad') ? (
+                                    <Smartphone className="w-3 h-3 text-pink-600" />
+                                  ) : (
+                                    <Landmark className="w-3 h-3 text-blue-600" />
+                                  )}
+                                  <span>{tx.paymentAccount || tx.accountHead || 'Cash'}</span>
+                                </span>
+                              </td>
+                              <td className="py-2 px-3 font-mono text-slate-600 whitespace-nowrap">{tx.refNo || '—'}</td>
+                              <td className="py-2 px-3 text-slate-500 truncate max-w-[200px]" title={tx.description}>
+                                {tx.description || tx.category}
+                              </td>
+                              <td className="py-2 px-3 text-right font-black text-emerald-700 whitespace-nowrap">
+                                +{profile.currencySymbol}{tx.amount.toLocaleString()}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div className="flex justify-end pt-3 border-t border-slate-100 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setSelectedCustomerHistory(null)}
+                  className="px-5 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold shadow-2xs cursor-pointer"
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>);
 };

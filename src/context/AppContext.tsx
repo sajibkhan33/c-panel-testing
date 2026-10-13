@@ -2,7 +2,7 @@ import React, { createContext, useContext, useState, useEffect, useMemo, useRef 
 import { CompanyProfile, ProductItem, Customer, Supplier, SalesInvoice, Quotation, PurchaseOrder, AccountingTransaction, StockMovement, Language, LocationType, AccountBalances, StaffMember, StaffRole, AuditLogEntry, ChartOfAccount, ExpenseHead, ProductCategory, UserRole, RolePermission, JournalEntry, Project, ProjectExpenseItem, ProjectSalesItem, PaymentMethodConfig, PaymentStatus } from '../types';
 import { INITIAL_COMPANY_PROFILE, INITIAL_PRODUCTS, INITIAL_CUSTOMERS, INITIAL_SUPPLIERS, INITIAL_INVOICES, INITIAL_PURCHASE_ORDERS, INITIAL_TRANSACTIONS, INITIAL_QUOTATIONS, INITIAL_STOCK_MOVEMENTS, INITIAL_STAFF_MEMBERS, INITIAL_AUDIT_LOGS, } from '../data/initialData';
 import { INITIAL_CHART_OF_ACCOUNTS, INITIAL_EXPENSE_HEADS, INITIAL_PRODUCT_CATEGORIES, INITIAL_USER_ROLES, INITIAL_JOURNAL_ENTRIES, INITIAL_PROJECTS, ALL_SYSTEM_PERMISSIONS, INITIAL_PAYMENT_METHODS, } from '../data/accountingAndConfigData';
-import { matchChannelToAccount, calculateSingleAccountBalance, getBankAccountsBreakdown, getMfsAccountsBreakdown, getCashAccountsBreakdown, isInvoiceTransaction, isProjectTransaction } from '../utils/accountUtils';
+import { matchChannelToAccount, calculateSingleAccountBalance, getBankAccountsBreakdown, getMfsAccountsBreakdown, getCashAccountsBreakdown, isInvoiceTransaction, isProjectTransaction, isInvoiceMatchingCustomer } from '../utils/accountUtils';
 const STORAGE_KEY = 'DOT_COLOR_ERP_V1_STATE';
 interface AppContextType {
     profile: CompanyProfile;
@@ -832,6 +832,38 @@ export const AppProvider: React.FC<{
         }
     }, [projects, chartOfAccounts, invoices, customers, purchaseOrders, suppliers]);
 
+    // Automatic reconciliation of Customer totalPurchased and dueAmount from live Sales Invoices
+    useEffect(() => {
+        if (!customers || customers.length === 0 || !invoices) return;
+
+        let custsChanged = false;
+        const reconciled = customers.map(c => {
+            const clientInvoices = invoices.filter(inv => isInvoiceMatchingCustomer(inv, c));
+            if (clientInvoices.length > 0) {
+                const totalPurchased = clientInvoices.reduce((s, inv) => s + (Number(inv.grandTotal) || 0), 0);
+                const dueAmount = clientInvoices.reduce((s, inv) => s + (Number(inv.dueAmount) || 0), 0);
+
+                if (Number(c.totalPurchased) !== totalPurchased || Number(c.dueAmount) !== dueAmount) {
+                    custsChanged = true;
+                    return { ...c, totalPurchased, dueAmount };
+                }
+            }
+            return c;
+        });
+
+        if (custsChanged) {
+            setCustomers(reconciled);
+            try {
+                localStorage.setItem(`${STORAGE_KEY}_CUSTOMERS`, JSON.stringify(reconciled));
+            } catch {}
+            latestStateRef.current = {
+                ...latestStateRef.current,
+                customers: reconciled,
+            };
+            triggerImmediatePush();
+        }
+    }, [invoices, customers]);
+
     // Automatic real-time synchronization between Sales Invoices and Accounting Transactions
     useEffect(() => {
         if (!invoices || invoices.length === 0) return;
@@ -1077,7 +1109,7 @@ export const AppProvider: React.FC<{
         setInvoices((prev) => [newInvoice, ...prev]);
         // Update Customer safely
         setCustomers((prev) => prev.map((c) => {
-            if (c.id === data.customerId || (Boolean(data.customerPhone) && c.phone === data.customerPhone)) {
+            if (isInvoiceMatchingCustomer(newInvoice, c)) {
                 return {
                     ...c,
                     totalPurchased: (c.totalPurchased || 0) + (Number(data.grandTotal) || 0),
@@ -1194,10 +1226,45 @@ export const AppProvider: React.FC<{
         return newInvoice;
     };
     const updateInvoice = (id: string, updates: Partial<SalesInvoice>) => {
-        setInvoices((prev) => prev.map((inv) => (inv.id === id ? { ...inv, ...updates } : inv)));
+        const currentInvoices = latestStateRef.current.invoices || invoices;
+        const nextInvoices = currentInvoices.map((inv) => (inv.id === id ? { ...inv, ...updates } : inv));
+        setInvoices(nextInvoices);
+        try {
+            localStorage.setItem(`${STORAGE_KEY}_INVOICES`, JSON.stringify(nextInvoices));
+        } catch {}
+
+        const updatedInv = nextInvoices.find(inv => inv.id === id);
+        if (updatedInv) {
+            const currentCusts = latestStateRef.current.customers || customers;
+            const nextCusts = currentCusts.map((c: Customer) => {
+                if (isInvoiceMatchingCustomer(updatedInv, c)) {
+                    const clientInvoices = nextInvoices.filter(i => isInvoiceMatchingCustomer(i, c));
+                    const totalPurchased = clientInvoices.reduce((s, i) => s + (Number(i.grandTotal) || 0), 0);
+                    const dueAmount = clientInvoices.reduce((s, i) => s + (Number(i.dueAmount) || 0), 0);
+                    return { ...c, totalPurchased, dueAmount };
+                }
+                return c;
+            });
+            setCustomers(nextCusts);
+            try {
+                localStorage.setItem(`${STORAGE_KEY}_CUSTOMERS`, JSON.stringify(nextCusts));
+            } catch {}
+            latestStateRef.current = {
+                ...latestStateRef.current,
+                invoices: nextInvoices,
+                customers: nextCusts,
+            };
+        } else {
+            latestStateRef.current = {
+                ...latestStateRef.current,
+                invoices: nextInvoices,
+            };
+        }
+        triggerImmediatePush();
     };
     const collectInvoicePayment = (invoiceId: string, amount: number, method: any) => {
-        const targetInv = invoices.find((i) => i.id === invoiceId);
+        const currentInvoices = latestStateRef.current.invoices || invoices;
+        const targetInv = currentInvoices.find((i) => i.id === invoiceId);
         if (!targetInv)
             return;
         addAuditLog({
@@ -1222,7 +1289,7 @@ export const AppProvider: React.FC<{
         const resolvedAccount = targetCoa ? targetCoa.name : (matchedPm?.name || method || 'Office Cash');
 
         // Update invoice
-        setInvoices((prev) => prev.map((inv) => {
+        const updatedInvoices = currentInvoices.map((inv) => {
             if (inv.id !== invoiceId) return inv;
             const existingSplits = { ...(inv.splitPayments || {}) };
             existingSplits[resolvedAccount] = (existingSplits[resolvedAccount] || 0) + amount;
@@ -1233,11 +1300,32 @@ export const AppProvider: React.FC<{
                 paymentStatus: newStatus,
                 splitPayments: existingSplits,
             };
-        }));
-        // Update customer due
-        if (targetInv.customerId) {
-            setCustomers((custs) => custs.map((c) => (c.id === targetInv.customerId ? { ...c, dueAmount: Math.max(0, c.dueAmount - amount) } : c)));
-        }
+        });
+        setInvoices(updatedInvoices);
+        try {
+            localStorage.setItem(`${STORAGE_KEY}_INVOICES`, JSON.stringify(updatedInvoices));
+        } catch {}
+
+        // Update customer due and total purchases safely
+        const currentCusts = latestStateRef.current.customers || customers;
+        const updatedCusts = currentCusts.map((c) => {
+            if (isInvoiceMatchingCustomer(targetInv, c)) {
+                const clientInvoices = updatedInvoices.filter(inv => isInvoiceMatchingCustomer(inv, c));
+                const totalPurchased = clientInvoices.length > 0
+                    ? clientInvoices.reduce((s, inv) => s + (Number(inv.grandTotal) || 0), 0)
+                    : (c.totalPurchased || 0);
+                const dueAmount = clientInvoices.length > 0
+                    ? clientInvoices.reduce((s, inv) => s + (Number(inv.dueAmount) || 0), 0)
+                    : Math.max(0, (c.dueAmount || 0) - amount);
+                return { ...c, totalPurchased, dueAmount };
+            }
+            return c;
+        });
+        setCustomers(updatedCusts);
+        try {
+            localStorage.setItem(`${STORAGE_KEY}_CUSTOMERS`, JSON.stringify(updatedCusts));
+        } catch {}
+
         // Add transaction with guaranteed unique ID and exact channel
         const newTx: AccountingTransaction = {
             id: generateUniqueId('tx'),
@@ -1251,7 +1339,20 @@ export const AppProvider: React.FC<{
             customerOrSupplier: targetInv.customerName,
             description: `Due collection against invoice ${targetInv.invoiceNo} via ${resolvedAccount}`,
         };
-        setTransactions((txs) => ensureUniqueTransactions([newTx, ...txs]));
+        const currentTxs = latestStateRef.current.transactions || transactions;
+        const updatedTxs = ensureUniqueTransactions([newTx, ...currentTxs]);
+        setTransactions(updatedTxs);
+        try {
+            localStorage.setItem(`${STORAGE_KEY}_TRANSACTIONS`, JSON.stringify(updatedTxs));
+        } catch {}
+
+        latestStateRef.current = {
+            ...latestStateRef.current,
+            invoices: updatedInvoices,
+            customers: updatedCusts,
+            transactions: updatedTxs,
+        };
+        triggerImmediatePush();
     };
     const updateProductionStatus = (invoiceId: string, status: any) => {
         setInvoices((prev) => prev.map((inv) => (inv.id === invoiceId ? { ...inv, productionStatus: status } : inv)));
@@ -2062,11 +2163,18 @@ export const AppProvider: React.FC<{
 
         const currentCusts = latestStateRef.current.customers || customers;
         const nextCusts = currentCusts.map((c: Customer) => {
-            if (c.id === inv.customerId) {
+            if (isInvoiceMatchingCustomer(inv, c)) {
+                const clientInvoices = nextInvoices.filter(i => isInvoiceMatchingCustomer(i, c));
+                const totalPurchased = clientInvoices.length > 0
+                    ? clientInvoices.reduce((s, i) => s + (Number(i.grandTotal) || 0), 0)
+                    : 0;
+                const dueAmount = clientInvoices.length > 0
+                    ? clientInvoices.reduce((s, i) => s + (Number(i.dueAmount) || 0), 0)
+                    : 0;
                 return {
                     ...c,
-                    totalPurchased: Math.max(0, c.totalPurchased - inv.grandTotal),
-                    dueAmount: Math.max(0, c.dueAmount - inv.dueAmount),
+                    totalPurchased,
+                    dueAmount,
                 };
             }
             return c;

@@ -487,3 +487,157 @@ export const isProjectTransaction = (tx: Partial<AccountingTransaction>): boolea
     if (desc.includes('project income') || desc.includes('project sales') || desc.includes('project expense')) return true;
     return false;
 };
+
+/**
+ * Checks whether an invoice belongs to a specific customer record (matches by id, phone, or name/company)
+ */
+export const isInvoiceMatchingCustomer = (inv: Partial<SalesInvoice>, c: any): boolean => {
+    if (!inv || !c) return false;
+    if (inv.customerId && inv.customerId === c.id) return true;
+
+    const cPhone = (c.phone || '').replace(/[^0-9]/g, '');
+    const invPhone = (inv.customerPhone || '').replace(/[^0-9]/g, '');
+    if (cPhone.length >= 8 && invPhone.length >= 8 && (cPhone === invPhone || cPhone.endsWith(invPhone) || invPhone.endsWith(cPhone))) {
+        return true;
+    }
+
+    const cName = (c.name || '').toLowerCase().trim();
+    const cCompany = (c.company || '').toLowerCase().trim();
+    const invName = (inv.customerName || '').toLowerCase().trim();
+    const invCompany = (inv.customerCompany || '').toLowerCase().trim();
+
+    if (invCompany && cCompany && (invCompany === cCompany || invCompany.includes(cCompany) || cCompany.includes(invCompany))) return true;
+    if (cCompany && invName && (invName.includes(cCompany) || cCompany.includes(invName))) return true;
+    if (cName && invName && (invName === cName || invName.includes(cName) || cName.includes(invName))) return true;
+
+    return false;
+};
+
+/**
+ * Calculates live financial summary for a customer based on all matching sales invoices
+ */
+export const getCustomerInvoiceSummary = (c: any, allInvoices: SalesInvoice[]) => {
+    const clientInvoices = (allInvoices || []).filter(inv => isInvoiceMatchingCustomer(inv, c));
+
+    const totalPurchased = clientInvoices.length > 0
+        ? clientInvoices.reduce((sum, inv) => sum + (Number(inv.grandTotal) || 0), 0)
+        : (Number(c.totalPurchased) || 0);
+
+    const totalPaid = clientInvoices.length > 0
+        ? clientInvoices.reduce((sum, inv) => sum + (Number(inv.paidAmount) || 0), 0)
+        : Math.max(0, (Number(c.totalPurchased) || 0) - (Number(c.dueAmount) || 0));
+
+    const dueAmount = clientInvoices.length > 0
+        ? clientInvoices.reduce((sum, inv) => sum + (Number(inv.dueAmount) || 0), 0)
+        : (Number(c.dueAmount) || 0);
+
+    return {
+        clientInvoices,
+        totalPurchased,
+        totalPaid,
+        dueAmount,
+    };
+};
+
+export interface InvoicePaymentItem {
+    id: string;
+    date: string;
+    channel: string;
+    amount: number;
+    description: string;
+    category?: string;
+}
+
+/**
+ * Extracts all itemized payment records for a given invoice from accounting transactions and splitPayments
+ */
+export const getInvoicePayments = (
+    inv: SalesInvoice,
+    allTransactions: AccountingTransaction[],
+    paymentMethods?: PaymentMethodConfig[]
+): InvoicePaymentItem[] => {
+    if (!inv) return [];
+    const invNo = (inv.invoiceNo || '').toLowerCase().trim();
+
+    // 1. Check matching income ledger transactions
+    const txMatches = (allTransactions || []).filter(t =>
+        t.type === 'INCOME' &&
+        t.refNo &&
+        t.refNo.toLowerCase().trim() === invNo &&
+        Number(t.amount) > 0
+    );
+
+    if (txMatches.length > 0) {
+        return txMatches.map(t => ({
+            id: t.id,
+            date: t.date,
+            channel: t.paymentAccount || t.accountHead || 'Cash',
+            amount: Number(t.amount) || 0,
+            description: t.description || t.category || 'Payment',
+            category: t.category,
+        }));
+    }
+
+    // 2. Check splitPayments on invoice
+    if (inv.splitPayments && Object.keys(inv.splitPayments).length > 0) {
+        const list: InvoicePaymentItem[] = [];
+        const seen = new Set<string>();
+
+        const keys = Object.keys(inv.splitPayments).filter(k => {
+            const lk = k.toLowerCase();
+            return lk !== 'due' && (Number(inv.splitPayments?.[k]) || 0) > 0;
+        });
+
+        // Pass 1: Named accounts
+        keys.forEach(k => {
+            const amt = Number(inv.splitPayments?.[k]) || 0;
+            const lk = k.toLowerCase();
+            if (['cash', 'card', 'bkash', 'nagad'].includes(lk)) return;
+            const pm = paymentMethods?.find(p => p.id === k);
+            const channelName = pm ? pm.name : k;
+            if (!seen.has(channelName.toLowerCase())) {
+                seen.add(channelName.toLowerCase());
+                list.push({
+                    id: `split-${channelName}`,
+                    date: inv.date,
+                    channel: channelName,
+                    amount: amt,
+                    description: `POS Payment via ${channelName}`,
+                });
+            }
+        });
+
+        // Pass 2: Aliases if list is empty
+        if (list.length === 0) {
+            keys.forEach(k => {
+                const amt = Number(inv.splitPayments?.[k]) || 0;
+                const channelName = k.charAt(0).toUpperCase() + k.slice(1);
+                if (!seen.has(channelName.toLowerCase())) {
+                    seen.add(channelName.toLowerCase());
+                    list.push({
+                        id: `split-${channelName}`,
+                        date: inv.date,
+                        channel: channelName,
+                        amount: amt,
+                        description: `POS Payment via ${channelName}`,
+                    });
+                }
+            });
+        }
+
+        if (list.length > 0) return list;
+    }
+
+    // 3. Fallback to single paymentMethod if paidAmount > 0
+    if ((inv.paidAmount || 0) > 0) {
+        return [{
+            id: `pm-${inv.id}`,
+            date: inv.date,
+            channel: inv.paymentMethod || 'Cash',
+            amount: inv.paidAmount,
+            description: `Payment via ${inv.paymentMethod || 'Cash'}`,
+        }];
+    }
+
+    return [];
+};
