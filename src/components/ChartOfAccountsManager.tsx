@@ -131,10 +131,21 @@ export const ChartOfAccountsManager: React.FC = () => {
                         ))
                         .reduce((s, t) => s + t.amount, 0);
 
+                    const matchingAdvanceAdjusted = (transactions || [])
+                        .filter(t => (
+                            (t.category && (t.category.toLowerCase().includes('advance adjust') || t.category.toLowerCase().includes('অগ্রিম সমন্বয়') || t.category.toLowerCase().includes('advance adjustment'))) ||
+                            (t.description && (t.description.toLowerCase().includes('advance adjust') || t.description.toLowerCase().includes('adjusted from advance') || t.description.toLowerCase().includes('advance adjustment')))
+                        ))
+                        .reduce((s, t) => s + t.amount, 0);
+
+                    const netMatchingAdvance = Math.max(0, (acc.openingBalance || 0) + matchingAdvance - matchingAdvanceAdjusted);
+
                     if (acc.id === primaryAdvanceAccId || advanceAccounts.length <= 1) {
-                        liveBal = Math.max(acc.currentBalance, (acc.openingBalance || 0) + matchingAdvance, totalCustomerAdvance);
+                        liveBal = totalCustomerAdvance > 0 
+                            ? totalCustomerAdvance 
+                            : netMatchingAdvance;
                     } else {
-                        liveBal = Math.max(acc.currentBalance, (acc.openingBalance || 0) + matchingAdvance);
+                        liveBal = netMatchingAdvance;
                     }
                 }
             } else if (acc.classification === 'Revenue') {

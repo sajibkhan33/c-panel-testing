@@ -213,6 +213,10 @@ export const CreateSalesInvoiceModal: React.FC<CreateSalesInvoiceModalProps> = (
             alert('Please add at least one item!');
             return;
         }
+        const selectedCust = customerMode === 'existing' ? customers.find((c) => c.id === selectedCustomerId) : null;
+        const advanceToUse = selectedCust ? Math.min(Number(selectedCust.advanceBalance) || 0, effectivePaid) : 0;
+        const channelPaid = Math.max(0, effectivePaid - advanceToUse);
+
         const created = addInvoice({
             date: invoiceDate,
             referenceNo: referenceNo.trim() || undefined,
@@ -240,10 +244,11 @@ export const CreateSalesInvoiceModal: React.FC<CreateSalesInvoiceModalProps> = (
             notes: notes.trim() || undefined,
             jobSpecs: jobSpecs.trim() || undefined,
             splitPayments: {
-                cash: paymentMethod.toLowerCase().includes('cash') ? effectivePaid : 0,
-                card: paymentMethod.toLowerCase().includes('card') || paymentMethod.toLowerCase().includes('bank') ? effectivePaid : 0,
-                bkash: paymentMethod.toLowerCase().includes('bkash') ? effectivePaid : 0,
-                nagad: paymentMethod.toLowerCase().includes('nagad') ? effectivePaid : 0,
+                cash: paymentMethod.toLowerCase().includes('cash') ? channelPaid : 0,
+                card: paymentMethod.toLowerCase().includes('card') || paymentMethod.toLowerCase().includes('bank') ? channelPaid : 0,
+                bkash: paymentMethod.toLowerCase().includes('bkash') ? channelPaid : 0,
+                nagad: paymentMethod.toLowerCase().includes('nagad') ? channelPaid : 0,
+                ...(advanceToUse > 0 ? { 'Customer Advance': advanceToUse } : {}),
                 due: dueAmount,
             },
         });
@@ -752,7 +757,22 @@ export const CreateSalesInvoiceModal: React.FC<CreateSalesInvoiceModalProps> = (
                 </div>
 
                 {/* Quick Paid Presets */}
-                <div className="flex justify-end gap-1.5">
+                <div className="flex justify-end gap-1.5 flex-wrap">
+                  {customerMode === 'existing' && (() => {
+                    const cust = customers.find((c) => c.id === selectedCustomerId);
+                    const adv = Number(cust?.advanceBalance) || 0;
+                    if (adv <= 0) return null;
+                    return (
+                      <button
+                        type="button"
+                        onClick={() => setPaidAmount(Math.min(adv, grandTotal))}
+                        className="px-2 py-0.5 bg-indigo-100 hover:bg-indigo-200 text-indigo-800 rounded text-[10px] font-extrabold cursor-pointer flex items-center gap-1 shadow-2xs"
+                        title={`Customer has ${profile.currencySymbol}${adv.toLocaleString()} advance balance`}
+                      >
+                        <span>Adjust Advance ({profile.currencySymbol}{Math.min(adv, grandTotal).toLocaleString()})</span>
+                      </button>
+                    );
+                  })()}
                   <button type="button" onClick={() => setPaidAmount(grandTotal)} className="px-2 py-0.5 bg-emerald-100 hover:bg-emerald-200 text-emerald-800 rounded text-[10px] font-extrabold cursor-pointer">
                     {'Full Paid'}
                   </button>

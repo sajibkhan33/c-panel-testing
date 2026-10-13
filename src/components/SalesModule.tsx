@@ -240,6 +240,7 @@ export const SalesModule: React.FC<SalesModuleProps> = ({ onOpenInvoiceModal, on
     const [paymentModalInvoice, setPaymentModalInvoice] = useState<SalesInvoice | null>(null);
     const [collectAmount, setCollectAmount] = useState<number>(0);
     const [collectMethod, setCollectMethod] = useState<string>('Cash');
+    const [adjustAdvanceAmount, setAdjustAdvanceAmount] = useState<number>(0);
     // New Quotation Modal
     const [showNewQuoteModal, setShowNewQuoteModal] = useState(false);
     const [quoteType, setQuoteType] = useState<'Sales' | 'Custom'>('Sales');
@@ -306,11 +307,15 @@ export const SalesModule: React.FC<SalesModuleProps> = ({ onOpenInvoiceModal, on
     const totalDue = filteredInvoices.reduce((acc, i) => acc + i.dueAmount, 0);
     const handleCollectSubmit = (e: React.FormEvent) => {
         e.preventDefault();
-        if (!paymentModalInvoice || collectAmount <= 0)
+        if (!paymentModalInvoice)
             return;
-        collectInvoicePayment(paymentModalInvoice.id, collectAmount, collectMethod);
+        const totalSettling = (collectAmount || 0) + (adjustAdvanceAmount || 0);
+        if (totalSettling <= 0)
+            return;
+        collectInvoicePayment(paymentModalInvoice.id, collectAmount || 0, collectMethod, adjustAdvanceAmount || 0);
         setPaymentModalInvoice(null);
         setCollectAmount(0);
+        setAdjustAdvanceAmount(0);
     };
     const handleCreateQuote = (e: React.FormEvent) => {
         e.preventDefault();
@@ -755,6 +760,7 @@ export const SalesModule: React.FC<SalesModuleProps> = ({ onOpenInvoiceModal, on
                         {inv.dueAmount > 0 && (<button type="button" onClick={() => {
                         setPaymentModalInvoice(inv);
                         setCollectAmount(inv.dueAmount);
+                        setAdjustAdvanceAmount(0);
                     }} className="h-6.5 px-1.5 py-0.5 text-emerald-700 bg-emerald-50 hover:bg-emerald-100 rounded-md border border-emerald-300 text-[10px] font-bold whitespace-nowrap cursor-pointer transition-colors" title="Collect Due Payment">
                             +Pay
                           </button>)}
@@ -1058,6 +1064,27 @@ export const SalesModule: React.FC<SalesModuleProps> = ({ onOpenInvoiceModal, on
                         }`}>
                           {profile.currencySymbol}{(c.advanceBalance || 0).toLocaleString()}
                         </span>
+                        {c.advanceBalance && c.advanceBalance > 0 && dueAmount > 0 && (
+                          <div className="mt-1">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const dueInv = clientInvoices.find(inv => inv.dueAmount > 0);
+                                if (dueInv) {
+                                  setPaymentModalInvoice(dueInv);
+                                  const adv = Math.min(c.advanceBalance || 0, dueInv.dueAmount);
+                                  setAdjustAdvanceAmount(adv);
+                                  setCollectAmount(Math.max(0, dueInv.dueAmount - adv));
+                                }
+                              }}
+                              className="text-[9.5px] font-black text-indigo-700 hover:text-indigo-900 bg-indigo-50 hover:bg-indigo-100 border border-indigo-300 px-1.5 py-0.5 rounded-md cursor-pointer transition-colors shadow-2xs inline-flex items-center gap-0.5 whitespace-nowrap"
+                              title="Adjust advance against customer due invoice"
+                            >
+                              <span>Adjust to Due</span>
+                              <ArrowRight className="w-2.5 h-2.5" />
+                            </button>
+                          </div>
+                        )}
                       </td>
                       <td className="py-3 px-4 text-right font-black text-slate-900">
                         {profile.currencySymbol}
@@ -1075,6 +1102,24 @@ export const SalesModule: React.FC<SalesModuleProps> = ({ onOpenInvoiceModal, on
                       </td>
                       <td className="py-3 px-4 text-center">
                         <div className="flex items-center justify-center gap-1.5">
+                          {c.advanceBalance && c.advanceBalance > 0 && dueAmount > 0 && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const dueInv = clientInvoices.find(inv => inv.dueAmount > 0);
+                                if (dueInv) {
+                                  setPaymentModalInvoice(dueInv);
+                                  const adv = Math.min(c.advanceBalance || 0, dueInv.dueAmount);
+                                  setAdjustAdvanceAmount(adv);
+                                  setCollectAmount(Math.max(0, dueInv.dueAmount - adv));
+                                }
+                              }}
+                              className="p-1.5 text-indigo-700 hover:text-indigo-900 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 rounded-lg transition-all inline-flex items-center justify-center cursor-pointer"
+                              title="Adjust Advance Against Due"
+                            >
+                              <SlidersHorizontal className="w-3.5 h-3.5" />
+                            </button>
+                          )}
                           <button type="button" onClick={() => setSelectedCustomerHistory(c)} className="p-1.5 text-indigo-600 hover:text-indigo-900 bg-indigo-50 hover:bg-indigo-100 rounded-lg transition-all inline-flex items-center justify-center cursor-pointer" title={'View Invoices & Payment Ledger'}>
                             <History className="w-3.5 h-3.5"/>
                           </button>
@@ -1108,6 +1153,12 @@ export const SalesModule: React.FC<SalesModuleProps> = ({ onOpenInvoiceModal, on
       {/* COLLECT DUE MODAL */}
       {paymentModalInvoice && (() => {
         const modalPaymentHistory = getInvoicePayments(paymentModalInvoice, transactions, paymentMethods);
+        const modalCustomer = customers.find(c => isInvoiceMatchingCustomer(paymentModalInvoice, c));
+        const availableAdvance = Number(modalCustomer?.advanceBalance) || 0;
+        const maxAdvanceCanUse = Math.min(availableAdvance, paymentModalInvoice.dueAmount);
+        const remainingDueForChannel = Math.max(0, paymentModalInvoice.dueAmount - adjustAdvanceAmount);
+        const totalSettling = (collectAmount || 0) + (adjustAdvanceAmount || 0);
+
         return (
           <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
             <form onSubmit={handleCollectSubmit} className="bg-white rounded-2xl max-w-lg w-full max-h-[92vh] flex flex-col p-5 sm:p-6 shadow-2xl border border-slate-200 animate-in fade-in zoom-in-95 duration-150">
@@ -1121,7 +1172,15 @@ export const SalesModule: React.FC<SalesModuleProps> = ({ onOpenInvoiceModal, on
                     Invoice #{paymentModalInvoice.invoiceNo} • {paymentModalInvoice.date}
                   </div>
                 </div>
-                <button type="button" onClick={() => setPaymentModalInvoice(null)} className="p-1 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors font-bold text-sm cursor-pointer">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPaymentModalInvoice(null);
+                    setAdjustAdvanceAmount(0);
+                    setCollectAmount(0);
+                  }}
+                  className="p-1 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors font-bold text-sm cursor-pointer"
+                >
                   ✕
                 </button>
               </div>
@@ -1194,7 +1253,9 @@ export const SalesModule: React.FC<SalesModuleProps> = ({ onOpenInvoiceModal, on
                         <div key={item.id || idx} className="flex items-center justify-between p-2 rounded-lg bg-slate-50 hover:bg-slate-100/70 border border-slate-200 transition-colors">
                           <div className="flex items-center gap-2">
                             <span className="p-1 rounded-md bg-white border border-slate-200 text-slate-700">
-                              {item.channel.toLowerCase().includes('cash') ? (
+                              {item.channel.toLowerCase().includes('advance') ? (
+                                <Landmark className="w-3.5 h-3.5 text-indigo-600" />
+                              ) : item.channel.toLowerCase().includes('cash') ? (
                                 <Banknote className="w-3.5 h-3.5 text-emerald-600" />
                               ) : item.channel.toLowerCase().includes('bkash') || item.channel.toLowerCase().includes('nagad') ? (
                                 <Smartphone className="w-3.5 h-3.5 text-pink-600" />
@@ -1220,33 +1281,112 @@ export const SalesModule: React.FC<SalesModuleProps> = ({ onOpenInvoiceModal, on
                   )}
                 </div>
 
+                {/* Customer Advance Adjustment Box */}
+                {availableAdvance > 0 && (
+                  <div className="p-3.5 bg-indigo-50/70 rounded-xl border border-indigo-200 space-y-2.5">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <span className="p-1.5 rounded-lg bg-indigo-100 text-indigo-700">
+                          <Landmark className="w-4 h-4" />
+                        </span>
+                        <div>
+                          <div className="font-extrabold text-slate-800 text-xs">Customer Advance Balance</div>
+                          <div className="text-[11px] text-indigo-700 font-bold">
+                            Available Credit: {profile.currencySymbol}{availableAdvance.toLocaleString()}
+                          </div>
+                        </div>
+                      </div>
+                      {maxAdvanceCanUse > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setAdjustAdvanceAmount(maxAdvanceCanUse);
+                            setCollectAmount(Math.max(0, paymentModalInvoice.dueAmount - maxAdvanceCanUse));
+                          }}
+                          className="text-[10.5px] font-extrabold text-indigo-700 hover:text-indigo-900 bg-white border border-indigo-200 hover:border-indigo-300 px-2.5 py-1 rounded-lg cursor-pointer transition-colors shadow-2xs"
+                        >
+                          Use Full Advance ({profile.currencySymbol}{maxAdvanceCanUse.toLocaleString()})
+                        </button>
+                      )}
+                    </div>
+
+                    <div>
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="font-bold text-slate-700 block text-[11px]">
+                          Adjust from Advance ({profile.currencySymbol})
+                        </label>
+                        {adjustAdvanceAmount > 0 && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setAdjustAdvanceAmount(0);
+                              setCollectAmount(paymentModalInvoice.dueAmount);
+                            }}
+                            className="text-[10px] text-rose-600 hover:underline font-bold cursor-pointer"
+                          >
+                            Clear Advance
+                          </button>
+                        )}
+                      </div>
+                      <input
+                        type="number"
+                        step="any"
+                        min="0"
+                        max={maxAdvanceCanUse}
+                        value={adjustAdvanceAmount === 0 ? '' : adjustAdvanceAmount}
+                        onChange={(e) => {
+                          const val = Math.min(maxAdvanceCanUse, Math.max(0, Number(e.target.value) || 0));
+                          setAdjustAdvanceAmount(val);
+                          if ((collectAmount || 0) + val > paymentModalInvoice.dueAmount) {
+                            setCollectAmount(Math.max(0, paymentModalInvoice.dueAmount - val));
+                          }
+                        }}
+                        placeholder="0"
+                        className="w-full px-3 py-2 border border-indigo-200 rounded-xl font-black text-sm text-indigo-700 bg-white focus:ring-1 focus:ring-indigo-400 focus:outline-hidden"
+                      />
+                    </div>
+                  </div>
+                )}
+
                 {/* New Due Collection Form Controls */}
                 <div className="p-3.5 bg-amber-50/50 rounded-xl border border-amber-200/80 space-y-3">
                   <div className="flex items-center justify-between">
                     <span className="font-bold text-slate-800 text-xs">
-                      New Collection Details
+                      {adjustAdvanceAmount > 0 ? 'Additional Cash / Channel Collection' : 'New Collection Details'}
                     </span>
                     <button
                       type="button"
-                      onClick={() => setCollectAmount(paymentModalInvoice.dueAmount)}
+                      onClick={() => {
+                        if (availableAdvance > 0 && adjustAdvanceAmount === 0) {
+                          setAdjustAdvanceAmount(maxAdvanceCanUse);
+                          setCollectAmount(Math.max(0, paymentModalInvoice.dueAmount - maxAdvanceCanUse));
+                        } else {
+                          setCollectAmount(remainingDueForChannel);
+                        }
+                      }}
                       className="text-[10.5px] font-extrabold text-amber-700 hover:text-amber-800 underline cursor-pointer"
                     >
-                      Collect Full Due ({profile.currencySymbol}{paymentModalInvoice.dueAmount.toLocaleString()})
+                      {adjustAdvanceAmount > 0
+                        ? `Collect Remaining (${profile.currencySymbol}${remainingDueForChannel.toLocaleString()})`
+                        : `Collect Full Due (${profile.currencySymbol}${paymentModalInvoice.dueAmount.toLocaleString()})`}
                     </button>
                   </div>
 
                   <div>
                     <label className="font-bold text-slate-700 block mb-1">
-                      {'Amount to Collect *'}
+                      {adjustAdvanceAmount > 0 ? 'Amount to Collect from Channel' : 'Amount to Collect *'}
                     </label>
                     <input
                       type="number"
                       step="any"
-                      min="1"
-                      max={paymentModalInvoice.dueAmount}
-                      required
-                      value={collectAmount}
-                      onChange={(e) => setCollectAmount(Number(e.target.value))}
+                      min="0"
+                      max={remainingDueForChannel}
+                      value={collectAmount === 0 && adjustAdvanceAmount > 0 ? 0 : (collectAmount || '')}
+                      onChange={(e) => {
+                        const val = Math.max(0, Number(e.target.value) || 0);
+                        setCollectAmount(Math.min(remainingDueForChannel, val));
+                      }}
+                      placeholder="0"
                       className="w-full px-3 py-2 border border-slate-200 rounded-xl font-black text-base text-emerald-700 bg-white"
                     />
                   </div>
@@ -1270,7 +1410,8 @@ export const SalesModule: React.FC<SalesModuleProps> = ({ onOpenInvoiceModal, on
                     <select
                       value={collectMethod}
                       onChange={(e) => setCollectMethod(e.target.value)}
-                      className="w-full px-3 py-2 border border-slate-200 rounded-xl font-medium text-xs bg-white cursor-pointer"
+                      disabled={collectAmount <= 0 && adjustAdvanceAmount > 0}
+                      className="w-full px-3 py-2 border border-slate-200 rounded-xl font-medium text-xs bg-white cursor-pointer disabled:bg-slate-100 disabled:text-slate-400"
                     >
                       {activePaymentMethods.map((pm) => {
                         const bal = getPaymentMethodLiveBalance(pm, chartOfAccounts, transactions, invoices, accountBalances);
@@ -1282,22 +1423,57 @@ export const SalesModule: React.FC<SalesModuleProps> = ({ onOpenInvoiceModal, on
                       })}
                     </select>
                   </div>
+
+                  {/* Settlement Summary Breakdown */}
+                  <div className="bg-white p-2.5 rounded-lg border border-amber-200/60 text-xs space-y-1">
+                    {adjustAdvanceAmount > 0 && (
+                      <div className="flex justify-between text-indigo-700 font-bold">
+                        <span>Advance Adjusted:</span>
+                        <span>+{profile.currencySymbol}{adjustAdvanceAmount.toLocaleString()}</span>
+                      </div>
+                    )}
+                    {collectAmount > 0 && (
+                      <div className="flex justify-between text-emerald-700 font-bold">
+                        <span>Channel Collection ({collectMethod}):</span>
+                        <span>+{profile.currencySymbol}{collectAmount.toLocaleString()}</span>
+                      </div>
+                    )}
+                    <div className="flex justify-between text-slate-900 font-black pt-1 border-t border-slate-100">
+                      <span>Total Payment Applied:</span>
+                      <span className="text-emerald-700">+{profile.currencySymbol}{totalSettling.toLocaleString()}</span>
+                    </div>
+                    <div className="flex justify-between text-slate-500 font-semibold text-[11px]">
+                      <span>Remaining Due After Settlement:</span>
+                      <span className={paymentModalInvoice.dueAmount - totalSettling > 0 ? 'text-rose-600 font-bold' : 'text-emerald-600 font-bold'}>
+                        {profile.currencySymbol}{Math.max(0, paymentModalInvoice.dueAmount - totalSettling).toLocaleString()}
+                      </span>
+                    </div>
+                  </div>
                 </div>
               </div>
 
               <div className="flex justify-end gap-2 pt-3 border-t border-slate-100 shrink-0">
                 <button
                   type="button"
-                  onClick={() => setPaymentModalInvoice(null)}
+                  onClick={() => {
+                    setPaymentModalInvoice(null);
+                    setAdjustAdvanceAmount(0);
+                    setCollectAmount(0);
+                  }}
                   className="px-4 py-2 border border-slate-200 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-50 cursor-pointer"
                 >
                   {'Cancel'}
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-2xs cursor-pointer transition-colors"
+                  disabled={totalSettling <= 0}
+                  className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-xl text-xs font-bold shadow-2xs cursor-pointer transition-colors"
                 >
-                  {'Confirm Collection'}
+                  {adjustAdvanceAmount > 0 && collectAmount <= 0
+                    ? `Confirm Advance Adjustment (${profile.currencySymbol}${adjustAdvanceAmount.toLocaleString()})`
+                    : adjustAdvanceAmount > 0 && collectAmount > 0
+                    ? `Confirm Collection & Adjustment`
+                    : 'Confirm Collection'}
                 </button>
               </div>
             </form>
@@ -2275,6 +2451,7 @@ export const SalesModule: React.FC<SalesModuleProps> = ({ onOpenInvoiceModal, on
                       setViewingPaymentDetailsInvoice(null);
                       setPaymentModalInvoice(target);
                       setCollectAmount(target.dueAmount);
+                      setAdjustAdvanceAmount(0);
                     }}
                     className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-2xs cursor-pointer flex items-center gap-1.5 transition-colors"
                   >
@@ -2353,7 +2530,27 @@ export const SalesModule: React.FC<SalesModuleProps> = ({ onOpenInvoiceModal, on
                   <div className="text-base sm:text-lg font-black text-indigo-700 mt-1">
                     {profile.currencySymbol}{(selectedCustomerHistory.advanceBalance || 0).toLocaleString()}
                   </div>
-                  <div className="text-[10px] text-indigo-600 mt-0.5">Credit Held</div>
+                  {selectedCustomerHistory.advanceBalance && selectedCustomerHistory.advanceBalance > 0 && dueAmount > 0 ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const dueInv = clientInvoices.find(inv => inv.dueAmount > 0);
+                        if (dueInv) {
+                          setSelectedCustomerHistory(null);
+                          setPaymentModalInvoice(dueInv);
+                          const adv = Math.min(selectedCustomerHistory.advanceBalance || 0, dueInv.dueAmount);
+                          setAdjustAdvanceAmount(adv);
+                          setCollectAmount(Math.max(0, dueInv.dueAmount - adv));
+                        }
+                      }}
+                      className="mt-1 text-[9.5px] font-black text-indigo-700 hover:text-indigo-900 bg-white border border-indigo-200 hover:border-indigo-300 px-2 py-0.5 rounded cursor-pointer inline-flex items-center gap-1 shadow-2xs"
+                    >
+                      <span>Adjust to Due</span>
+                      <ArrowRight className="w-2.5 h-2.5" />
+                    </button>
+                  ) : (
+                    <div className="text-[10px] text-indigo-600 mt-0.5">Credit Held</div>
+                  )}
                 </div>
                 <div className="bg-rose-50/60 p-3 rounded-xl border border-rose-200">
                   <div className="text-[10px] text-rose-600 font-bold uppercase tracking-wider">Current Due</div>
@@ -2436,6 +2633,7 @@ export const SalesModule: React.FC<SalesModuleProps> = ({ onOpenInvoiceModal, on
                                         setSelectedCustomerHistory(null);
                                         setPaymentModalInvoice(inv);
                                         setCollectAmount(inv.dueAmount);
+                                        setAdjustAdvanceAmount(0);
                                       }}
                                       className="px-2 py-0.5 text-[10px] font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 rounded cursor-pointer"
                                       title="Collect Due"

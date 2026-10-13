@@ -473,6 +473,7 @@ export interface StaffMember {
 export type AuditActionType =
   | 'EXPENSE_RECORDED'
   | 'PAYMENT_COLLECTED'
+  | 'ADVANCE_ADJUSTED'
   | 'INVOICE_CREATED'
   | 'INVOICE_UPDATED'
   | 'PO_CREATED'

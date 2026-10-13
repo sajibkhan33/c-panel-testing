@@ -64,7 +64,8 @@ interface AppContextType {
     addInvoice: (invoice: Omit<SalesInvoice, 'id' | 'invoiceNo'>) => SalesInvoice;
     updateInvoice: (id: string, updates: Partial<SalesInvoice>) => void;
     deleteInvoice: (id: string) => void;
-    collectInvoicePayment: (invoiceId: string, amount: number, method: any) => void;
+    collectInvoicePayment: (invoiceId: string, amount: number, method: any, advanceAdjustAmount?: number) => void;
+    adjustCustomerAdvance: (customerId: string, amount: number, invoiceId?: string, notes?: string) => void;
     updateProductionStatus: (invoiceId: string, status: any) => void;
     // Quotations
     addQuotation: (quotation: Omit<Quotation, 'id' | 'quoteNo'>) => Quotation;
@@ -761,9 +762,23 @@ export const AppProvider: React.FC<{
                     t.description?.toLowerCase().includes('advance') ||
                     t.description?.toLowerCase().includes('অগ্রিম')
                 )).reduce((s, t) => s + t.amount, 0);
+
+                const matchingAdvanceAdjusted = (transactions || []).filter(t => (
+                    t.category?.toLowerCase().includes('advance adjust') ||
+                    t.category?.toLowerCase().includes('অগ্রিম সমন্বয়') ||
+                    t.category?.toLowerCase().includes('advance adjustment') ||
+                    t.description?.toLowerCase().includes('advance adjust') ||
+                    t.description?.toLowerCase().includes('adjusted from advance') ||
+                    t.description?.toLowerCase().includes('advance adjustment')
+                )).reduce((s, t) => s + t.amount, 0);
+
+                const netMatchingAdvance = Math.max(0, (acc.openingBalance || 0) + matchingAdvance - matchingAdvanceAdjusted);
                 const totalCustomerAdvance = (customers || []).reduce((s, c) => s + (Number(c.advanceBalance) || 0), 0);
-                const targetAdvanceBal = Math.max(acc.openingBalance || 0, matchingAdvance > 0 ? (acc.openingBalance || 0) + matchingAdvance : 0, totalCustomerAdvance);
-                if (targetAdvanceBal > 0 && acc.currentBalance !== targetAdvanceBal) {
+                const targetAdvanceBal = totalCustomerAdvance > 0 
+                    ? totalCustomerAdvance 
+                    : netMatchingAdvance;
+
+                if (acc.currentBalance !== targetAdvanceBal) {
                     coaNeedsUpdate = true;
                     return { ...acc, currentBalance: targetAdvanceBal };
                 }
@@ -1131,6 +1146,7 @@ export const AppProvider: React.FC<{
             invoiceNo,
         };
         setInvoices((prev) => [newInvoice, ...prev]);
+        const advanceApplied = Number(data.splitPayments?.['Customer Advance']) || 0;
         // Update Customer safely
         setCustomers((prev) => prev.map((c) => {
             if (isInvoiceMatchingCustomer(newInvoice, c)) {
@@ -1138,6 +1154,9 @@ export const AppProvider: React.FC<{
                     ...c,
                     totalPurchased: (c.totalPurchased || 0) + (Number(data.grandTotal) || 0),
                     dueAmount: (c.dueAmount || 0) + (Number(data.dueAmount) || 0),
+                    advanceBalance: advanceApplied > 0 
+                        ? Math.max(0, (Number(c.advanceBalance) || 0) - advanceApplied)
+                        : c.advanceBalance,
                 };
             }
             return c;
@@ -1151,6 +1170,22 @@ export const AppProvider: React.FC<{
             Object.entries(data.splitPayments).forEach(([key, val]) => {
                 const amt = Number(val) || 0;
                 if (amt <= 0 || key.toLowerCase() === 'due') return;
+
+                if (key === 'Customer Advance' || key.toLowerCase().includes('advance')) {
+                    txs.push({
+                        id: generateUniqueId('tx'),
+                        date: data.date,
+                        type: 'INCOME',
+                        category: 'Customer Advance Adjustment',
+                        amount: amt,
+                        paymentAccount: 'Customer Advance',
+                        accountHead: 'Customer Advance',
+                        refNo: invoiceNo,
+                        customerOrSupplier: data.customerName,
+                        description: `Adjusted Tk ${amt.toLocaleString()} from Customer Advance for invoice ${invoiceNo} (${data.customerName})`,
+                    });
+                    return;
+                }
 
                 const matchedCoa = matchChannelToAccount(key, chartOfAccounts, paymentMethods);
                 const matchedPm = paymentMethods.find((p) => p.id === key || p.name.toLowerCase() === key.toLowerCase());
@@ -1286,27 +1321,51 @@ export const AppProvider: React.FC<{
         }
         triggerImmediatePush();
     };
-    const collectInvoicePayment = (invoiceId: string, amount: number, method: any) => {
+    const collectInvoicePayment = (invoiceId: string, amount: number, method: any, advanceAdjustAmount: number = 0) => {
         const currentInvoices = latestStateRef.current.invoices || invoices;
         const targetInv = currentInvoices.find((i) => i.id === invoiceId);
         if (!targetInv)
             return;
-        addAuditLog({
-            staffId: activeStaff.id,
-            staffName: activeStaff.name,
-            staffRole: activeStaff.role,
-            location: 'Office',
-            actionType: 'PAYMENT_COLLECTED',
-            entityType: 'Sales',
-            refNo: targetInv.invoiceNo,
-            details: `Collected payment of Tk ${amount.toLocaleString()} via ${method} for invoice ${targetInv.invoiceNo} (${targetInv.customerName})`,
-            detailsBn: undefined,
-            amount: amount,
-            severity: 'success',
-        });
-        const newPaid = targetInv.paidAmount + amount;
+
+        const advanceAdjust = Math.max(0, Number(advanceAdjustAmount) || 0);
+        const cashCollect = Math.max(0, Number(amount) || 0);
+        const totalPaymentApplied = cashCollect + advanceAdjust;
+        if (totalPaymentApplied <= 0) return;
+
+        if (advanceAdjust > 0) {
+            addAuditLog({
+                staffId: activeStaff.id,
+                staffName: activeStaff.name,
+                staffRole: activeStaff.role,
+                location: 'Office',
+                actionType: 'ADVANCE_ADJUSTED',
+                entityType: 'Sales',
+                refNo: targetInv.invoiceNo,
+                details: `Adjusted payment of Tk ${advanceAdjust.toLocaleString()} from Customer Advance for invoice ${targetInv.invoiceNo} (${targetInv.customerName})`,
+                amount: advanceAdjust,
+                severity: 'success',
+            });
+        }
+
+        if (cashCollect > 0) {
+            addAuditLog({
+                staffId: activeStaff.id,
+                staffName: activeStaff.name,
+                staffRole: activeStaff.role,
+                location: 'Office',
+                actionType: 'PAYMENT_COLLECTED',
+                entityType: 'Sales',
+                refNo: targetInv.invoiceNo,
+                details: `Collected payment of Tk ${cashCollect.toLocaleString()} via ${method} for invoice ${targetInv.invoiceNo} (${targetInv.customerName})`,
+                amount: cashCollect,
+                severity: 'success',
+            });
+        }
+
+        const newPaid = targetInv.paidAmount + totalPaymentApplied;
         const newDue = Math.max(0, targetInv.grandTotal - newPaid);
         const newStatus: PaymentStatus = newDue <= 0 ? 'Paid' : 'Partial';
+
         // Resolve exact channel account in Chart of Accounts
         const matchedPm = paymentMethods.find((p) => p.id === method || p.name.toLowerCase() === (method || '').toLowerCase());
         const targetCoa = matchChannelToAccount(method, chartOfAccounts, paymentMethods);
@@ -1316,7 +1375,12 @@ export const AppProvider: React.FC<{
         const updatedInvoices = currentInvoices.map((inv) => {
             if (inv.id !== invoiceId) return inv;
             const existingSplits = { ...(inv.splitPayments || {}) };
-            existingSplits[resolvedAccount] = (existingSplits[resolvedAccount] || 0) + amount;
+            if (cashCollect > 0) {
+                existingSplits[resolvedAccount] = (existingSplits[resolvedAccount] || 0) + cashCollect;
+            }
+            if (advanceAdjust > 0) {
+                existingSplits['Customer Advance'] = (existingSplits['Customer Advance'] || 0) + advanceAdjust;
+            }
             return {
                 ...inv,
                 paidAmount: newPaid,
@@ -1340,8 +1404,10 @@ export const AppProvider: React.FC<{
                     : (c.totalPurchased || 0);
                 const dueAmount = clientInvoices.length > 0
                     ? clientInvoices.reduce((s, inv) => s + (Number(inv.dueAmount) || 0), 0)
-                    : Math.max(0, (c.dueAmount || 0) - amount);
-                return { ...c, totalPurchased, dueAmount };
+                    : Math.max(0, (c.dueAmount || 0) - totalPaymentApplied);
+                const currentAdv = Number(c.advanceBalance) || 0;
+                const newAdv = Math.max(0, currentAdv - advanceAdjust);
+                return { ...c, totalPurchased, dueAmount, advanceBalance: newAdv };
             }
             return c;
         });
@@ -1351,23 +1417,63 @@ export const AppProvider: React.FC<{
         } catch {}
 
         // Add transaction with guaranteed unique ID and exact channel
-        const newTx: AccountingTransaction = {
-            id: generateUniqueId('tx'),
-            date: new Date().toISOString().slice(0, 10),
-            type: 'INCOME',
-            category: 'Client Due Collection',
-            amount: amount,
-            paymentAccount: resolvedAccount,
-            accountHead: resolvedAccount,
-            refNo: targetInv.invoiceNo,
-            customerOrSupplier: targetInv.customerName,
-            description: `Due collection against invoice ${targetInv.invoiceNo} via ${resolvedAccount}`,
-        };
+        const newTxsToAdd: AccountingTransaction[] = [];
+        if (cashCollect > 0) {
+            newTxsToAdd.push({
+                id: generateUniqueId('tx'),
+                date: new Date().toISOString().slice(0, 10),
+                type: 'INCOME',
+                category: 'Client Due Collection',
+                amount: cashCollect,
+                paymentAccount: resolvedAccount,
+                accountHead: resolvedAccount,
+                refNo: targetInv.invoiceNo,
+                customerOrSupplier: targetInv.customerName,
+                description: `Due collection against invoice ${targetInv.invoiceNo} via ${resolvedAccount}`,
+            });
+        }
+        if (advanceAdjust > 0) {
+            newTxsToAdd.push({
+                id: generateUniqueId('tx'),
+                date: new Date().toISOString().slice(0, 10),
+                type: 'INCOME',
+                category: 'Customer Advance Adjustment',
+                amount: advanceAdjust,
+                paymentAccount: 'Customer Advance',
+                accountHead: 'Customer Advance',
+                refNo: targetInv.invoiceNo,
+                customerOrSupplier: targetInv.customerName,
+                description: `Adjusted Tk ${advanceAdjust.toLocaleString()} from Customer Advance against invoice ${targetInv.invoiceNo}`,
+            });
+        }
+
         const currentTxs = latestStateRef.current.transactions || transactions;
-        const updatedTxs = ensureUniqueTransactions([newTx, ...currentTxs]);
+        const updatedTxs = ensureUniqueTransactions([...newTxsToAdd, ...currentTxs]);
         setTransactions(updatedTxs);
         try {
             localStorage.setItem(`${STORAGE_KEY}_TRANSACTIONS`, JSON.stringify(updatedTxs));
+        } catch {}
+
+        // Update Chart of Accounts Customer Advance liability account immediately
+        const newTotalCustomerAdvance = updatedCusts.reduce((s, c) => s + (Number(c.advanceBalance) || 0), 0);
+        const currentCoa = latestStateRef.current.chartOfAccounts || chartOfAccounts;
+        const updatedCoa = currentCoa.map((acc) => {
+            const isAdvanceLiability = acc.classification === 'Liability' && (
+                acc.code === '2020' ||
+                acc.code === '2002' ||
+                acc.id === 'coa-2020' ||
+                acc.name.toLowerCase().includes('advance') ||
+                acc.name.toLowerCase().includes('deposit') ||
+                acc.nameBn?.includes('অগ্রিম')
+            );
+            if (isAdvanceLiability) {
+                return { ...acc, currentBalance: newTotalCustomerAdvance };
+            }
+            return acc;
+        });
+        setChartOfAccounts(updatedCoa);
+        try {
+            localStorage.setItem(`${STORAGE_KEY}_CHART_OF_ACCOUNTS`, JSON.stringify(updatedCoa));
         } catch {}
 
         latestStateRef.current = {
@@ -1375,6 +1481,70 @@ export const AppProvider: React.FC<{
             invoices: updatedInvoices,
             customers: updatedCusts,
             transactions: updatedTxs,
+            chartOfAccounts: updatedCoa,
+        };
+        triggerImmediatePush();
+    };
+
+    const adjustCustomerAdvance = (customerId: string, amount: number, invoiceId?: string, notes?: string) => {
+        if (amount <= 0) return;
+        if (invoiceId) {
+            collectInvoicePayment(invoiceId, 0, 'Customer Advance', amount);
+            return;
+        }
+        const currentCusts = latestStateRef.current.customers || customers;
+        const cust = currentCusts.find((c) => c.id === customerId);
+        if (!cust) return;
+
+        const currentInvoices = latestStateRef.current.invoices || invoices;
+        const dueInv = currentInvoices.find((inv) => isInvoiceMatchingCustomer(inv, cust) && inv.dueAmount > 0);
+        if (dueInv) {
+            collectInvoicePayment(dueInv.id, 0, 'Customer Advance', Math.min(amount, dueInv.dueAmount));
+            return;
+        }
+
+        const newAdv = Math.max(0, (Number(cust.advanceBalance) || 0) - amount);
+        const updatedCusts = currentCusts.map((c) => c.id === customerId ? { ...c, advanceBalance: newAdv } : c);
+        setCustomers(updatedCusts);
+        try { localStorage.setItem(`${STORAGE_KEY}_CUSTOMERS`, JSON.stringify(updatedCusts)); } catch {}
+
+        const newTx: AccountingTransaction = {
+            id: generateUniqueId('tx'),
+            date: new Date().toISOString().slice(0, 10),
+            type: 'INCOME',
+            category: 'Customer Advance Adjustment',
+            amount: amount,
+            paymentAccount: 'Customer Advance',
+            accountHead: 'Customer Advance',
+            refNo: `ADV-ADJ-${Date.now().toString().slice(-4)}`,
+            customerOrSupplier: cust.name,
+            description: notes || `Direct adjustment of advance balance for ${cust.name}`,
+        };
+        const currentTxs = latestStateRef.current.transactions || transactions;
+        const updatedTxs = ensureUniqueTransactions([newTx, ...currentTxs]);
+        setTransactions(updatedTxs);
+        try { localStorage.setItem(`${STORAGE_KEY}_TRANSACTIONS`, JSON.stringify(updatedTxs)); } catch {}
+
+        const newTotalCustomerAdvance = updatedCusts.reduce((s, c) => s + (Number(c.advanceBalance) || 0), 0);
+        const currentCoa = latestStateRef.current.chartOfAccounts || chartOfAccounts;
+        const updatedCoa = currentCoa.map((acc) => {
+            const isAdvanceLiability = acc.classification === 'Liability' && (
+                acc.code === '2020' || acc.code === '2002' || acc.id === 'coa-2020' ||
+                acc.name.toLowerCase().includes('advance') || acc.name.toLowerCase().includes('deposit') || acc.nameBn?.includes('অগ্রিম')
+            );
+            if (isAdvanceLiability) {
+                return { ...acc, currentBalance: newTotalCustomerAdvance };
+            }
+            return acc;
+        });
+        setChartOfAccounts(updatedCoa);
+        try { localStorage.setItem(`${STORAGE_KEY}_CHART_OF_ACCOUNTS`, JSON.stringify(updatedCoa)); } catch {}
+
+        latestStateRef.current = {
+            ...latestStateRef.current,
+            customers: updatedCusts,
+            transactions: updatedTxs,
+            chartOfAccounts: updatedCoa,
         };
         triggerImmediatePush();
     };
@@ -4696,6 +4866,7 @@ export const AppProvider: React.FC<{
             updateInvoice,
             deleteInvoice,
             collectInvoicePayment,
+            adjustCustomerAdvance,
             updateProductionStatus,
             addQuotation,
             updateQuotation,
