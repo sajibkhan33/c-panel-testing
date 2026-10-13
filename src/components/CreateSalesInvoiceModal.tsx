@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { useApp } from '../context/AppContext';
-import { InvoiceItem, PaymentMethod, ProductionStatus, UnitType } from '../types';
+import { InvoiceItem, PaymentMethod, ProductionStatus, UnitType, PRESET_INVOICE_ITEM_TYPES } from '../types';
 import { X, FileText, Plus, Trash2, Calendar, User, Phone, Building, CheckCircle2, Percent, Hash, Truck, DollarSign, Search, UserPlus, } from 'lucide-react';
 interface CreateSalesInvoiceModalProps {
     isOpen: boolean;
@@ -50,6 +50,8 @@ export const CreateSalesInvoiceModal: React.FC<CreateSalesInvoiceModalProps> = (
     const [itemName, setItemName] = useState('');
     const [itemRegion, setItemRegion] = useState('');
     const [itemTypeStr, setItemTypeStr] = useState('');
+    const [isCustomType, setIsCustomType] = useState<boolean>(false);
+    const [invoiceCustomTypes, setInvoiceCustomTypes] = useState<string[]>([]);
     const [itemCategory, setItemCategory] = useState('BRANDED PROMOTIONAL GIFTS');
     const [itemUnit, setItemUnit] = useState<UnitType>('pcs');
     const [itemQty, setItemQty] = useState(1);
@@ -131,11 +133,15 @@ export const CreateSalesInvoiceModal: React.FC<CreateSalesInvoiceModalProps> = (
             notes: itemNotes.trim() || undefined,
         };
         setItems([...items, newItem]);
+        if (itemTypeStr.trim() && !PRESET_INVOICE_ITEM_TYPES.includes(itemTypeStr.trim() as any) && !invoiceCustomTypes.includes(itemTypeStr.trim())) {
+            setInvoiceCustomTypes((prev) => [...prev, itemTypeStr.trim()]);
+        }
         // Reset Item Entry Row
         setSelectedProductId('');
         setItemName('');
         setItemRegion('');
         setItemTypeStr('');
+        setIsCustomType(false);
         setItemQty(1);
         setItemPrice(1000);
         setItemWidth('');
@@ -548,20 +554,20 @@ export const CreateSalesInvoiceModal: React.FC<CreateSalesInvoiceModalProps> = (
               <label className="bg-white px-3 py-1.5 rounded-lg border border-amber-200/80 shadow-2xs flex items-center gap-2 cursor-pointer text-xs font-bold text-slate-700 hover:border-amber-400 transition-colors select-none">
                 <input
                   type="checkbox"
-                  checked={showRegionColumn}
-                  onChange={(e) => setShowRegionColumn(e.target.checked)}
-                  className="w-3.5 h-3.5 rounded border-slate-300 text-amber-600 focus:ring-amber-500 cursor-pointer accent-amber-600"
-                />
-                <span>Show Region Column</span>
-              </label>
-              <label className="bg-white px-3 py-1.5 rounded-lg border border-amber-200/80 shadow-2xs flex items-center gap-2 cursor-pointer text-xs font-bold text-slate-700 hover:border-amber-400 transition-colors select-none">
-                <input
-                  type="checkbox"
                   checked={showTypeColumn}
                   onChange={(e) => setShowTypeColumn(e.target.checked)}
                   className="w-3.5 h-3.5 rounded border-slate-300 text-amber-600 focus:ring-amber-500 cursor-pointer accent-amber-600"
                 />
                 <span>Show Type Column</span>
+              </label>
+              <label className="bg-white px-3 py-1.5 rounded-lg border border-amber-200/80 shadow-2xs flex items-center gap-2 cursor-pointer text-xs font-bold text-slate-700 hover:border-amber-400 transition-colors select-none">
+                <input
+                  type="checkbox"
+                  checked={showRegionColumn}
+                  onChange={(e) => setShowRegionColumn(e.target.checked)}
+                  className="w-3.5 h-3.5 rounded border-slate-300 text-amber-600 focus:ring-amber-500 cursor-pointer accent-amber-600"
+                />
+                <span>Show Region Column</span>
               </label>
             </div>
 
@@ -592,6 +598,78 @@ export const CreateSalesInvoiceModal: React.FC<CreateSalesInvoiceModalProps> = (
                   </select>)}
               </div>
 
+              {showTypeColumn && (
+                <div className="sm:col-span-2">
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="font-bold text-slate-600 text-[11px] truncate">
+                      {'Type'}
+                    </label>
+                    {isCustomType && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsCustomType(false);
+                          setItemTypeStr('');
+                        }}
+                        className="text-[10px] text-amber-600 hover:text-amber-700 font-bold underline cursor-pointer"
+                        title="Back to list"
+                      >
+                        List
+                      </button>
+                    )}
+                  </div>
+                  {isCustomType ? (
+                    <div className="relative">
+                      <input
+                        type="text"
+                        value={itemTypeStr}
+                        onChange={(e) => setItemTypeStr(e.target.value)}
+                        placeholder="Enter custom type..."
+                        autoFocus
+                        className="w-full px-2 py-1.5 pr-6 bg-white border border-amber-300 rounded-lg font-bold text-xs focus:ring-1 focus:ring-amber-500"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsCustomType(false);
+                          setItemTypeStr('');
+                        }}
+                        className="absolute right-1.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 text-xs font-bold cursor-pointer"
+                        title="Cancel custom"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  ) : (
+                    <select
+                      value={itemTypeStr}
+                      onChange={(e) => {
+                        if (e.target.value === '__custom__') {
+                          setIsCustomType(true);
+                          setItemTypeStr('');
+                        } else {
+                          setItemTypeStr(e.target.value);
+                        }
+                      }}
+                      className="w-full px-2 py-1.5 bg-white border border-slate-200 rounded-lg font-bold text-xs focus:ring-1 focus:ring-slate-900"
+                    >
+                      <option value="">{'-- Select Type --'}</option>
+                      {PRESET_INVOICE_ITEM_TYPES.map((opt) => (
+                        <option key={opt} value={opt}>
+                          {opt}
+                        </option>
+                      ))}
+                      {invoiceCustomTypes.map((ct) => (
+                        <option key={ct} value={ct}>
+                          {ct}
+                        </option>
+                      ))}
+                      <option value="__custom__">{'+ Custom Type...'}</option>
+                    </select>
+                  )}
+                </div>
+              )}
+
               {showRegionColumn && (
                 <div className="sm:col-span-2">
                   <label className="font-bold text-slate-600 block mb-1 text-[11px] truncate">
@@ -601,22 +679,7 @@ export const CreateSalesInvoiceModal: React.FC<CreateSalesInvoiceModalProps> = (
                     type="text"
                     value={itemRegion}
                     onChange={(e) => setItemRegion(e.target.value)}
-                    placeholder="e.g. Cox's Bazar"
-                    className="w-full px-2 py-1.5 bg-white border border-slate-200 rounded-lg font-bold text-xs focus:ring-1 focus:ring-slate-900"
-                  />
-                </div>
-              )}
-
-              {showTypeColumn && (
-                <div className="sm:col-span-2">
-                  <label className="font-bold text-slate-600 block mb-1 text-[11px] truncate">
-                    {'Type'}
-                  </label>
-                  <input
-                    type="text"
-                    value={itemTypeStr}
-                    onChange={(e) => setItemTypeStr(e.target.value)}
-                    placeholder="e.g. Sublimation"
+                    placeholder="e.g. Dhaka, Chittagong"
                     className="w-full px-2 py-1.5 bg-white border border-slate-200 rounded-lg font-bold text-xs focus:ring-1 focus:ring-slate-900"
                   />
                 </div>
@@ -679,8 +742,8 @@ export const CreateSalesInvoiceModal: React.FC<CreateSalesInvoiceModalProps> = (
                     <tr className="bg-slate-100 text-slate-600 font-bold text-[11px] border-b border-slate-200">
                       <th className="p-2.5 text-center w-10">SL</th>
                       <th className="p-2.5">{'Description'}</th>
-                      {showRegionColumn && <th className="p-2.5 text-center w-24">{'Region'}</th>}
                       {showTypeColumn && <th className="p-2.5 text-center w-24">{'Type'}</th>}
+                      {showRegionColumn && <th className="p-2.5 text-center w-24">{'Region'}</th>}
                       <th className="p-2.5 text-center w-20">{'Unit'}</th>
                       <th className="p-2.5 text-center w-28">{'Qty'}</th>
                       <th className="p-2.5 text-right w-32">{"RateTk"}</th>
@@ -697,14 +760,14 @@ export const CreateSalesInvoiceModal: React.FC<CreateSalesInvoiceModalProps> = (
                             </div>)}
                           {item.notes && (<div className="text-[10px] text-slate-500 italic">{item.notes}</div>)}
                         </td>
-                        {showRegionColumn && (
-                          <td className="p-2.5 text-center font-medium text-slate-700 text-xs">
-                            {item.region || '-'}
-                          </td>
-                        )}
                         {showTypeColumn && (
                           <td className="p-2.5 text-center font-medium text-slate-700 text-xs">
                             {item.type || item.itemType || '-'}
+                          </td>
+                        )}
+                        {showRegionColumn && (
+                          <td className="p-2.5 text-center font-medium text-slate-700 text-xs">
+                            {item.region || '-'}
                           </td>
                         )}
                         <td className="p-2.5 text-center font-medium text-slate-600">{item.unit}</td>

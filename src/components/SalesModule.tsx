@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { useApp } from '../context/AppContext';
-import { SalesInvoice, Quotation, Customer, ProductionStatus } from '../types';
+import { SalesInvoice, Quotation, Customer, ProductionStatus, PRESET_INVOICE_ITEM_TYPES } from '../types';
 import { FileText, Printer, Receipt, Plus, Search, CheckCircle2, Clock, Truck, ArrowRight, DollarSign, AlertCircle, Eye, Filter, Layers, Phone, User, Calendar, FileSpreadsheet, SlidersHorizontal, RefreshCw, Edit2, Trash2, X, UserPlus, RotateCcw, AlertTriangle, Landmark, Smartphone, Banknote, CreditCard, History, ChevronRight, } from 'lucide-react';
 import { exportSalesToExcel } from '../utils/exportUtils';
 import { ReportPrintModal } from './ReportPrintModal';
@@ -40,6 +40,8 @@ export const SalesModule: React.FC<SalesModuleProps> = ({ onOpenInvoiceModal, on
     const [invItemName, setInvItemName] = useState('');
     const [invItemRegion, setInvItemRegion] = useState('');
     const [invItemType, setInvItemType] = useState('');
+    const [editInvIsCustomType, setEditInvIsCustomType] = useState<boolean>(false);
+    const [editInvCustomTypes, setEditInvCustomTypes] = useState<string[]>([]);
     const [editInvShowRegionColumn, setEditInvShowRegionColumn] = useState<boolean>(false);
     const [editInvShowTypeColumn, setEditInvShowTypeColumn] = useState<boolean>(false);
     const [invItemQty, setInvItemQty] = useState(1);
@@ -266,6 +268,8 @@ export const SalesModule: React.FC<SalesModuleProps> = ({ onOpenInvoiceModal, on
     const [quoteItemName, setQuoteItemName] = useState('');
     const [quoteItemRegion, setQuoteItemRegion] = useState('');
     const [quoteItemType, setQuoteItemType] = useState('');
+    const [quoteIsCustomType, setQuoteIsCustomType] = useState<boolean>(false);
+    const [quoteCustomTypes, setQuoteCustomTypes] = useState<string[]>([]);
     const [quoteShowRegionColumn, setQuoteShowRegionColumn] = useState<boolean>(false);
     const [quoteShowTypeColumn, setQuoteShowTypeColumn] = useState<boolean>(false);
     const [quoteItemQty, setQuoteItemQty] = useState(1);
@@ -770,10 +774,15 @@ export const SalesModule: React.FC<SalesModuleProps> = ({ onOpenInvoiceModal, on
                     setInvItemQty(1);
                     setInvItemPrice(1000);
                     setInvSelectedProductId('');
-                    setEditInvShowRegionColumn(inv.showRegionColumn ?? inv.items?.some(i => Boolean(i.region)) ?? false);
                     setEditInvShowTypeColumn(inv.showTypeColumn ?? inv.items?.some(i => Boolean(i.type || i.itemType)) ?? false);
+                    setEditInvShowRegionColumn(inv.showRegionColumn ?? inv.items?.some(i => Boolean(i.region)) ?? false);
                     setInvItemRegion('');
                     setInvItemType('');
+                    const existingCustomTypes = (inv.items || [])
+                        .map((i: any) => i.type || i.itemType)
+                        .filter((t: any) => t && !PRESET_INVOICE_ITEM_TYPES.includes(t)) as string[];
+                    setEditInvCustomTypes(Array.from(new Set(existingCustomTypes)));
+                    setEditInvIsCustomType(false);
                 }} className="w-6.5 h-6.5 p-1 flex items-center justify-center text-slate-700 hover:text-blue-600 hover:bg-blue-50 rounded-md border border-slate-200 transition-colors cursor-pointer" title="Edit Invoice">
                           <Edit2 className="w-3 h-3"/>
                         </button>
@@ -1564,20 +1573,20 @@ export const SalesModule: React.FC<SalesModuleProps> = ({ onOpenInvoiceModal, on
                 <label className="bg-white px-3 py-1.5 rounded-lg border border-amber-200/80 shadow-2xs flex items-center gap-2 cursor-pointer text-xs font-bold text-slate-700 hover:border-amber-400 transition-colors select-none">
                   <input
                     type="checkbox"
-                    checked={editInvShowRegionColumn}
-                    onChange={(e) => setEditInvShowRegionColumn(e.target.checked)}
-                    className="w-3.5 h-3.5 rounded border-slate-300 text-amber-600 focus:ring-amber-500 cursor-pointer accent-amber-600"
-                  />
-                  <span>Show Region Column</span>
-                </label>
-                <label className="bg-white px-3 py-1.5 rounded-lg border border-amber-200/80 shadow-2xs flex items-center gap-2 cursor-pointer text-xs font-bold text-slate-700 hover:border-amber-400 transition-colors select-none">
-                  <input
-                    type="checkbox"
                     checked={editInvShowTypeColumn}
                     onChange={(e) => setEditInvShowTypeColumn(e.target.checked)}
                     className="w-3.5 h-3.5 rounded border-slate-300 text-amber-600 focus:ring-amber-500 cursor-pointer accent-amber-600"
                   />
                   <span>Show Type Column</span>
+                </label>
+                <label className="bg-white px-3 py-1.5 rounded-lg border border-amber-200/80 shadow-2xs flex items-center gap-2 cursor-pointer text-xs font-bold text-slate-700 hover:border-amber-400 transition-colors select-none">
+                  <input
+                    type="checkbox"
+                    checked={editInvShowRegionColumn}
+                    onChange={(e) => setEditInvShowRegionColumn(e.target.checked)}
+                    className="w-3.5 h-3.5 rounded border-slate-300 text-amber-600 focus:ring-amber-500 cursor-pointer accent-amber-600"
+                  />
+                  <span>Show Region Column</span>
                 </label>
               </div>
 
@@ -1614,6 +1623,77 @@ export const SalesModule: React.FC<SalesModuleProps> = ({ onOpenInvoiceModal, on
                     </div>
                   </div>
 
+                  {editInvShowTypeColumn && (
+                    <div className="sm:col-span-2">
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="font-bold text-slate-600">
+                          {'Type'}
+                        </label>
+                        {editInvIsCustomType && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setEditInvIsCustomType(false);
+                              setInvItemType('');
+                            }}
+                            className="text-[10px] text-amber-600 hover:text-amber-700 font-bold underline cursor-pointer"
+                          >
+                            List
+                          </button>
+                        )}
+                      </div>
+                      {editInvIsCustomType ? (
+                        <div className="relative">
+                          <input
+                            type="text"
+                            value={invItemType}
+                            onChange={(e) => setInvItemType(e.target.value)}
+                            placeholder="Enter custom type..."
+                            autoFocus
+                            className="w-full px-3 py-1.5 pr-7 border border-amber-300 rounded-lg bg-white font-medium focus:ring-1 focus:ring-amber-500"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setEditInvIsCustomType(false);
+                              setInvItemType('');
+                            }}
+                            className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 font-bold cursor-pointer text-xs"
+                            title="Cancel custom"
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      ) : (
+                        <select
+                          value={invItemType}
+                          onChange={(e) => {
+                            if (e.target.value === '__custom__') {
+                              setEditInvIsCustomType(true);
+                              setInvItemType('');
+                            } else {
+                              setInvItemType(e.target.value);
+                            }
+                          }}
+                          className="w-full px-3 py-1.5 border border-slate-200 rounded-lg bg-white font-bold"
+                        >
+                          <option value="">{'-- Select Type --'}</option>
+                          {PRESET_INVOICE_ITEM_TYPES.map((opt) => (
+                            <option key={opt} value={opt}>
+                              {opt}
+                            </option>
+                          ))}
+                          {editInvCustomTypes.map((ct) => (
+                            <option key={ct} value={ct}>
+                              {ct}
+                            </option>
+                          ))}
+                          <option value="__custom__">{'+ Custom Type...'}</option>
+                        </select>
+                      )}
+                    </div>
+                  )}
+
                   {editInvShowRegionColumn && (
                     <div className="sm:col-span-2">
                       <label className="font-bold text-slate-600 block mb-1">
@@ -1623,22 +1703,7 @@ export const SalesModule: React.FC<SalesModuleProps> = ({ onOpenInvoiceModal, on
                         type="text"
                         value={invItemRegion}
                         onChange={(e) => setInvItemRegion(e.target.value)}
-                        placeholder="e.g. Cox's Bazar"
-                        className="w-full px-3 py-1.5 border border-slate-200 rounded-lg bg-white font-medium"
-                      />
-                    </div>
-                  )}
-
-                  {editInvShowTypeColumn && (
-                    <div className="sm:col-span-2">
-                      <label className="font-bold text-slate-600 block mb-1">
-                        {'Type'}
-                      </label>
-                      <input
-                        type="text"
-                        value={invItemType}
-                        onChange={(e) => setInvItemType(e.target.value)}
-                        placeholder="e.g. Sublimation"
+                        placeholder="e.g. Dhaka, Chittagong"
                         className="w-full px-3 py-1.5 border border-slate-200 rounded-lg bg-white font-medium"
                       />
                     </div>
@@ -1680,9 +1745,13 @@ export const SalesModule: React.FC<SalesModuleProps> = ({ onOpenInvoiceModal, on
                     totalPrice: subTotal,
                 };
                 setEditInvoiceItems([...editInvoiceItems, newItem]);
+                if (invItemType.trim() && !PRESET_INVOICE_ITEM_TYPES.includes(invItemType.trim() as any) && !editInvCustomTypes.includes(invItemType.trim())) {
+                    setEditInvCustomTypes(prev => [...prev, invItemType.trim()]);
+                }
                 setInvItemName('');
                 setInvItemRegion('');
                 setInvItemType('');
+                setEditInvIsCustomType(false);
                 setInvSelectedProductId('');
                 setInvItemQty(1);
                 setInvItemPrice(1000);
@@ -1704,8 +1773,8 @@ export const SalesModule: React.FC<SalesModuleProps> = ({ onOpenInvoiceModal, on
                         <tr className="bg-slate-50 border-b border-slate-200 text-slate-500 font-bold text-[11px]">
                           <th className="p-2 text-center w-10">SL</th>
                           <th className="p-2">{'Description'}</th>
-                          {editInvShowRegionColumn && <th className="p-2 text-center w-24">{'Region'}</th>}
                           {editInvShowTypeColumn && <th className="p-2 text-center w-24">{'Type'}</th>}
+                          {editInvShowRegionColumn && <th className="p-2 text-center w-24">{'Region'}</th>}
                           <th className="p-2 text-center w-28">{'Qty'}</th>
                           <th className="p-2 text-right w-32">{"RateTk"}</th>
                           <th className="p-2 text-right w-28">{"TotalTk"}</th>
@@ -1716,14 +1785,14 @@ export const SalesModule: React.FC<SalesModuleProps> = ({ onOpenInvoiceModal, on
                         {editInvoiceItems.map((item, idx) => (<tr key={idx} className="hover:bg-slate-50/50">
                             <td className="p-2 text-center text-slate-400">{idx + 1}</td>
                             <td className="p-2 font-semibold text-slate-800">{item.name}</td>
-                            {editInvShowRegionColumn && (
-                              <td className="p-2 text-center font-medium text-slate-700 text-xs">
-                                {item.region || '-'}
-                              </td>
-                            )}
                             {editInvShowTypeColumn && (
                               <td className="p-2 text-center font-medium text-slate-700 text-xs">
                                 {item.type || item.itemType || '-'}
+                              </td>
+                            )}
+                            {editInvShowRegionColumn && (
+                              <td className="p-2 text-center font-medium text-slate-700 text-xs">
+                                {item.region || '-'}
                               </td>
                             )}
                             <td className="p-1.5 text-center">
@@ -2014,20 +2083,20 @@ export const SalesModule: React.FC<SalesModuleProps> = ({ onOpenInvoiceModal, on
                 <label className="bg-white px-3 py-1.5 rounded-lg border border-amber-200/80 shadow-2xs flex items-center gap-2 cursor-pointer text-xs font-bold text-slate-700 hover:border-amber-400 transition-colors select-none">
                   <input
                     type="checkbox"
-                    checked={quoteShowRegionColumn}
-                    onChange={(e) => setQuoteShowRegionColumn(e.target.checked)}
-                    className="w-3.5 h-3.5 rounded border-slate-300 text-amber-600 focus:ring-amber-500 cursor-pointer accent-amber-600"
-                  />
-                  <span>Show Region Column</span>
-                </label>
-                <label className="bg-white px-3 py-1.5 rounded-lg border border-amber-200/80 shadow-2xs flex items-center gap-2 cursor-pointer text-xs font-bold text-slate-700 hover:border-amber-400 transition-colors select-none">
-                  <input
-                    type="checkbox"
                     checked={quoteShowTypeColumn}
                     onChange={(e) => setQuoteShowTypeColumn(e.target.checked)}
                     className="w-3.5 h-3.5 rounded border-slate-300 text-amber-600 focus:ring-amber-500 cursor-pointer accent-amber-600"
                   />
                   <span>Show Type Column</span>
+                </label>
+                <label className="bg-white px-3 py-1.5 rounded-lg border border-amber-200/80 shadow-2xs flex items-center gap-2 cursor-pointer text-xs font-bold text-slate-700 hover:border-amber-400 transition-colors select-none">
+                  <input
+                    type="checkbox"
+                    checked={quoteShowRegionColumn}
+                    onChange={(e) => setQuoteShowRegionColumn(e.target.checked)}
+                    className="w-3.5 h-3.5 rounded border-slate-300 text-amber-600 focus:ring-amber-500 cursor-pointer accent-amber-600"
+                  />
+                  <span>Show Region Column</span>
                 </label>
               </div>
 
@@ -2062,6 +2131,77 @@ export const SalesModule: React.FC<SalesModuleProps> = ({ onOpenInvoiceModal, on
                       </select>)}
                   </div>
 
+                  {quoteShowTypeColumn && (
+                    <div className="sm:col-span-2">
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="font-bold text-slate-600">
+                          {'Type'}
+                        </label>
+                        {quoteIsCustomType && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setQuoteIsCustomType(false);
+                              setQuoteItemType('');
+                            }}
+                            className="text-[10px] text-amber-600 hover:text-amber-700 font-bold underline cursor-pointer"
+                          >
+                            List
+                          </button>
+                        )}
+                      </div>
+                      {quoteIsCustomType ? (
+                        <div className="relative">
+                          <input
+                            type="text"
+                            value={quoteItemType}
+                            onChange={(e) => setQuoteItemType(e.target.value)}
+                            placeholder="Enter custom type..."
+                            autoFocus
+                            className="w-full px-3 py-1.5 pr-7 border border-amber-300 rounded-lg bg-white font-medium focus:ring-1 focus:ring-amber-500"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setQuoteIsCustomType(false);
+                              setQuoteItemType('');
+                            }}
+                            className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 font-bold cursor-pointer text-xs"
+                            title="Cancel custom"
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      ) : (
+                        <select
+                          value={quoteItemType}
+                          onChange={(e) => {
+                            if (e.target.value === '__custom__') {
+                              setQuoteIsCustomType(true);
+                              setQuoteItemType('');
+                            } else {
+                              setQuoteItemType(e.target.value);
+                            }
+                          }}
+                          className="w-full px-3 py-1.5 border border-slate-200 rounded-lg bg-white font-bold"
+                        >
+                          <option value="">{'-- Select Type --'}</option>
+                          {PRESET_INVOICE_ITEM_TYPES.map((opt) => (
+                            <option key={opt} value={opt}>
+                              {opt}
+                            </option>
+                          ))}
+                          {quoteCustomTypes.map((ct) => (
+                            <option key={ct} value={ct}>
+                              {ct}
+                            </option>
+                          ))}
+                          <option value="__custom__">{'+ Custom Type...'}</option>
+                        </select>
+                      )}
+                    </div>
+                  )}
+
                   {quoteShowRegionColumn && (
                     <div className="sm:col-span-2">
                       <label className="font-bold text-slate-600 block mb-1">
@@ -2071,22 +2211,7 @@ export const SalesModule: React.FC<SalesModuleProps> = ({ onOpenInvoiceModal, on
                         type="text"
                         value={quoteItemRegion}
                         onChange={(e) => setQuoteItemRegion(e.target.value)}
-                        placeholder="e.g. Cox's Bazar"
-                        className="w-full px-3 py-1.5 border border-slate-200 rounded-lg bg-white font-medium"
-                      />
-                    </div>
-                  )}
-
-                  {quoteShowTypeColumn && (
-                    <div className="sm:col-span-2">
-                      <label className="font-bold text-slate-600 block mb-1">
-                        {'Type'}
-                      </label>
-                      <input
-                        type="text"
-                        value={quoteItemType}
-                        onChange={(e) => setQuoteItemType(e.target.value)}
-                        placeholder="e.g. Sublimation"
+                        placeholder="e.g. Dhaka, Chittagong"
                         className="w-full px-3 py-1.5 border border-slate-200 rounded-lg bg-white font-medium"
                       />
                     </div>
@@ -2129,9 +2254,13 @@ export const SalesModule: React.FC<SalesModuleProps> = ({ onOpenInvoiceModal, on
                     totalPrice: subTotal,
                 };
                 setAddedQuoteItems([...addedQuoteItems, newItem]);
+                if (quoteItemType.trim() && !PRESET_INVOICE_ITEM_TYPES.includes(quoteItemType.trim() as any) && !quoteCustomTypes.includes(quoteItemType.trim())) {
+                    setQuoteCustomTypes(prev => [...prev, quoteItemType.trim()]);
+                }
                 setQuoteItemName('');
                 setQuoteItemRegion('');
                 setQuoteItemType('');
+                setQuoteIsCustomType(false);
                 setSelectedProductId('');
                 setQuoteItemQty(1);
                 setQuoteItemPrice(1000);
@@ -2153,8 +2282,8 @@ export const SalesModule: React.FC<SalesModuleProps> = ({ onOpenInvoiceModal, on
                         <tr className="bg-slate-50 border-b border-slate-200 text-slate-500 font-bold text-[11px]">
                           <th className="p-2 text-center w-10">SL</th>
                           <th className="p-2">{'Description'}</th>
-                          {quoteShowRegionColumn && <th className="p-2 text-center w-24">{'Region'}</th>}
                           {quoteShowTypeColumn && <th className="p-2 text-center w-24">{'Type'}</th>}
+                          {quoteShowRegionColumn && <th className="p-2 text-center w-24">{'Region'}</th>}
                           <th className="p-2 text-center w-28">{'Qty'}</th>
                           <th className="p-2 text-right w-32">{"RateTk"}</th>
                           <th className="p-2 text-right w-28">{"TotalTk"}</th>
@@ -2165,14 +2294,14 @@ export const SalesModule: React.FC<SalesModuleProps> = ({ onOpenInvoiceModal, on
                         {addedQuoteItems.map((item, idx) => (<tr key={idx} className="hover:bg-slate-50/50">
                             <td className="p-2 text-center text-slate-400">{idx + 1}</td>
                             <td className="p-2 font-semibold text-slate-800">{item.name}</td>
-                            {quoteShowRegionColumn && (
-                              <td className="p-2 text-center font-medium text-slate-700 text-xs">
-                                {item.region || '-'}
-                              </td>
-                            )}
                             {quoteShowTypeColumn && (
                               <td className="p-2 text-center font-medium text-slate-700 text-xs">
                                 {item.type || item.itemType || '-'}
+                              </td>
+                            )}
+                            {quoteShowRegionColumn && (
+                              <td className="p-2 text-center font-medium text-slate-700 text-xs">
+                                {item.region || '-'}
                               </td>
                             )}
                             <td className="p-1.5 text-center">

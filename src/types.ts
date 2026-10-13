@@ -274,6 +274,13 @@ export interface SalesInvoice {
   showTypeColumn?: boolean;
 }
 
+export const PRESET_INVOICE_ITEM_TYPES = [
+  'Dealer New',
+  'Dealer repair',
+  'Traders New',
+  'Project Sign',
+] as const;
+
 export interface Quotation {
   id: string;
   quoteNo: string;

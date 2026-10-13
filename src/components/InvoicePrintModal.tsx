@@ -1211,19 +1211,10 @@ export const InvoicePrintModal: React.FC<InvoicePrintModalProps> = ({ invoiceId,
                       </>)}
                   </button>)}
 
-                {/* Column Toggles Pill (COLS: Region, Type) */}
+                {/* Column Toggles Pill (COLS: Type, Region) */}
                 {template !== 'POS' && (
                   <div className="bg-amber-50 border border-amber-200/90 text-amber-900 px-3 py-1.5 rounded-full flex items-center gap-2 text-xs font-semibold shadow-2xs">
                     <span className="font-black text-amber-950">COLS:</span>
-                    <label className="flex items-center gap-1 cursor-pointer select-none text-slate-800 hover:text-black">
-                      <input
-                        type="checkbox"
-                        checked={showRegion}
-                        onChange={(e) => setShowRegion(e.target.checked)}
-                        className="w-3.5 h-3.5 rounded border-amber-300 text-amber-600 focus:ring-amber-500 accent-amber-600 cursor-pointer"
-                      />
-                      <span>Region</span>
-                    </label>
                     <label className="flex items-center gap-1 cursor-pointer select-none text-slate-800 hover:text-black">
                       <input
                         type="checkbox"
@@ -1232,6 +1223,15 @@ export const InvoicePrintModal: React.FC<InvoicePrintModalProps> = ({ invoiceId,
                         className="w-3.5 h-3.5 rounded border-amber-300 text-amber-600 focus:ring-amber-500 accent-amber-600 cursor-pointer"
                       />
                       <span>Type</span>
+                    </label>
+                    <label className="flex items-center gap-1 cursor-pointer select-none text-slate-800 hover:text-black">
+                      <input
+                        type="checkbox"
+                        checked={showRegion}
+                        onChange={(e) => setShowRegion(e.target.checked)}
+                        className="w-3.5 h-3.5 rounded border-amber-300 text-amber-600 focus:ring-amber-500 accent-amber-600 cursor-pointer"
+                      />
+                      <span>Region</span>
                     </label>
                   </div>
                 )}
@@ -1308,19 +1308,10 @@ export const InvoicePrintModal: React.FC<InvoicePrintModalProps> = ({ invoiceId,
                     <Settings className="w-4 h-4 text-slate-700"/>
                   </button>)}
 
-                {/* Column Toggles Pill (COLS: Region, Type) as shown in user picture 2 */}
+                {/* Column Toggles Pill (COLS: Type, Region) as shown in user picture 2 */}
                 {template !== 'POS' && (
                   <div className="bg-amber-50 border border-amber-200/90 text-amber-900 px-3 py-1.5 rounded-full flex items-center gap-2 text-xs font-semibold shadow-2xs">
                     <span className="font-black text-amber-950">COLS:</span>
-                    <label className="flex items-center gap-1 cursor-pointer select-none text-slate-800 hover:text-black">
-                      <input
-                        type="checkbox"
-                        checked={showRegion}
-                        onChange={(e) => setShowRegion(e.target.checked)}
-                        className="w-3.5 h-3.5 rounded border-amber-300 text-amber-600 focus:ring-amber-500 accent-amber-600 cursor-pointer"
-                      />
-                      <span>Region</span>
-                    </label>
                     <label className="flex items-center gap-1 cursor-pointer select-none text-slate-800 hover:text-black">
                       <input
                         type="checkbox"
@@ -1329,6 +1320,15 @@ export const InvoicePrintModal: React.FC<InvoicePrintModalProps> = ({ invoiceId,
                         className="w-3.5 h-3.5 rounded border-amber-300 text-amber-600 focus:ring-amber-500 accent-amber-600 cursor-pointer"
                       />
                       <span>Type</span>
+                    </label>
+                    <label className="flex items-center gap-1 cursor-pointer select-none text-slate-800 hover:text-black">
+                      <input
+                        type="checkbox"
+                        checked={showRegion}
+                        onChange={(e) => setShowRegion(e.target.checked)}
+                        className="w-3.5 h-3.5 rounded border-amber-300 text-amber-600 focus:ring-amber-500 accent-amber-600 cursor-pointer"
+                      />
+                      <span>Region</span>
                     </label>
                   </div>
                 )}
@@ -1543,11 +1543,11 @@ export const InvoicePrintModal: React.FC<InvoicePrintModalProps> = ({ invoiceId,
                           <tr className="bg-black text-white text-[11px] font-black uppercase tracking-wider border-b-2 border-black">
                             <th className="py-2.5 px-3 text-center border-r border-black font-black w-12 text-white">SL</th>
                             <th className="py-2.5 px-3 text-left border-r border-black font-black text-white">SERVICE / ITEM DESCRIPTION</th>
-                            {showRegion && (
-                              <th className="py-2.5 px-3 text-center border-r border-black font-black text-white w-28">REGION</th>
-                            )}
                             {showType && (
                               <th className="py-2.5 px-3 text-center border-r border-black font-black text-white w-28">TYPE</th>
+                            )}
+                            {showRegion && (
+                              <th className="py-2.5 px-3 text-center border-r border-black font-black text-white w-28">REGION</th>
                             )}
                             <th className="py-2.5 px-3 text-center border-r border-black font-black w-16 text-white">UNIT</th>
                             <th className="py-2.5 px-3 text-center border-r border-black font-black w-24 text-white">QTY / SQFT</th>
@@ -1572,14 +1572,14 @@ export const InvoicePrintModal: React.FC<InvoicePrintModalProps> = ({ invoiceId,
                                   )}
                                   {item.notes && (<div className="text-[10px] text-black italic font-medium mt-0.5">{item.notes}</div>)}
                                 </td>
-                                {showRegion && (
-                                  <td className="py-2.5 px-3 text-center font-bold text-black border-r border-black">
-                                    {item.region || '-'}
-                                  </td>
-                                )}
                                 {showType && (
                                   <td className="py-2.5 px-3 text-center font-bold text-black border-r border-black">
                                     {item.type || item.itemType || '-'}
+                                  </td>
+                                )}
+                                {showRegion && (
+                                  <td className="py-2.5 px-3 text-center font-bold text-black border-r border-black">
+                                    {item.region || '-'}
                                   </td>
                                 )}
                                 <td className="py-2.5 px-3 text-center font-bold text-black border-r border-black">
@@ -1980,8 +1980,8 @@ export const InvoicePrintModal: React.FC<InvoicePrintModalProps> = ({ invoiceId,
                     <tr className="bg-slate-900 text-white text-[11px] font-bold uppercase tracking-wider border-b-2 border-slate-900">
                       <th className="py-2.5 px-3 text-center border-r border-slate-700 font-bold w-12">SL</th>
                       <th className="py-2.5 px-3 text-left border-r border-slate-700 font-bold">Description of Goods Delivered</th>
-                      {showRegion && <th className="py-2.5 px-3 text-center border-r border-slate-700 font-bold w-24">Region</th>}
                       {showType && <th className="py-2.5 px-3 text-center border-r border-slate-700 font-bold w-28">Type</th>}
+                      {showRegion && <th className="py-2.5 px-3 text-center border-r border-slate-700 font-bold w-24">Region</th>}
                       <th className="py-2.5 px-3 text-center border-r border-slate-700 font-bold w-20">Unit</th>
                       <th className="py-2.5 px-3 text-right font-bold w-36">Delivered Quantity</th>
                     </tr>
@@ -1990,14 +1990,14 @@ export const InvoicePrintModal: React.FC<InvoicePrintModalProps> = ({ invoiceId,
                     {invoice.items.map((i, idx) => (<tr key={idx} className={`border-b border-slate-300 print:border-slate-400 last:border-b-0 hover:bg-slate-50/60 ${idx % 2 === 1 ? 'bg-slate-50/40' : 'bg-white'}`}>
                         <td className="py-2.5 px-3 text-slate-700 font-bold text-center border-r border-slate-300 print:border-slate-400">{idx + 1}</td>
                         <td className="py-2.5 px-3 font-bold text-slate-950 border-r border-slate-300 print:border-slate-400">{i.name}</td>
-                        {showRegion && (
-                          <td className="py-2.5 px-3 text-center font-medium text-slate-800 border-r border-slate-300 print:border-slate-400">
-                            {i.region || '-'}
-                          </td>
-                        )}
                         {showType && (
                           <td className="py-2.5 px-3 text-center font-medium text-slate-800 border-r border-slate-300 print:border-slate-400">
                             {i.type || i.itemType || '-'}
+                          </td>
+                        )}
+                        {showRegion && (
+                          <td className="py-2.5 px-3 text-center font-medium text-slate-800 border-r border-slate-300 print:border-slate-400">
+                            {i.region || '-'}
                           </td>
                         )}
                         <td className="py-2.5 px-3 text-center font-medium text-slate-800 border-r border-slate-300 print:border-slate-400">{i.unit}</td>
