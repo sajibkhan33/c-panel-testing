@@ -1916,7 +1916,7 @@ export const AppProvider: React.FC<{
                 type: 'EXPENSE',
                 category: 'Raw Material Purchase',
                 amount: data.paidAmount,
-                paymentAccount: data.destination === 'Factory' ? 'BRAC Bank' : 'Office Cash',
+                paymentAccount: data.paymentMethod || 'Cash',
                 refNo: poNo,
                 customerOrSupplier: data.supplierName,
                 description: `Payment for Purchase Order ${poNo} - ${data.items.map((i) => i.name).join(', ')}`,
@@ -2049,7 +2049,7 @@ export const AppProvider: React.FC<{
             severity: 'info',
         });
     };
-    const payPurchaseOrder = (poId: string, amount: number, paymentAccount: any = 'BRAC Bank', paymentMethod: any = 'Bank Transfer') => {
+    const payPurchaseOrder = (poId: string, amount: number, paymentAccount: any = 'Cash', paymentMethod: any = 'Cash') => {
         const po = purchaseOrders.find((p) => p.id === poId);
         if (!po)
             return;
@@ -2097,7 +2097,7 @@ export const AppProvider: React.FC<{
             type: 'EXPENSE',
             category: 'Raw Materials / PO Payment',
             amount: safeAmount,
-            paymentAccount: paymentAccount || (po.destination === 'Factory' ? 'BRAC Bank' : 'Office Cash'),
+            paymentAccount: paymentAccount || paymentMethod || 'Cash',
             refNo: po.poNo,
             customerOrSupplier: po.supplierName,
             description: `Payment for Purchase Order ${po.poNo} (${newStatus}) - Supplier: ${po.supplierName}`,
@@ -2180,7 +2180,7 @@ export const AppProvider: React.FC<{
             type: 'EXPENSE',
             category: 'Supplier Due Payment',
             amount: safeAmount,
-            paymentAccount: account || 'BRAC Bank',
+            paymentAccount: account || 'Cash',
             customerOrSupplier: sup?.company || sup?.name || 'Vendor',
             description: `Payment to supplier ${sup?.name} for clearing dues`,
         };
@@ -2193,7 +2193,7 @@ export const AppProvider: React.FC<{
             actionType: 'SUPPLIER_PAID',
             entityType: 'Supply Chain',
             refNo: `SUP-PAY-${Date.now().toString().slice(-4)}`,
-            details: `Paid supplier due of Tk ${safeAmount.toLocaleString()} to ${sup?.company || sup?.name || 'Vendor'} via ${account || 'BRAC Bank'}`,
+            details: `Paid supplier due of Tk ${safeAmount.toLocaleString()} to ${sup?.company || sup?.name || 'Vendor'} via ${account || 'Cash'}`,
             detailsBn: undefined,
             amount: safeAmount,
             severity: 'warning',
