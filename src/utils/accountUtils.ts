@@ -489,6 +489,48 @@ export const isProjectTransaction = (tx: Partial<AccountingTransaction>): boolea
 };
 
 /**
+ * Checks whether an accounting transaction is a customer advance adjustment
+ * (an internal non-cash offset of an invoice against previously collected customer advance liability).
+ * This is an internal settlement, NOT a new cash inflow or duplicate sales revenue.
+ */
+export const isAdvanceAdjustmentTransaction = (tx: Partial<AccountingTransaction>): boolean => {
+    if (!tx) return false;
+    const cat = (tx.category || '').toLowerCase();
+    const desc = (tx.description || '').toLowerCase();
+    const acc = (tx.paymentAccount || tx.account || tx.accountHead || '').toLowerCase();
+    return (
+        cat.includes('advance adjust') ||
+        cat.includes('অগ্রিম সমন্বয়') ||
+        cat.includes('customer advance adjustment') ||
+        desc.includes('advance adjust') ||
+        desc.includes('adjusted from advance') ||
+        desc.includes('adjusted tk') ||
+        acc === 'customer advance' ||
+        acc.includes('customer advance') ||
+        acc.includes('কাস্টমার অগ্রিম')
+    );
+};
+
+/**
+ * Checks whether an accounting transaction is an advance deposit receipt from a customer
+ * (liability deposit, NOT direct sales revenue).
+ */
+export const isAdvanceDepositTransaction = (tx: Partial<AccountingTransaction>): boolean => {
+    if (!tx) return false;
+    if (isAdvanceAdjustmentTransaction(tx)) return false;
+    const cat = (tx.category || '').toLowerCase();
+    const desc = (tx.description || '').toLowerCase();
+    return (
+        cat.includes('customer advance') ||
+        cat.includes('কাস্টমার অগ্রিম') ||
+        (cat.includes('advance') && !cat.includes('adjust')) ||
+        (cat.includes('অগ্রিম') && !cat.includes('সমন্বয়')) ||
+        desc.includes('advance received') ||
+        desc.includes('অগ্রিম গ্রহণ')
+    );
+};
+
+/**
  * Checks whether an invoice belongs to a specific customer record (matches by id, phone, or name/company)
  */
 export const isInvoiceMatchingCustomer = (inv: Partial<SalesInvoice>, c: any): boolean => {

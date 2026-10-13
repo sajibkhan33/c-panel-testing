@@ -3,7 +3,7 @@ import { useApp } from '../context/AppContext';
 import { ChartOfAccount } from '../types';
 import { BookOpen, Plus, Search, Filter, Edit2, Trash2, Lock, CheckCircle2, AlertCircle, X, FileText, Printer, Layers, ArrowUpDown, Download, Upload, } from 'lucide-react';
 import * as XLSX from 'xlsx';
-import { calculateSingleAccountBalance, isInvoiceTransaction, isProjectTransaction } from '../utils/accountUtils';
+import { calculateSingleAccountBalance, isInvoiceTransaction, isProjectTransaction, isAdvanceAdjustmentTransaction, isAdvanceDepositTransaction } from '../utils/accountUtils';
 export const ChartOfAccountsManager: React.FC = () => {
     const { chartOfAccounts, invoices = [], transactions = [], accountBalances, suppliers = [], customers = [], purchaseOrders = [], language, profile, addChartOfAccount, updateChartOfAccount, deleteChartOfAccount, checkPermission, projects = [], syncProjectsWithAccounting } = useApp();
     const [searchQuery, setSearchQuery] = useState('');
@@ -167,46 +167,58 @@ export const ChartOfAccountsManager: React.FC = () => {
 
                     // Direct non-invoice operating incomes (e.g. scrap sales, counter direct sales, INC- vouchers)
                     const directMatchingSales = (transactions || [])
-                        .filter(t => t.type === 'INCOME' && !isInvoiceTransaction(t) && !isProjectTransaction(t) && (
-                            (t.category && (
-                                nameLower.includes(t.category.toLowerCase()) || 
-                                (acc.nameBn && acc.nameBn.toLowerCase().includes(t.category.toLowerCase())) || 
-                                t.category.toLowerCase().includes('sales') || 
-                                t.category.toLowerCase().includes('বিক্রয়')
-                            )) ||
-                            // Default INC- direct incomes to primary sales revenue if not explicitly claimed by another specific active COA revenue head
-                            (t.refNo?.startsWith('INC-') && !chartOfAccounts.some(otherAcc => 
-                                otherAcc.id !== acc.id && 
-                                otherAcc.classification === 'Revenue' && 
-                                otherAcc.name.toLowerCase() === (t.category || '').toLowerCase()
-                            ))
-                        ))
+                        .filter(t => 
+                            t.type === 'INCOME' && 
+                            !isInvoiceTransaction(t) && 
+                            !isProjectTransaction(t) && 
+                            !isAdvanceDepositTransaction(t) && 
+                            !isAdvanceAdjustmentTransaction(t) && (
+                                (t.category && (
+                                    nameLower.includes(t.category.toLowerCase()) || 
+                                    (acc.nameBn && acc.nameBn.toLowerCase().includes(t.category.toLowerCase())) || 
+                                    t.category.toLowerCase().includes('sales') || 
+                                    t.category.toLowerCase().includes('বিক্রয়')
+                                )) ||
+                                // Default INC- direct incomes to primary sales revenue if not explicitly claimed by another specific active COA revenue head
+                                (t.refNo?.startsWith('INC-') && !chartOfAccounts.some(otherAcc => 
+                                    otherAcc.id !== acc.id && 
+                                    otherAcc.classification === 'Revenue' && 
+                                    otherAcc.name.toLowerCase() === (t.category || '').toLowerCase()
+                                ))
+                            )
+                        )
                         .reduce((s, t) => s + t.amount, 0);
 
                     liveBal = (acc.openingBalance || 0) + effectiveInvoiceSales + directMatchingSales;
                 } else {
                     // Other specific revenue accounts (dynamically matching any category added by the user)
                     const matchingDirect = (transactions || [])
-                        .filter(t => t.type === 'INCOME' && !isInvoiceTransaction(t) && !isProjectTransaction(t) && (
-                            (t.category && (
-                                nameLower.includes(t.category.toLowerCase()) || 
-                                t.category.toLowerCase().includes(nameLower) ||
-                                (acc.nameBn && acc.nameBn.toLowerCase().includes(t.category.toLowerCase())) ||
-                                (acc.nameBn && t.category.toLowerCase().includes(acc.nameBn.toLowerCase()))
-                            )) ||
-                            (t.accountHead && (
-                                nameLower.includes(t.accountHead.toLowerCase()) || 
-                                t.accountHead.toLowerCase().includes(nameLower) ||
-                                (acc.nameBn && acc.nameBn.toLowerCase().includes(t.accountHead.toLowerCase())) ||
-                                (acc.nameBn && t.accountHead.toLowerCase().includes(acc.nameBn.toLowerCase()))
-                            )) ||
-                            (t.description && (
-                                nameLower.includes(t.description.toLowerCase()) || 
-                                t.description.toLowerCase().includes(nameLower) ||
-                                (acc.nameBn && acc.nameBn.toLowerCase().includes(t.description.toLowerCase())) ||
-                                (acc.nameBn && t.description.toLowerCase().includes(acc.nameBn.toLowerCase()))
-                            ))
-                        ))
+                        .filter(t => 
+                            t.type === 'INCOME' && 
+                            !isInvoiceTransaction(t) && 
+                            !isProjectTransaction(t) && 
+                            !isAdvanceDepositTransaction(t) && 
+                            !isAdvanceAdjustmentTransaction(t) && (
+                                (t.category && (
+                                    nameLower.includes(t.category.toLowerCase()) || 
+                                    t.category.toLowerCase().includes(nameLower) ||
+                                    (acc.nameBn && acc.nameBn.toLowerCase().includes(t.category.toLowerCase())) ||
+                                    (acc.nameBn && t.category.toLowerCase().includes(acc.nameBn.toLowerCase()))
+                                )) ||
+                                (t.accountHead && (
+                                    nameLower.includes(t.accountHead.toLowerCase()) || 
+                                    t.accountHead.toLowerCase().includes(nameLower) ||
+                                    (acc.nameBn && acc.nameBn.toLowerCase().includes(t.accountHead.toLowerCase())) ||
+                                    (acc.nameBn && t.accountHead.toLowerCase().includes(acc.nameBn.toLowerCase()))
+                                )) ||
+                                (t.description && (
+                                    nameLower.includes(t.description.toLowerCase()) || 
+                                    t.description.toLowerCase().includes(nameLower) ||
+                                    (acc.nameBn && acc.nameBn.toLowerCase().includes(t.description.toLowerCase())) ||
+                                    (acc.nameBn && t.description.toLowerCase().includes(acc.nameBn.toLowerCase()))
+                                ))
+                            )
+                        )
                         .reduce((s, t) => s + t.amount, 0);
 
                     liveBal = Math.max(acc.currentBalance, (acc.openingBalance || 0) + matchingDirect);

@@ -2,7 +2,7 @@ import React, { createContext, useContext, useState, useEffect, useMemo, useRef 
 import { CompanyProfile, ProductItem, Customer, Supplier, SalesInvoice, Quotation, PurchaseOrder, AccountingTransaction, StockMovement, Language, LocationType, AccountBalances, StaffMember, StaffRole, AuditLogEntry, ChartOfAccount, ExpenseHead, ProductCategory, UserRole, RolePermission, JournalEntry, Project, ProjectExpenseItem, ProjectSalesItem, PaymentMethodConfig, PaymentStatus } from '../types';
 import { INITIAL_COMPANY_PROFILE, INITIAL_PRODUCTS, INITIAL_CUSTOMERS, INITIAL_SUPPLIERS, INITIAL_INVOICES, INITIAL_PURCHASE_ORDERS, INITIAL_TRANSACTIONS, INITIAL_QUOTATIONS, INITIAL_STOCK_MOVEMENTS, INITIAL_STAFF_MEMBERS, INITIAL_AUDIT_LOGS, } from '../data/initialData';
 import { INITIAL_CHART_OF_ACCOUNTS, INITIAL_EXPENSE_HEADS, INITIAL_PRODUCT_CATEGORIES, INITIAL_USER_ROLES, INITIAL_JOURNAL_ENTRIES, INITIAL_PROJECTS, ALL_SYSTEM_PERMISSIONS, INITIAL_PAYMENT_METHODS, } from '../data/accountingAndConfigData';
-import { matchChannelToAccount, calculateSingleAccountBalance, getBankAccountsBreakdown, getMfsAccountsBreakdown, getCashAccountsBreakdown, isInvoiceTransaction, isProjectTransaction, isInvoiceMatchingCustomer } from '../utils/accountUtils';
+import { matchChannelToAccount, calculateSingleAccountBalance, getBankAccountsBreakdown, getMfsAccountsBreakdown, getCashAccountsBreakdown, isInvoiceTransaction, isProjectTransaction, isInvoiceMatchingCustomer, isAdvanceAdjustmentTransaction, isAdvanceDepositTransaction } from '../utils/accountUtils';
 const STORAGE_KEY = 'DOT_COLOR_ERP_V1_STATE';
 interface AppContextType {
     profile: CompanyProfile;
@@ -732,14 +732,20 @@ export const AppProvider: React.FC<{
                 const totalInvoiceSales = (invoices || []).reduce((s, inv) => s + (Number(inv.grandTotal) || (Number(inv.paidAmount) + Number(inv.dueAmount)) || 0), 0);
                 const invoiceSalesFromTx = (transactions || []).filter(t => t.type === 'INCOME' && isInvoiceTransaction(t)).reduce((s, t) => s + t.amount, 0);
                 const effectiveInvoiceSales = Math.max(totalInvoiceSales, invoiceSalesFromTx);
-                const directSalesRevenue = (transactions || []).filter(t => t.type === 'INCOME' && !isInvoiceTransaction(t) && !isProjectTransaction(t) && (
-                    (t.category && (
-                        t.category.toLowerCase().includes('sales') ||
-                        t.category.toLowerCase().includes('বিক্রয়') ||
-                        t.category.toLowerCase().includes('বিক্রয়')
-                    )) ||
-                    t.refNo?.startsWith('INC-')
-                )).reduce((s, t) => s + t.amount, 0);
+                const directSalesRevenue = (transactions || []).filter(t => 
+                    t.type === 'INCOME' && 
+                    !isInvoiceTransaction(t) && 
+                    !isProjectTransaction(t) && 
+                    !isAdvanceDepositTransaction(t) && 
+                    !isAdvanceAdjustmentTransaction(t) && (
+                        (t.category && (
+                            t.category.toLowerCase().includes('sales') ||
+                            t.category.toLowerCase().includes('বিক্রয়') ||
+                            t.category.toLowerCase().includes('বিক্রয়')
+                        )) ||
+                        t.refNo?.startsWith('INC-')
+                    )
+                ).reduce((s, t) => s + t.amount, 0);
                 const targetSalesBal = (acc.openingBalance || 0) + effectiveInvoiceSales + directSalesRevenue;
                 if (acc.currentBalance !== targetSalesBal) {
                     coaNeedsUpdate = true;
@@ -790,18 +796,24 @@ export const AppProvider: React.FC<{
             if (isOtherRevenue) {
                 const accNameLower = (acc.name || '').toLowerCase();
                 const accNameBn = (acc.nameBn || '').toLowerCase();
-                const matchingDirect = (transactions || []).filter(t => t.type === 'INCOME' && !isInvoiceTransaction(t) && !isProjectTransaction(t) && (
-                    (t.category && (
-                        accNameLower.includes(t.category.toLowerCase()) ||
-                        t.category.toLowerCase().includes(accNameLower) ||
-                        (accNameBn && t.category.toLowerCase().includes(accNameBn)) ||
-                        (accNameBn && accNameBn.includes(t.category.toLowerCase()))
-                    )) ||
-                    (t.accountHead && (
-                        accNameLower.includes(t.accountHead.toLowerCase()) ||
-                        t.accountHead.toLowerCase().includes(accNameLower)
-                    ))
-                )).reduce((s, t) => s + t.amount, 0);
+                const matchingDirect = (transactions || []).filter(t => 
+                    t.type === 'INCOME' && 
+                    !isInvoiceTransaction(t) && 
+                    !isProjectTransaction(t) && 
+                    !isAdvanceDepositTransaction(t) && 
+                    !isAdvanceAdjustmentTransaction(t) && (
+                        (t.category && (
+                            accNameLower.includes(t.category.toLowerCase()) ||
+                            t.category.toLowerCase().includes(accNameLower) ||
+                            (accNameBn && t.category.toLowerCase().includes(accNameBn)) ||
+                            (accNameBn && accNameBn.includes(t.category.toLowerCase()))
+                        )) ||
+                        (t.accountHead && (
+                            accNameLower.includes(t.accountHead.toLowerCase()) ||
+                            t.accountHead.toLowerCase().includes(accNameLower)
+                        ))
+                    )
+                ).reduce((s, t) => s + t.amount, 0);
                 const targetBal = (acc.openingBalance || 0) + matchingDirect;
                 if (matchingDirect > 0 && acc.currentBalance !== targetBal) {
                     coaNeedsUpdate = true;
@@ -4787,6 +4799,9 @@ export const AppProvider: React.FC<{
         // Apply ledger transactions
         transactions.forEach((tx) => {
             const acct = (tx.paymentAccount || tx.account || tx.accountHead || tx.paymentMethod || '').toLowerCase();
+            if (isAdvanceAdjustmentTransaction(tx) || acct.includes('advance') || acct.includes('অগ্রিম')) {
+                return; // Internal advance adjustment does not change cash/bank/mobile liquid balances
+            }
             const delta = tx.type === 'INCOME' ? tx.amount : tx.type === 'EXPENSE' ? -tx.amount : 0;
             
             if (acct.includes('bkash') || acct.includes('nagad') || acct.includes('rocket') || acct.includes('wallet') || acct.includes('mobile') || acct.includes('বিকাশ') || acct.includes('নগদ')) {
