@@ -1,4 +1,4 @@
-import { ChartOfAccount, AccountingTransaction, SalesInvoice, PaymentMethodConfig, AccountBalances, Supplier, PurchaseOrder, ProductItem } from '../types';
+import { ChartOfAccount, AccountingTransaction, SalesInvoice, PaymentMethodConfig, AccountBalances, Supplier, PurchaseOrder, ProductItem, JournalEntry } from '../types';
 
 /**
  * Normalizes account or channel string for fuzzy matching
@@ -711,12 +711,13 @@ export const calculateTotalSupplierPayables = (
 };
 
 /**
- * Calculates dynamic real-time Raw Materials & Inventory Asset balance from Products, Purchase Orders & Opening Balance
+ * Calculates dynamic real-time Raw Materials & Inventory Asset balance from Products, Purchase Orders, Opening Balance & Journal Entries
  */
 export const calculateInventoryValuation = (
     products: ProductItem[] = [],
     purchaseOrders: PurchaseOrder[] = [],
-    account?: ChartOfAccount
+    account?: ChartOfAccount,
+    journalEntries: JournalEntry[] = []
 ): number => {
     const totalStockValuation = (products || []).reduce(
         (acc, p) => acc + ((Number(p.stockFactory) || 0) + (Number(p.stockOffice) || 0)) * (Number(p.costPrice) || 0),
@@ -744,16 +745,56 @@ export const calculateInventoryValuation = (
     const nameBn = (account?.nameBn || '').toLowerCase();
     const isFinishedOnly = (account?.code === '1070' || nameLower.includes('finished goods') || nameBn.includes('প্রস্তুতকৃত পণ্য')) && !nameLower.includes('raw');
 
+    // Calculate net adjustment from posted Journal Entries (Debit increases Asset, Credit decreases Asset)
+    let journalDelta = 0;
+    const accId = account?.id;
+    const accCode = account?.code;
+    const accNameLower = (account?.name || '').toLowerCase().trim();
+
+    (journalEntries || []).forEach((j) => {
+        // Exclude project revenue/expense journals
+        if (j.source === 'PROJECT_SALES' || j.source === 'PROJECT_EXPENSE') return;
+
+        const isDebit = Boolean(
+            (accId && j.debitAccountId === accId) ||
+            (accCode && j.debitAccountId === accCode) ||
+            (j.debitAccountName && (
+                j.debitAccountName.toLowerCase().trim() === accNameLower ||
+                (accNameLower.includes('raw material') && j.debitAccountName.toLowerCase().includes('raw material')) ||
+                (accNameLower.includes('inventory') && j.debitAccountName.toLowerCase().includes('inventory'))
+            ))
+        );
+
+        const isCredit = Boolean(
+            (accId && j.creditAccountId === accId) ||
+            (accCode && j.creditAccountId === accCode) ||
+            (j.creditAccountName && (
+                j.creditAccountName.toLowerCase().trim() === accNameLower ||
+                (accNameLower.includes('raw material') && j.creditAccountName.toLowerCase().includes('raw material')) ||
+                (accNameLower.includes('inventory') && j.creditAccountName.toLowerCase().includes('inventory'))
+            ))
+        );
+
+        const amt = Number(j.amount) || 0;
+        if (isDebit && !isCredit) {
+            journalDelta += amt;
+        } else if (isCredit && !isDebit) {
+            journalDelta -= amt;
+        }
+    });
+
     if (isFinishedOnly) {
-        return Math.max(finishedStockValuation, account?.openingBalance || 0);
+        return Math.max(0, finishedStockValuation + (account?.openingBalance || 0) + journalDelta);
     }
 
     // For Raw Materials or unified Raw Materials & Inventory account (like 1002 / 1060):
     const effectiveStockVal = rawStockValuation > 0 ? rawStockValuation : totalStockValuation;
-    return Math.max(
+    const baseVal = Math.max(
         effectiveStockVal,
         totalReceivedPurchases,
         totalStockValuation,
         account?.openingBalance || 0
     );
+
+    return Math.max(0, baseVal + journalDelta);
 };

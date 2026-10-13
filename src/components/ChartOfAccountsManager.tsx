@@ -5,7 +5,7 @@ import { BookOpen, Plus, Search, Filter, Edit2, Trash2, Lock, CheckCircle2, Aler
 import * as XLSX from 'xlsx';
 import { calculateSingleAccountBalance, calculateTotalSupplierPayables, calculateInventoryValuation, isInvoiceTransaction, isProjectTransaction, isAdvanceAdjustmentTransaction, isAdvanceDepositTransaction } from '../utils/accountUtils';
 export const ChartOfAccountsManager: React.FC = () => {
-    const { chartOfAccounts, invoices = [], transactions = [], accountBalances, suppliers = [], customers = [], purchaseOrders = [], products = [], language, profile, addChartOfAccount, updateChartOfAccount, deleteChartOfAccount, checkPermission, projects = [], syncProjectsWithAccounting } = useApp();
+    const { chartOfAccounts, invoices = [], transactions = [], accountBalances, suppliers = [], customers = [], purchaseOrders = [], products = [], journalEntries = [], language, profile, addChartOfAccount, updateChartOfAccount, deleteChartOfAccount, checkPermission, projects = [], syncProjectsWithAccounting } = useApp();
     const [searchQuery, setSearchQuery] = useState('');
     const [filterClassification, setFilterClassification] = useState<string>('ALL');
     const [showAddModal, setShowAddModal] = useState(false);
@@ -113,7 +113,7 @@ export const ChartOfAccountsManager: React.FC = () => {
                 if (isCustomerReceivable) {
                     liveBal = totalCustomerDue > 0 ? totalCustomerDue : (acc.openingBalance || 0);
                 } else if (isInventory) {
-                    liveBal = calculateInventoryValuation(products, purchaseOrders, acc);
+                    liveBal = calculateInventoryValuation(products, purchaseOrders, acc, journalEntries);
                 } else {
                     // Dynamic individual live balance calculation for Cash, City Bank PLC, Southeast Bank, Nagad, bKash, etc.
                     liveBal = calculateSingleAccountBalance(acc, transactions, invoices);
@@ -295,7 +295,7 @@ export const ChartOfAccountsManager: React.FC = () => {
                 currentBalance: liveBal,
             };
         });
-    }, [chartOfAccounts, transactions, accountBalances, suppliers, customers, projects, invoices, purchaseOrders, products]);
+    }, [chartOfAccounts, transactions, accountBalances, suppliers, customers, projects, invoices, purchaseOrders, products, journalEntries]);
 
     // Classification stats
     const stats = useMemo(() => {

@@ -775,7 +775,7 @@ export const AppProvider: React.FC<{
                 acc.nameBn?.includes('ইনভেন্টরি')
             );
             if (isInventory) {
-                const targetInventoryBal = calculateInventoryValuation(products, purchaseOrders, acc);
+                const targetInventoryBal = calculateInventoryValuation(products, purchaseOrders, acc, journalEntries);
                 if (acc.currentBalance !== targetInventoryBal) {
                     coaNeedsUpdate = true;
                     return { ...acc, currentBalance: targetInventoryBal };
@@ -968,7 +968,7 @@ export const AppProvider: React.FC<{
                 suppliers: cleanedSuppliers,
             };
         }
-    }, [projects, chartOfAccounts, invoices, customers, purchaseOrders, suppliers, products]);
+    }, [projects, chartOfAccounts, invoices, customers, purchaseOrders, suppliers, products, journalEntries]);
 
     // Automatic reconciliation of Customer totalPurchased and dueAmount from live Sales Invoices
     useEffect(() => {
