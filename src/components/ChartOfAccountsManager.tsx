@@ -5,7 +5,7 @@ import { BookOpen, Plus, Search, Filter, Edit2, Trash2, Lock, CheckCircle2, Aler
 import * as XLSX from 'xlsx';
 import { calculateSingleAccountBalance, isInvoiceTransaction, isProjectTransaction } from '../utils/accountUtils';
 export const ChartOfAccountsManager: React.FC = () => {
-    const { chartOfAccounts, invoices = [], transactions = [], accountBalances, suppliers = [], customers = [], language, profile, addChartOfAccount, updateChartOfAccount, deleteChartOfAccount, checkPermission, projects = [], syncProjectsWithAccounting } = useApp();
+    const { chartOfAccounts, invoices = [], transactions = [], accountBalances, suppliers = [], customers = [], purchaseOrders = [], language, profile, addChartOfAccount, updateChartOfAccount, deleteChartOfAccount, checkPermission, projects = [], syncProjectsWithAccounting } = useApp();
     const [searchQuery, setSearchQuery] = useState('');
     const [filterClassification, setFilterClassification] = useState<string>('ALL');
     const [showAddModal, setShowAddModal] = useState(false);
@@ -30,13 +30,35 @@ export const ChartOfAccountsManager: React.FC = () => {
     // Real-time dynamic Chart of Accounts synced with Ledger Transactions, Projects & Balances
     const liveAccounts = useMemo(() => {
         const totalTxIncome = (transactions || []).filter(t => t.type === 'INCOME').reduce((s, t) => s + t.amount, 0);
-        const totalSupplierDue = (suppliers || []).reduce((s, sup) => s + (sup.dueAmount || sup.balancePayable || 0), 0);
+        const totalSupplierRecordDue = (suppliers || []).reduce((s, sup) => s + (Number(sup.dueAmount) || Number(sup.balancePayable) || 0), 0);
+        const totalPoDue = (purchaseOrders || []).reduce((s, po) => s + (Number(po.dueAmount) || 0), 0);
+        const totalSupplierDue = Math.max(totalSupplierRecordDue, totalPoDue);
         const totalInvoiceCustomerDue = (invoices || []).reduce((s, inv) => s + (Number(inv.dueAmount) || 0), 0);
         const totalCustomerRecordDue = (customers || []).reduce((s, c) => s + (Number(c.dueAmount) || 0), 0);
         const totalCustomerDue = Math.max(totalInvoiceCustomerDue, totalCustomerRecordDue);
+        const totalCustomerAdvance = (customers || []).reduce((s, c) => s + (Number(c.advanceBalance) || 0), 0);
         const totalProjectSales = (projects || []).reduce((s, p) => s + (p.totalSales || 0), 0);
         const totalProjectExpenses = (projects || []).reduce((s, p) => s + (p.totalExpenses || 0), 0);
         const totalInvoiceSales = (invoices || []).reduce((s, inv) => s + (Number(inv.grandTotal) || (Number(inv.paidAmount) + Number(inv.dueAmount)) || 0), 0);
+
+        // Dynamic detection of primary advance liability account (e.g. 2020 or 2002 Customer Advance)
+        const advanceAccounts = chartOfAccounts.filter(a => 
+            a.classification === 'Liability' && (
+                a.code === '2020' || 
+                a.code === '2002' || 
+                a.id === 'coa-2020' || 
+                (a.name || '').toLowerCase().includes('advance') || 
+                (a.name || '').toLowerCase().includes('deposit') || 
+                a.nameBn?.includes('অগ্রিম')
+            )
+        );
+        const primaryAdvanceAccId = (
+            advanceAccounts.find(a => a.id === 'coa-2020') ||
+            advanceAccounts.find(a => (a.name || '').toLowerCase().includes('customer advance') || a.nameBn?.includes('কাস্টমার অগ্রিম')) ||
+            advanceAccounts.find(a => a.code === '2020') ||
+            advanceAccounts.find(a => a.code === '2002') ||
+            advanceAccounts[0]
+        )?.id;
 
         // Dynamic detection of primary accounts that survives renaming or re-coding
         const nonProjectRevenueAccounts = chartOfAccounts.filter(a => 
@@ -96,8 +118,8 @@ export const ChartOfAccountsManager: React.FC = () => {
                     liveBal = calculateSingleAccountBalance(acc, transactions, invoices);
                 }
             } else if (acc.classification === 'Liability') {
-                const isPayable = acc.code === '2001' || acc.code === '2010' || nameLower.includes('payable') || nameBn.includes('দেনা');
-                const isAdvanceLiability = acc.code === '2020' || acc.id === 'coa-2020' || nameLower.includes('advance') || nameLower.includes('deposit') || nameBn.includes('অগ্রিম');
+                const isPayable = acc.code === '2001' || acc.code === '2010' || nameLower.includes('payable') || nameLower.includes('supplier') || nameBn.includes('দেনা') || nameBn.includes('প্রদেয়');
+                const isAdvanceLiability = acc.code === '2020' || acc.code === '2002' || acc.id === 'coa-2020' || nameLower.includes('advance') || nameLower.includes('deposit') || nameBn.includes('অগ্রিম');
 
                 if (isPayable) {
                     liveBal = totalSupplierDue > 0 ? totalSupplierDue : acc.currentBalance;
@@ -108,7 +130,12 @@ export const ChartOfAccountsManager: React.FC = () => {
                             (t.description && (t.description.toLowerCase().includes('advance') || t.description.toLowerCase().includes('অগ্রিম')))
                         ))
                         .reduce((s, t) => s + t.amount, 0);
-                    liveBal = Math.max(acc.currentBalance, (acc.openingBalance || 0) + matchingAdvance);
+
+                    if (acc.id === primaryAdvanceAccId || advanceAccounts.length <= 1) {
+                        liveBal = Math.max(acc.currentBalance, (acc.openingBalance || 0) + matchingAdvance, totalCustomerAdvance);
+                    } else {
+                        liveBal = Math.max(acc.currentBalance, (acc.openingBalance || 0) + matchingAdvance);
+                    }
                 }
             } else if (acc.classification === 'Revenue') {
                 const isProjectRev = acc.id === 'coa-4002' || acc.code === '4002' || acc.code === '4051' || acc.code === '4060' || nameLower.includes('project') || nameBn.includes('প্রজেক্ট');
@@ -206,7 +233,7 @@ export const ChartOfAccountsManager: React.FC = () => {
                 currentBalance: liveBal,
             };
         });
-    }, [chartOfAccounts, transactions, accountBalances, suppliers, customers, projects, invoices]);
+    }, [chartOfAccounts, transactions, accountBalances, suppliers, customers, projects, invoices, purchaseOrders]);
 
     // Classification stats
     const stats = useMemo(() => {

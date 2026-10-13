@@ -694,7 +694,28 @@ export const AppProvider: React.FC<{
                 }
             }
 
-            // 4. Sales Revenue Account (4001)
+            // 4. Dedicated Accounts Payable (Suppliers) Account (2001 / 2010 / coa-2010)
+            const isPayable = acc.classification === 'Liability' && (
+                acc.code === '2001' ||
+                acc.code === '2010' ||
+                acc.id === 'coa-2010' ||
+                (acc.name.toLowerCase().includes('payable') && acc.name.toLowerCase().includes('supplier')) ||
+                acc.name.toLowerCase().includes('accounts payable') ||
+                acc.nameBn?.includes('সাপ্লায়ার দেনা') ||
+                acc.nameBn?.includes('প্রদেয় হিসাব')
+            );
+            if (isPayable) {
+                const totalSupplierRecordDue = (suppliers || []).reduce((s, sup) => s + (Number(sup.dueAmount) || Number(sup.balancePayable) || 0), 0);
+                const totalPoDue = (purchaseOrders || []).reduce((s, po) => s + (Number(po.dueAmount) || 0), 0);
+                const totalSupplierDue = Math.max(totalSupplierRecordDue, totalPoDue);
+                const targetPayableBal = Math.max(acc.openingBalance || 0, totalSupplierDue);
+                if (targetPayableBal > 0 && acc.currentBalance !== targetPayableBal) {
+                    coaNeedsUpdate = true;
+                    return { ...acc, currentBalance: targetPayableBal };
+                }
+            }
+
+            // 5. Sales Revenue Account (4001)
             const isSalesRevenue = (
                 acc.classification === 'Revenue' && (
                     acc.code === '4001' ||
@@ -724,11 +745,13 @@ export const AppProvider: React.FC<{
                 }
             }
 
-            // 5. Customer Advance Liability (2020)
+            // 6. Customer Advance Liability (2020 / 2002 / coa-2020)
             const isAdvanceLiability = acc.classification === 'Liability' && (
                 acc.code === '2020' ||
+                acc.code === '2002' ||
                 acc.id === 'coa-2020' ||
                 acc.name.toLowerCase().includes('advance') ||
+                acc.name.toLowerCase().includes('deposit') ||
                 acc.nameBn?.includes('অগ্রিম')
             );
             if (isAdvanceLiability) {
@@ -738,8 +761,9 @@ export const AppProvider: React.FC<{
                     t.description?.toLowerCase().includes('advance') ||
                     t.description?.toLowerCase().includes('অগ্রিম')
                 )).reduce((s, t) => s + t.amount, 0);
-                const targetAdvanceBal = (acc.openingBalance || 0) + matchingAdvance;
-                if (matchingAdvance > 0 && acc.currentBalance !== targetAdvanceBal) {
+                const totalCustomerAdvance = (customers || []).reduce((s, c) => s + (Number(c.advanceBalance) || 0), 0);
+                const targetAdvanceBal = Math.max(acc.openingBalance || 0, matchingAdvance > 0 ? (acc.openingBalance || 0) + matchingAdvance : 0, totalCustomerAdvance);
+                if (targetAdvanceBal > 0 && acc.currentBalance !== targetAdvanceBal) {
                     coaNeedsUpdate = true;
                     return { ...acc, currentBalance: targetAdvanceBal };
                 }
