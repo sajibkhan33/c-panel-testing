@@ -1401,11 +1401,113 @@ export const AppProvider: React.FC<{
 
     // Automatic real-time reconciliation between Projects and linked Sales Invoices
     useEffect(() => {
-        if (!projects || projects.length === 0 || !invoices || invoices.length === 0) return;
+        if (!invoices || invoices.length === 0) return;
+
+        // 1. Check for any invoices that have a linked project reference (inv.projectId or inv.projectCode)
+        // but the project object is missing from the projects array (e.g. wiped by cloud sync or never persisted).
+        const currentProjects = projects || [];
+        const missingProjects: Project[] = [];
+        invoices.forEach(inv => {
+            if (!inv.projectId && !inv.projectCode) return;
+            const exists = currentProjects.some(p => 
+                (inv.projectId && p.id === inv.projectId) ||
+                (inv.projectCode && p.code === inv.projectCode) ||
+                (p.invoiceId && p.invoiceId === inv.id) ||
+                (p.invoiceNo && p.invoiceNo === inv.invoiceNo)
+            );
+            if (exists) return;
+
+            const pCode = inv.projectCode || `PRJ-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`;
+            const pId = inv.projectId || `prj-${Date.now()}-${Math.floor(100 + Math.random() * 900)}`;
+            const coaId = inv.chartOfAccountId || 'coa-4002';
+            const revAcc = resolveProjectRevenueAccount(coaId);
+
+            const paymentBreakdowns: ProjectSalesPaymentBreakdown[] = [];
+            if (inv.splitPayments && Object.keys(inv.splitPayments).length > 0) {
+                Object.entries(inv.splitPayments).forEach(([channel, amt]) => {
+                    const num = Number(amt) || 0;
+                    if (num > 0 && channel.toLowerCase() !== 'due') {
+                        paymentBreakdowns.push({
+                            id: `pb-${Date.now()}-${channel}`,
+                            method: channel,
+                            amount: num,
+                            referenceNo: inv.invoiceNo,
+                        });
+                    }
+                });
+            } else if ((inv.paidAmount || 0) > 0) {
+                paymentBreakdowns.push({
+                    id: `pb-${Date.now()}-paid`,
+                    method: inv.paymentMethod || 'Cash in Hand',
+                    amount: inv.paidAmount,
+                    referenceNo: inv.invoiceNo,
+                });
+            }
+            if ((inv.dueAmount || 0) > 0) {
+                paymentBreakdowns.push({
+                    id: `pb-${Date.now()}-due`,
+                    method: 'Due',
+                    amount: inv.dueAmount,
+                    referenceNo: inv.invoiceNo,
+                });
+            }
+
+            const reconstructed: Project = recalculateProject({
+                id: pId,
+                code: pCode,
+                name: `${inv.customerName} - ${(inv.items || []).map(i => i.name).join(', ') || 'Project'}`,
+                clientName: inv.customerName,
+                clientPhone: inv.customerPhone,
+                budget: Number(inv.grandTotal) || 0,
+                status: (Number(inv.dueAmount) || 0) <= 0 ? 'Completed' : 'In Progress',
+                startDate: inv.date || new Date().toISOString().slice(0, 10),
+                endDate: '',
+                notes: `Created against Sales Invoice #${inv.invoiceNo}`,
+                salesItems: [{
+                    id: `ps-${Date.now()}`,
+                    invoiceNo: inv.invoiceNo,
+                    description: (inv.items || []).map(i => `${i.name} (x${i.qty})`).join(', ') || 'Sales Invoice Billing',
+                    amount: Number(inv.grandTotal) || 0,
+                    date: inv.date || new Date().toISOString().slice(0, 10),
+                    clientName: inv.customerName,
+                    note: `Synced from Sales Invoice #${inv.invoiceNo}`,
+                    paymentMethod: inv.paymentMethod || 'Cash in Hand',
+                    paymentBreakdown: paymentBreakdowns.length > 0 ? paymentBreakdowns : undefined,
+                    linkedAccountId: coaId,
+                    paidAmount: Number(inv.paidAmount) || 0,
+                    dueAmount: Number(inv.dueAmount) || 0,
+                    collections: [],
+                }],
+                expenseItems: [],
+                totalSales: 0,
+                totalExpenses: 0,
+                netProfit: 0,
+                profitMargin: 0,
+                chartOfAccountId: coaId,
+                projectAccountCode: revAcc.code || '4002',
+                invoiceId: inv.id,
+                invoiceNo: inv.invoiceNo,
+            });
+            missingProjects.push(reconstructed);
+        });
+
+        if (missingProjects.length > 0) {
+            const nextProjects = [...missingProjects, ...currentProjects];
+            setProjects(nextProjects);
+            try { localStorage.setItem(`${STORAGE_KEY}_PROJECTS`, JSON.stringify(nextProjects)); } catch {}
+            latestStateRef.current = {
+                ...latestStateRef.current,
+                projects: nextProjects,
+            };
+            triggerImmediatePush();
+            return;
+        }
+
+        if (currentProjects.length === 0) return;
 
         let invsChanged = false;
         const updatedInvoices = invoices.map(inv => {
-            const linkedProj = projects.find(p => 
+            const linkedProj = currentProjects.find(p => 
                 (p.invoiceId && p.invoiceId === inv.id) ||
                 (p.invoiceNo && p.invoiceNo === inv.invoiceNo) ||
                 (p.salesItems || []).some(s => s.invoiceNo === inv.invoiceNo)
@@ -4191,6 +4293,7 @@ export const AppProvider: React.FC<{
             detailsBn: undefined,
             severity: 'info',
         });
+        triggerImmediatePush();
         return calculated;
     };
 
@@ -4211,6 +4314,7 @@ export const AppProvider: React.FC<{
             ...latestStateRef.current,
             projects: (latestStateRef.current.projects || []).map((p: Project) => p.id === id ? recalculateProject({ ...p, ...updates }) : p),
         };
+        triggerImmediatePush();
     };
 
     const deleteProject = (id: string) => {
@@ -4272,6 +4376,7 @@ export const AppProvider: React.FC<{
             ...latestStateRef.current,
             projects: (latestStateRef.current.projects || []).filter((p: Project) => p.id !== id),
         };
+        triggerImmediatePush();
     };
 
     const createProjectFromInvoice = (
@@ -4371,6 +4476,8 @@ export const AppProvider: React.FC<{
             projectCode: newProject.code,
             chartOfAccountId: chosenCoaId,
         });
+
+        triggerImmediatePush();
 
         return newProject;
     };
@@ -4651,6 +4758,7 @@ export const AppProvider: React.FC<{
             amount: sales.amount,
             severity: 'success',
         });
+        triggerImmediatePush();
     };
 
     const addProjectExpense = (projectId: string, expense: Omit<ProjectExpenseItem, 'id'>) => {
@@ -4854,6 +4962,7 @@ export const AppProvider: React.FC<{
                 return p;
             }),
         };
+        triggerImmediatePush();
     };
 
     const collectProjectDue = (
@@ -5234,6 +5343,7 @@ export const AppProvider: React.FC<{
                 return p;
             }),
         };
+        triggerImmediatePush();
     };
 
     const syncProjectsWithAccounting = (): { salesSynced: number; expensesSynced: number; totalAmount: number } => {
@@ -5958,8 +6068,16 @@ export const AppProvider: React.FC<{
                 try { localStorage.setItem(`${STORAGE_KEY}_JOURNALS`, JSON.stringify(data.journalEntries)); } catch {}
             }
             if (data.projects && Array.isArray(data.projects)) {
-                setProjects(data.projects);
-                try { localStorage.setItem(`${STORAGE_KEY}_PROJECTS`, JSON.stringify(data.projects)); } catch {}
+                const localProjs = safeGetLocalStorage<Project[]>(`${STORAGE_KEY}_PROJECTS`, []);
+                const incomingProjs = data.projects as Project[];
+                const mergedProjs = [...incomingProjs];
+                localProjs.forEach(lp => {
+                    if (!mergedProjs.some(mp => mp.id === lp.id || (mp.code && mp.code === lp.code))) {
+                        mergedProjs.push(lp);
+                    }
+                });
+                setProjects(mergedProjs);
+                try { localStorage.setItem(`${STORAGE_KEY}_PROJECTS`, JSON.stringify(mergedProjs)); } catch {}
             }
             if (data.paymentMethods && Array.isArray(data.paymentMethods)) {
                 setPaymentMethods(data.paymentMethods);
@@ -6008,6 +6126,9 @@ export const AppProvider: React.FC<{
             console.warn('Pull from cloud error', e);
         } finally {
             isSyncingRef.current = false;
+            setTimeout(() => {
+                isImportingRef.current = false;
+            }, 300);
         }
     };
 
@@ -6092,7 +6213,9 @@ export const AppProvider: React.FC<{
                                 const cloudState = await stateRes.json();
                                 if (cloudState.success && cloudState.data) {
                                     const remoteTs = cloudState.updatedAt ? new Date(cloudState.updatedAt).getTime() : 0;
+                                    isImportingRef.current = true;
                                     importDatabase(JSON.stringify(cloudState.data), true);
+                                    setTimeout(() => { isImportingRef.current = false; }, 300);
                                     lastServerUpdatedAtRef.current = remoteTs || Date.now();
                                     if (cloudState.updatedAt) {
                                         setLastSyncedAt(new Date(cloudState.updatedAt).toLocaleTimeString());
@@ -6114,6 +6237,7 @@ export const AppProvider: React.FC<{
                 }
             } finally {
                 isCloudLoadedRef.current = true;
+                setTimeout(() => { isImportingRef.current = false; }, 300);
             }
         };
         checkCloudStatusAndLoad();

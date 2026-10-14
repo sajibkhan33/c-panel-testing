@@ -219,7 +219,14 @@ export const Header: React.FC<HeaderProps> = ({ activeTab, setActiveTab }) => {
             { id: 'profile', labelEn: 'Company Profile', labelBn: "" },
         ].map((tab) => {
             const active = activeTab === tab.id;
-            return (<button key={tab.id} onClick={() => setActiveTab(tab.id)} className={`px-2.5 sm:px-3 py-1.5 text-xs sm:text-[13px] font-semibold rounded-lg whitespace-nowrap transition-all ${active
+            return (<button key={tab.id} onClick={() => {
+                setActiveTab(tab.id);
+                try {
+                    const url = new URL(window.location.href);
+                    url.searchParams.set('tab', tab.id);
+                    window.history.replaceState({}, '', url.toString());
+                } catch {}
+            }} className={`px-2.5 sm:px-3 py-1.5 text-xs sm:text-[13px] font-semibold rounded-lg whitespace-nowrap transition-all ${active
                     ? 'bg-slate-900 text-white shadow-xs'
                     : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/70'}`}>
                   {tab.labelEn}
