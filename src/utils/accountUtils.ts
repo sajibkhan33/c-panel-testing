@@ -130,39 +130,50 @@ export const doesTransactionMatchAccount = (
     const isBrac = accNameLower.includes('brac');
     const isCash = (accNameLower.includes('cash') || accCode === '1001' || accCode === '1010' || (acc.nameBn && acc.nameBn.includes('ক্যাশ'))) && !isBkash && !isNagad;
 
+    // Determine if the transaction explicitly declares a payment channel or account
+    const txHasExplicitChannel = Boolean(payAcc || head);
+
     // 2. Strict MFS separation
     if (isBkash) {
-        if (payAcc.includes('bkash') || head.includes('bkash') || desc.includes('bkash')) {
-            if (payAcc.includes('nagad') || head.includes('nagad') || desc.includes('nagad')) {
-                // If generic "bkash / nagad", check if description says bkash specifically
-                return desc.includes('bkash') || !desc.includes('nagad');
-            }
-            return true;
-        }
+        if (payAcc.includes('nagad') || head.includes('nagad') || payAcc.includes('city') || payAcc.includes('southeast') || payAcc.includes('brac') || payAcc.includes('cash')) return false;
+        if (payAcc.includes('bkash') || head.includes('bkash')) return true;
+        if (!txHasExplicitChannel && desc.includes('bkash')) return true;
         return false;
     }
 
     if (isNagad) {
-        if (payAcc.includes('nagad') || head.includes('nagad') || desc.includes('nagad')) {
-            if (payAcc.includes('bkash') || head.includes('bkash') || desc.includes('bkash')) {
-                return desc.includes('nagad');
-            }
-            return true;
-        }
+        if (payAcc.includes('bkash') || head.includes('bkash') || payAcc.includes('city') || payAcc.includes('southeast') || payAcc.includes('brac') || payAcc.includes('cash')) return false;
+        if (payAcc.includes('nagad') || head.includes('nagad')) return true;
+        if (!txHasExplicitChannel && desc.includes('nagad')) return true;
         return false;
     }
 
     // 3. Strict Bank separation
     if (isCity) {
-        return payAcc.includes('city') || head.includes('city') || desc.includes('city');
+        if (payAcc.includes('southeast') || head.includes('southeast') || payAcc.includes('brac') || head.includes('brac') || payAcc.includes('cash') || payAcc.includes('bkash') || payAcc.includes('nagad')) {
+            return false;
+        }
+        if (payAcc.includes('city') || head.includes('city')) return true;
+        if (!txHasExplicitChannel && desc.includes('city')) return true;
+        return false;
     }
 
     if (isSoutheast) {
-        return payAcc.includes('southeast') || head.includes('southeast') || desc.includes('southeast');
+        if (payAcc.includes('city') || head.includes('city') || payAcc.includes('brac') || head.includes('brac') || payAcc.includes('cash') || payAcc.includes('bkash') || payAcc.includes('nagad')) {
+            return false;
+        }
+        if (payAcc.includes('southeast') || head.includes('southeast')) return true;
+        if (!txHasExplicitChannel && desc.includes('southeast')) return true;
+        return false;
     }
 
     if (isBrac) {
-        return (payAcc.includes('brac') || head.includes('brac') || desc.includes('brac')) && !isCity && !isSoutheast;
+        if (payAcc.includes('city') || head.includes('city') || payAcc.includes('southeast') || head.includes('southeast') || payAcc.includes('cash') || payAcc.includes('bkash') || payAcc.includes('nagad')) {
+            return false;
+        }
+        if (payAcc.includes('brac') || head.includes('brac')) return true;
+        if (!txHasExplicitChannel && desc.includes('brac')) return true;
+        return false;
     }
 
     // 4. Cash separation
@@ -174,10 +185,13 @@ export const doesTransactionMatchAccount = (
         return false;
     }
 
-    // 5. General partial match
+    // 5. General partial match only for other unspecialized Asset accounts
     if (acc.classification === 'Asset') {
-        if (payAcc && (accNameLower.includes(payAcc) || payAcc.includes(accNameLower))) return true;
-        if (head && (accNameLower.includes(head) || head.includes(accNameLower))) return true;
+        const isTargetSpecialized = isCity || isSoutheast || isBrac || isBkash || isNagad || isCash;
+        if (!isTargetSpecialized) {
+            if (payAcc && (accNameLower.includes(payAcc) || payAcc.includes(accNameLower))) return true;
+            if (head && (accNameLower.includes(head) || head.includes(accNameLower))) return true;
+        }
     }
 
     return false;

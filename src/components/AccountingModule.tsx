@@ -254,6 +254,12 @@ export const AccountingModule: React.FC = () => {
         }
     }, [isProjectIncome, projects, selectedIncomeProjectId]);
 
+    useEffect(() => {
+        if (showIncomeModal && !incomeAccount && availablePaymentAccounts.length > 0) {
+            setIncomeAccount(availablePaymentAccounts[0].name);
+        }
+    }, [showIncomeModal, incomeAccount, availablePaymentAccounts]);
+
     const selectedIncomeProject = useMemo(() => {
         return projects.find((p) => p.id === selectedIncomeProjectId);
     }, [projects, selectedIncomeProjectId]);
@@ -614,9 +620,14 @@ export const AccountingModule: React.FC = () => {
         e.preventDefault();
         if (!editingTransaction)
             return;
+        let cleanDescription = editTxDescription;
+        const oldAcc = editingTransaction.paymentAccount || editingTransaction.account || '';
+        if (oldAcc && editTxAccount && oldAcc !== editTxAccount) {
+            cleanDescription = cleanDescription.replace(new RegExp(`\\(${oldAcc}\\)`, 'gi'), `(${editTxAccount})`);
+        }
         updateTransaction(editingTransaction.id, {
             date: editTxDate,
-            description: editTxDescription,
+            description: cleanDescription,
             category: editTxCategory,
             amount: Number(editTxAmount),
             account: editTxAccount,

@@ -4030,15 +4030,11 @@ export const AppProvider: React.FC<{
     // Projects Management & Chart of Accounts Dynamic Alignment
     const resolvePaymentAssetAccount = (methodName?: string) => {
         const m = (methodName || 'Cash').toLowerCase();
-        if (m.includes('bank') || m.includes('brac') || m.includes('city') || m.includes('card') || m.includes('plc')) {
-            return chartOfAccounts.find(a => a.classification === 'Asset' && (a.code === '1006' || a.code === '1020' || a.code === '1030' || a.name.toLowerCase().includes('bank') || a.name.toLowerCase().includes('plc'))) || chartOfAccounts.find(a => a.classification === 'Asset') || chartOfAccounts[0];
-        }
-        if (m.includes('bkash') || m.includes('nagad') || m.includes('rocket') || m.includes('mfs') || m.includes('wallet')) {
-            return chartOfAccounts.find(a => a.classification === 'Asset' && (a.code === '1040' || a.code === '1030' || a.name.toLowerCase().includes('bkash') || a.name.toLowerCase().includes('nagad') || a.name.toLowerCase().includes('wallet')) && !a.name.toLowerCase().includes('receivable')) || chartOfAccounts.find(a => a.classification === 'Asset') || chartOfAccounts[0];
-        }
         if (m.includes('due') || m.includes('receivable')) {
             return chartOfAccounts.find(a => a.classification === 'Asset' && (a.code === '1003' || a.code === '1004' || a.code === '1050' || a.name.toLowerCase().includes('receivable'))) || chartOfAccounts.find(a => a.classification === 'Asset') || chartOfAccounts[0];
         }
+        const matched = matchChannelToAccount(methodName || 'Cash', chartOfAccounts, paymentMethods);
+        if (matched) return matched;
         return chartOfAccounts.find(a => a.classification === 'Asset' && (a.code === '1001' || a.code === '1010' || a.name.toLowerCase().includes('cash'))) || chartOfAccounts[0];
     };
 
@@ -5132,13 +5128,13 @@ export const AppProvider: React.FC<{
                 date: colDate,
                 type: 'INCOME',
                 category: 'Project Due Collection',
-                account: isBank ? (paymentMethod.includes('City') ? 'City Bank PLC' : paymentMethod.includes('Southeast') ? 'Southeast Bank' : 'Bank Account') : isMobile ? paymentMethod : 'Cash in Hand',
+                account: debitAcc.name,
                 accountHead: debitAcc.name,
                 paymentMethod: paymentMethod,
                 paymentAccount: debitAcc.name,
                 refNo: ref,
                 customerOrSupplier: targetProj.clientName,
-                description: `Project Due Collected: [${targetProj.code}] ${targetProj.name} - ${targetSale.description || 'Billing'} (${paymentMethod})`,
+                description: note || `Project Due Collected: [${targetProj.code}] ${targetProj.name}${targetSale.description ? ` - ${targetSale.description}` : ''} (${debitAcc.name})`,
                 amount: safeCash,
             });
         }
