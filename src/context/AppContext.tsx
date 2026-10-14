@@ -2,7 +2,7 @@ import React, { createContext, useContext, useState, useEffect, useMemo, useRef 
 import { CompanyProfile, ProductItem, Customer, Supplier, SalesInvoice, Quotation, PurchaseOrder, AccountingTransaction, StockMovement, Language, LocationType, AccountBalances, StaffMember, StaffRole, AuditLogEntry, ChartOfAccount, ExpenseHead, ProductCategory, UserRole, RolePermission, JournalEntry, Project, ProjectExpenseItem, ProjectSalesItem, PaymentMethodConfig, PaymentStatus, ProjectSalesCollection, ProjectSalesPaymentBreakdown } from '../types';
 import { INITIAL_COMPANY_PROFILE, INITIAL_PRODUCTS, INITIAL_CUSTOMERS, INITIAL_SUPPLIERS, INITIAL_INVOICES, INITIAL_PURCHASE_ORDERS, INITIAL_TRANSACTIONS, INITIAL_QUOTATIONS, INITIAL_STOCK_MOVEMENTS, INITIAL_STAFF_MEMBERS, INITIAL_AUDIT_LOGS, } from '../data/initialData';
 import { INITIAL_CHART_OF_ACCOUNTS, INITIAL_EXPENSE_HEADS, INITIAL_PRODUCT_CATEGORIES, INITIAL_USER_ROLES, INITIAL_JOURNAL_ENTRIES, INITIAL_PROJECTS, ALL_SYSTEM_PERMISSIONS, INITIAL_PAYMENT_METHODS, } from '../data/accountingAndConfigData';
-import { matchChannelToAccount, calculateSingleAccountBalance, getBankAccountsBreakdown, getMfsAccountsBreakdown, getCashAccountsBreakdown, isInvoiceTransaction, isProjectTransaction, isInvoiceMatchingCustomer, isAdvanceAdjustmentTransaction, isAdvanceDepositTransaction, isProjectDueCollectionTransaction, isDueReceivableTransaction, calculateTotalSupplierPayables, calculateInventoryValuation } from '../utils/accountUtils';
+import { matchChannelToAccount, calculateSingleAccountBalance, getBankAccountsBreakdown, getMfsAccountsBreakdown, getCashAccountsBreakdown, isInvoiceTransaction, isProjectTransaction, isInvoiceMatchingCustomer, isAdvanceAdjustmentTransaction, isAdvanceDepositTransaction, isProjectDueCollectionTransaction, isDueReceivableTransaction, calculateTotalCustomerReceivables, calculateTotalSupplierPayables, calculateInventoryValuation } from '../utils/accountUtils';
 const STORAGE_KEY = 'DOT_COLOR_ERP_V1_STATE';
 interface AppContextType {
     profile: CompanyProfile;
@@ -806,9 +806,7 @@ export const AppProvider: React.FC<{
                 (acc.name.toLowerCase().includes('receivable') && !acc.name.toLowerCase().includes('aggregator') && !acc.name.toLowerCase().includes('staff'))
             );
             if (isCustomerReceivable) {
-                const totalInvoiceCustomerDue = (invoices || []).reduce((s, inv) => s + (Number(inv.dueAmount) || 0), 0);
-                const totalCustomerRecordDue = (customers || []).reduce((s, c) => s + (Number(c.dueAmount) || 0), 0);
-                const totalCustomerDue = Math.max(totalInvoiceCustomerDue, totalCustomerRecordDue);
+                const totalCustomerDue = calculateTotalCustomerReceivables(invoices, customers);
                 const targetReceivableBal = totalCustomerDue > 0 ? totalCustomerDue : (acc.openingBalance || 0);
                 if (acc.currentBalance !== targetReceivableBal) {
                     coaNeedsUpdate = true;
@@ -1040,15 +1038,30 @@ export const AppProvider: React.FC<{
         if (!customers || customers.length === 0 || !invoices) return;
 
         let custsChanged = false;
+        const claimedInvoiceIds = new Set<string>();
+
         const reconciled = customers.map(c => {
-            const clientInvoices = invoices.filter(inv => isInvoiceMatchingCustomer(inv, c));
+            const clientInvoices = invoices.filter(inv => {
+                if (claimedInvoiceIds.has(inv.id)) return false;
+                return isInvoiceMatchingCustomer(inv, c);
+            });
+
             if (clientInvoices.length > 0) {
+                clientInvoices.forEach(inv => claimedInvoiceIds.add(inv.id));
                 const totalPurchased = clientInvoices.reduce((s, inv) => s + (Number(inv.grandTotal) || 0), 0);
                 const dueAmount = clientInvoices.reduce((s, inv) => s + (Number(inv.dueAmount) || 0), 0);
 
                 if (Number(c.totalPurchased) !== totalPurchased || Number(c.dueAmount) !== dueAmount) {
                     custsChanged = true;
                     return { ...c, totalPurchased, dueAmount };
+                }
+            } else if (invoices.length > 0 && (Number(c.dueAmount) > 0 || Number(c.totalPurchased) > 0)) {
+                // If customer has no directly claimed invoices, but duplicate matching invoices exist that were claimed by their primary profile,
+                // zero out the duplicate's due so the duplicate doesn't hold ghost dues
+                const isDuplicateOfInvoiceCustomer = invoices.some(inv => isInvoiceMatchingCustomer(inv, c));
+                if (isDuplicateOfInvoiceCustomer) {
+                    custsChanged = true;
+                    return { ...c, totalPurchased: 0, dueAmount: 0 };
                 }
             }
             return c;
@@ -1452,12 +1465,17 @@ export const AppProvider: React.FC<{
         setInvoices((prev) => [newInvoice, ...prev]);
         const advanceApplied = Number(data.splitPayments?.['Customer Advance']) || 0;
         // Update Customer safely
+        let matchedCustomer = false;
         setCustomers((prev) => prev.map((c) => {
-            if (isInvoiceMatchingCustomer(newInvoice, c)) {
+            if (!matchedCustomer && isInvoiceMatchingCustomer(newInvoice, c)) {
+                matchedCustomer = true;
+                const clientInvoices = [newInvoice, ...invoices.filter(i => isInvoiceMatchingCustomer(i, c))];
+                const totalPurchased = clientInvoices.reduce((s, i) => s + (Number(i.grandTotal) || 0), 0);
+                const dueAmount = clientInvoices.reduce((s, i) => s + (Number(i.dueAmount) || 0), 0);
                 return {
                     ...c,
-                    totalPurchased: (c.totalPurchased || 0) + (Number(data.grandTotal) || 0),
-                    dueAmount: (c.dueAmount || 0) + (Number(data.dueAmount) || 0),
+                    totalPurchased,
+                    dueAmount,
                     advanceBalance: advanceApplied > 0 
                         ? Math.max(0, (Number(c.advanceBalance) || 0) - advanceApplied)
                         : c.advanceBalance,
@@ -1802,7 +1820,7 @@ export const AppProvider: React.FC<{
 
         // Update Chart of Accounts Customer Advance liability and Customer Receivable accounts immediately
         const newTotalCustomerAdvance = updatedCusts.reduce((s, c) => s + (Number(c.advanceBalance) || 0), 0);
-        const newTotalCustomerDue = updatedInvoices.reduce((s, inv) => s + (Number(inv.dueAmount) || 0), 0);
+        const newTotalCustomerDue = calculateTotalCustomerReceivables(updatedInvoices, updatedCusts);
         const currentCoa = latestStateRef.current.chartOfAccounts || chartOfAccounts;
         const updatedCoa = currentCoa.map((acc) => {
             const isAdvanceLiability = acc.classification === 'Liability' && (

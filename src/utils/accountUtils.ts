@@ -574,7 +574,9 @@ export const isDueReceivableTransaction = (tx: Partial<AccountingTransaction>): 
  */
 export const isInvoiceMatchingCustomer = (inv: Partial<SalesInvoice>, c: any): boolean => {
     if (!inv || !c) return false;
-    if (inv.customerId && inv.customerId === c.id) return true;
+    if (inv.customerId && c.id) {
+        return inv.customerId === c.id;
+    }
 
     const cPhone = (c.phone || '').replace(/[^0-9]/g, '');
     const invPhone = (inv.customerPhone || '').replace(/[^0-9]/g, '');
@@ -724,6 +726,37 @@ export const getInvoicePayments = (
     }
 
     return [];
+};
+
+/**
+ * Calculates dynamic real-time Accounts Receivable (Customer Dues) strictly from Sales Invoices and unlinked Customer records
+ */
+export const calculateTotalCustomerReceivables = (
+    invoices: SalesInvoice[] = [],
+    customers: any[] = []
+): number => {
+    // 1. Authoritative customer receivables are strictly the outstanding due amounts on active sales invoices
+    const totalInvoiceDue = (invoices || []).reduce((sum, inv) => sum + (Number(inv.dueAmount) || 0), 0);
+
+    // 2. Add unlinked customer opening dues (only for customers who have NO invoices in the system)
+    const seenCustomerKeys = new Set<string>();
+    const unlinkedCustomerDue = (customers || []).reduce((sum, c) => {
+        // Check if customer has any matching invoices in the system
+        const hasMatchingInvoices = (invoices || []).some(inv => isInvoiceMatchingCustomer(inv, c));
+        if (hasMatchingInvoices) {
+            // Their due is already counted in totalInvoiceDue, so do NOT count again!
+            return sum;
+        }
+
+        // Deduplicate unlinked customers by normalized phone or name to avoid duplicate counting
+        const key = (c.phone || c.name || c.company || c.id || '').toLowerCase().trim();
+        if (key && seenCustomerKeys.has(key)) return sum;
+        if (key) seenCustomerKeys.add(key);
+
+        return sum + (Number(c.dueAmount) || 0);
+    }, 0);
+
+    return totalInvoiceDue + unlinkedCustomerDue;
 };
 
 /**

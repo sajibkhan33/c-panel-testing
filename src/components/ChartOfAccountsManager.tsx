@@ -3,7 +3,7 @@ import { useApp } from '../context/AppContext';
 import { ChartOfAccount, SalesInvoice } from '../types';
 import { BookOpen, Plus, Search, Filter, Edit2, Trash2, Lock, CheckCircle2, AlertCircle, X, FileText, Printer, Layers, ArrowUpDown, Download, Upload, } from 'lucide-react';
 import * as XLSX from 'xlsx';
-import { calculateSingleAccountBalance, calculateTotalSupplierPayables, calculateInventoryValuation, isInvoiceTransaction, isProjectTransaction, isAdvanceAdjustmentTransaction, isAdvanceDepositTransaction, isProjectDueCollectionTransaction, isDueReceivableTransaction } from '../utils/accountUtils';
+import { calculateSingleAccountBalance, calculateTotalCustomerReceivables, calculateTotalSupplierPayables, calculateInventoryValuation, isInvoiceTransaction, isProjectTransaction, isAdvanceAdjustmentTransaction, isAdvanceDepositTransaction, isProjectDueCollectionTransaction, isDueReceivableTransaction } from '../utils/accountUtils';
 export const ChartOfAccountsManager: React.FC = () => {
     const { chartOfAccounts, invoices = [], transactions = [], accountBalances, suppliers = [], customers = [], purchaseOrders = [], products = [], journalEntries = [], language, profile, addChartOfAccount, updateChartOfAccount, deleteChartOfAccount, checkPermission, projects = [], syncProjectsWithAccounting } = useApp();
     const [searchQuery, setSearchQuery] = useState('');
@@ -31,9 +31,7 @@ export const ChartOfAccountsManager: React.FC = () => {
     const liveAccounts = useMemo(() => {
         const totalTxIncome = (transactions || []).filter(t => t.type === 'INCOME').reduce((s, t) => s + t.amount, 0);
         const totalSupplierDue = calculateTotalSupplierPayables(suppliers, purchaseOrders);
-        const totalInvoiceCustomerDue = (invoices || []).reduce((s, inv) => s + (Number(inv.dueAmount) || 0), 0);
-        const totalCustomerRecordDue = (customers || []).reduce((s, c) => s + (Number(c.dueAmount) || 0), 0);
-        const totalCustomerDue = Math.max(totalInvoiceCustomerDue, totalCustomerRecordDue);
+        const totalCustomerDue = calculateTotalCustomerReceivables(invoices, customers);
         const totalCustomerAdvance = (customers || []).reduce((s, c) => s + (Number(c.advanceBalance) || 0), 0);
         const totalProjectSales = (projects || []).reduce((s, p) => s + (p.totalSales || 0), 0);
         const totalProjectExpenses = (projects || []).reduce((s, p) => s + (p.totalExpenses || 0), 0);
