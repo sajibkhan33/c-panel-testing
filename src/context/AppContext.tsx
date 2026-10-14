@@ -477,10 +477,128 @@ export const AppProvider: React.FC<{
     const lastServerUpdatedAtRef = useRef(0);
     const syncTimeoutRef = useRef<any>(null);
     const pushToCloudRef = useRef<() => Promise<void>>(() => Promise.resolve());
+    const tabIdRef = useRef<string>(`tab_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`);
+    const broadcastChannelRef = useRef<BroadcastChannel | null>(null);
+    const isFirstMountRef = useRef(true);
+
+    const broadcastCrossTabSync = () => {
+        if (isImportingRef.current) return;
+        try {
+            broadcastChannelRef.current?.postMessage({
+                type: 'CROSS_TAB_STATE_UPDATE',
+                senderTabId: tabIdRef.current,
+                timestamp: Date.now(),
+            });
+        } catch {}
+    };
 
     const triggerImmediatePush = () => {
-        // Disabled auto-push to ensure zero-lag instant responsiveness
+        if (isImportingRef.current) return;
+        broadcastCrossTabSync();
+        if (syncTimeoutRef.current) clearTimeout(syncTimeoutRef.current);
+        syncTimeoutRef.current = setTimeout(() => {
+            if (pushToCloudRef.current) {
+                pushToCloudRef.current();
+            }
+        }, 150);
     };
+
+    const reloadAllStateFromStorage = () => {
+        try {
+            isImportingRef.current = true;
+            const rawInvs = localStorage.getItem(`${STORAGE_KEY}_INVOICES`);
+            if (rawInvs) setInvoices(JSON.parse(rawInvs));
+
+            const rawTxs = localStorage.getItem(`${STORAGE_KEY}_TRANSACTIONS`);
+            if (rawTxs) setTransactions(JSON.parse(rawTxs));
+
+            const rawProjs = localStorage.getItem(`${STORAGE_KEY}_PROJECTS`);
+            if (rawProjs) setProjects(JSON.parse(rawProjs));
+
+            const rawPos = localStorage.getItem(`${STORAGE_KEY}_PURCHASE_ORDERS`);
+            if (rawPos) setPurchaseOrders(JSON.parse(rawPos));
+
+            const rawProds = localStorage.getItem(`${STORAGE_KEY}_PRODUCTS`);
+            if (rawProds) setProducts(JSON.parse(rawProds));
+
+            const rawCusts = localStorage.getItem(`${STORAGE_KEY}_CUSTOMERS`);
+            if (rawCusts) setCustomers(JSON.parse(rawCusts));
+
+            const rawSupps = localStorage.getItem(`${STORAGE_KEY}_SUPPLIERS`);
+            if (rawSupps) setSuppliers(JSON.parse(rawSupps));
+
+            const rawCoa = localStorage.getItem(`${STORAGE_KEY}_COA`);
+            if (rawCoa) setChartOfAccounts(JSON.parse(rawCoa));
+
+            const rawExp = localStorage.getItem(`${STORAGE_KEY}_EXPENSE_HEADS`);
+            if (rawExp) setExpenseHeads(JSON.parse(rawExp));
+
+            const rawJournals = localStorage.getItem(`${STORAGE_KEY}_JOURNALS`);
+            if (rawJournals) setJournalEntries(JSON.parse(rawJournals));
+
+            const rawQuotes = localStorage.getItem(`${STORAGE_KEY}_QUOTATIONS`);
+            if (rawQuotes) setQuotations(JSON.parse(rawQuotes));
+
+            const rawStocks = localStorage.getItem(`${STORAGE_KEY}_STOCK_MOVEMENTS`);
+            if (rawStocks) setStockMovements(JSON.parse(rawStocks));
+
+            const rawStaff = localStorage.getItem(`${STORAGE_KEY}_STAFF`);
+            if (rawStaff) setStaffMembers(JSON.parse(rawStaff));
+
+            const rawRoles = localStorage.getItem(`${STORAGE_KEY}_ROLES`);
+            if (rawRoles) setUserRoles(JSON.parse(rawRoles));
+
+            const rawCats = localStorage.getItem(`${STORAGE_KEY}_CATEGORIES`);
+            if (rawCats) setProductCategories(JSON.parse(rawCats));
+
+            const rawPm = localStorage.getItem(`${STORAGE_KEY}_PAYMENT_METHODS`);
+            if (rawPm) setPaymentMethods(JSON.parse(rawPm));
+
+            const rawProfile = localStorage.getItem(`${STORAGE_KEY}_PROFILE`);
+            if (rawProfile) setProfile(JSON.parse(rawProfile));
+
+            setTimeout(() => {
+                isImportingRef.current = false;
+            }, 300);
+        } catch (e) {
+            console.error('reloadAllStateFromStorage error', e);
+            isImportingRef.current = false;
+        }
+    };
+
+    // Cross-Tab instant synchronization (BroadcastChannel + storage event fallback)
+    useEffect(() => {
+        if (typeof window === 'undefined') return;
+
+        let channel: BroadcastChannel | null = null;
+        try {
+            channel = new BroadcastChannel('dotcolor_erp_cross_tab_sync');
+            broadcastChannelRef.current = channel;
+
+            channel.onmessage = (event) => {
+                const data = event.data;
+                if (!data || data.senderTabId === tabIdRef.current) return;
+                if (data.type === 'CROSS_TAB_STATE_UPDATE') {
+                    reloadAllStateFromStorage();
+                }
+            };
+        } catch (e) {
+            console.warn('BroadcastChannel fallback to storage event', e);
+        }
+
+        const handleStorage = (e: StorageEvent) => {
+            if (e.key && e.key.startsWith(STORAGE_KEY)) {
+                reloadAllStateFromStorage();
+            }
+        };
+
+        window.addEventListener('storage', handleStorage);
+
+        return () => {
+            if (channel) channel.close();
+            window.removeEventListener('storage', handleStorage);
+        };
+    }, []);
 
     // Sync to LocalStorage
     useEffect(() => {
@@ -5922,10 +6040,10 @@ export const AppProvider: React.FC<{
         }
     };
 
-    // Initial connection check without overwriting local user changes
+    // Initial connection check & pull latest database state
     useEffect(() => {
         let isCancelled = false;
-        const checkCloudStatus = async () => {
+        const checkCloudStatusAndLoad = async () => {
             try {
                 const healthRes = await fetch('/api/health');
                 if (healthRes.ok) {
@@ -5933,6 +6051,26 @@ export const AppProvider: React.FC<{
                     if (!isCancelled && healthData.database === 'connected') {
                         setIsCloudConnected(true);
                         setCloudSyncStatus('synced');
+
+                        try {
+                            const stateRes = await fetch(`/api/state?t=${Date.now()}`, { cache: 'no-store' });
+                            if (stateRes.ok && !isCancelled) {
+                                const cloudState = await stateRes.json();
+                                if (cloudState.success && cloudState.data) {
+                                    const remoteTs = cloudState.updatedAt ? new Date(cloudState.updatedAt).getTime() : 0;
+                                    importDatabase(JSON.stringify(cloudState.data), true);
+                                    lastServerUpdatedAtRef.current = remoteTs || Date.now();
+                                    if (cloudState.updatedAt) {
+                                        setLastSyncedAt(new Date(cloudState.updatedAt).toLocaleTimeString());
+                                    }
+                                } else if (!cloudState.data) {
+                                    // If database is completely empty on server, push our initial local state to populate database
+                                    await pushToCloud();
+                                }
+                            }
+                        } catch (e) {
+                            console.warn('Initial cloud state fetch failed', e);
+                        }
                     }
                 }
             } catch {
@@ -5944,21 +6082,82 @@ export const AppProvider: React.FC<{
                 isCloudLoadedRef.current = true;
             }
         };
-        checkCloudStatus();
+        checkCloudStatusAndLoad();
         return () => {
             isCancelled = true;
         };
     }, []);
 
-    // Background polling and SSE sync disabled to prevent remote state from overriding local active edits
+    // Real-Time Multi-Device SSE Listener
     useEffect(() => {
-        // Disabled auto-pull and SSE listeners as per user instruction to ensure 100% instant local operations
+        if (typeof window === 'undefined') return;
+        let eventSource: EventSource | null = null;
+        let reconnectTimeout: any = null;
+
+        const connectSSE = () => {
+            try {
+                eventSource = new EventSource('/api/state/events');
+                eventSource.onmessage = async (e) => {
+                    try {
+                        const parsed = JSON.parse(e.data);
+                        if (parsed.type === 'STATE_UPDATED' && parsed.updatedAt) {
+                            const remoteTs = new Date(parsed.updatedAt).getTime();
+                            if (remoteTs > lastServerUpdatedAtRef.current + 300) {
+                                await pullFromCloud();
+                            }
+                        }
+                    } catch {}
+                };
+                eventSource.onerror = () => {
+                    eventSource?.close();
+                    reconnectTimeout = setTimeout(connectSSE, 5000);
+                };
+            } catch {}
+        };
+
+        connectSSE();
+
+        return () => {
+            if (eventSource) eventSource.close();
+            if (reconnectTimeout) clearTimeout(reconnectTimeout);
+        };
     }, []);
 
-    // Debounced automatic cloud push disabled to eliminate latency, background locks, and "Syncing.." stalls
+    // Automatic Real-Time Cloud Auto-Save whenever user inputs or modifies data
     useEffect(() => {
-        // Disabled auto-push on state change to ensure zero latency
-    }, []);
+        if (isFirstMountRef.current) {
+            isFirstMountRef.current = false;
+            return;
+        }
+        if (isImportingRef.current) return;
+
+        broadcastCrossTabSync();
+
+        if (syncTimeoutRef.current) clearTimeout(syncTimeoutRef.current);
+        syncTimeoutRef.current = setTimeout(() => {
+            if (pushToCloudRef.current) {
+                pushToCloudRef.current();
+            }
+        }, 400);
+    }, [
+        profile,
+        products,
+        customers,
+        suppliers,
+        invoices,
+        quotations,
+        purchaseOrders,
+        transactions,
+        stockMovements,
+        staffMembers,
+        userRoles,
+        chartOfAccounts,
+        expenseHeads,
+        productCategories,
+        journalEntries,
+        projects,
+        paymentMethods,
+    ]);
     const accountBalances: AccountBalances = useMemo(() => {
         // Smart classifier for accounts in Chart of Accounts
         const isMobile = (name: string, code?: string) => {
