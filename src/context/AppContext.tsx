@@ -4478,8 +4478,12 @@ export const AppProvider: React.FC<{
                     paymentAccount: payAcc.name,
                     refNo: code,
                     customerOrSupplier: targetProj?.clientName || 'Vendor/Labor',
-                    description: `Project Cost: [${code}] ${projName} - ${exp.category}${exp.note ? ` (${exp.note})` : ''}`,
+                    description: exp.note
+                        ? `Project Cost: [${code}] ${projName} - ${exp.note}`
+                        : `Project Cost: [${code}] ${projName} - ${exp.category}`,
                     amount: expAmount,
+                    projectId: targetProj?.id,
+                    projectCode: code,
                 });
             }
 
@@ -4563,6 +4567,8 @@ export const AppProvider: React.FC<{
             amount: totalAddedAmt,
             severity: 'info',
         });
+
+        triggerImmediatePush();
     };
 
     const deleteProjectSales = (projectId: string, salesId: string) => {

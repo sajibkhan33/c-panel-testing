@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { useApp } from '../context/AppContext';
 import { AccountType, TransactionType } from '../types';
-import { Wallet, Building, Smartphone, TrendingUp, TrendingDown, Plus, ArrowUpRight, ArrowDownLeft, Search, Filter, DollarSign, Calendar, Layers, FileSpreadsheet, Printer, SlidersHorizontal, RefreshCw, BookOpen, Trash2, Edit2, Eye, AlertCircle, } from 'lucide-react';
+import { Wallet, Building, Smartphone, TrendingUp, TrendingDown, Plus, ArrowUpRight, ArrowDownLeft, Search, Filter, DollarSign, Calendar, Layers, FileSpreadsheet, Printer, SlidersHorizontal, RefreshCw, BookOpen, Trash2, Edit2, Eye, AlertCircle, Briefcase, FolderKanban, Receipt, } from 'lucide-react';
 import { exportAccountingToExcel } from '../utils/exportUtils';
 import { ReportPrintModal } from './ReportPrintModal';
 import { ChartOfAccountsManager } from './ChartOfAccountsManager';
@@ -9,7 +9,7 @@ import { ExpenseHeadManager } from './ExpenseHeadManager';
 import { JournalEntriesManager } from './JournalEntriesManager';
 import { getBankAccountsBreakdown, getMfsAccountsBreakdown, getPaymentMethodLiveBalance, calculateSingleAccountBalance, isAdvanceAdjustmentTransaction, isDueReceivableTransaction } from '../utils/accountUtils';
 export const AccountingModule: React.FC = () => {
-    const { accountBalances: rawBalances, transactions, chartOfAccounts, expenseHeads, journalEntries, profile, language, invoices = [], paymentMethods = [], customers = [], updateCustomer, addTransaction, updateTransaction, deleteTransaction, } = useApp();
+    const { accountBalances: rawBalances, transactions, chartOfAccounts, expenseHeads, journalEntries, profile, language, invoices = [], paymentMethods = [], customers = [], updateCustomer, addTransaction, updateTransaction, deleteTransaction, projects = [], addProjectExpense, } = useApp();
     const accountBalances = {
         cash: rawBalances?.cash ?? 0,
         bank: rawBalances?.bank ?? 0,
@@ -108,6 +108,18 @@ export const AccountingModule: React.FC = () => {
     const [expenseAmount, setExpenseAmount] = useState<number>(1000);
     const [expenseAccount, setExpenseAccount] = useState<string>('');
     const [expenseNote, setExpenseNote] = useState('');
+    const [selectedProjectId, setSelectedProjectId] = useState<string>('');
+
+    const isProjectExpense = useMemo(() => {
+        const cat = (expenseCategory || '').toLowerCase();
+        return cat.includes('project') || cat.includes('প্রজেক্ট');
+    }, [expenseCategory]);
+
+    useEffect(() => {
+        if (isProjectExpense && !selectedProjectId && projects.length === 1) {
+            setSelectedProjectId(projects[0].id);
+        }
+    }, [isProjectExpense, projects, selectedProjectId]);
 
     // Dynamically unified expense categories from active Expense Heads AND Chart of Accounts
     const availableExpenseOptions = useMemo(() => {
@@ -346,22 +358,40 @@ export const AccountingModule: React.FC = () => {
         if (!expenseTitle || expenseAmount <= 0)
             return;
         const selectedAccount = expenseAccount || availablePaymentAccounts[0]?.name || 'Cash';
-        addTransaction({
-            date: new Date().toISOString().slice(0, 10),
-            type: 'EXPENSE',
-            category: expenseCategory,
-            description: expenseTitle,
-            amount: expenseAmount,
-            account: selectedAccount,
-            paymentAccount: selectedAccount,
-            accountHead: selectedAccount,
-            paymentMethod: selectedAccount,
-            refNo: `EXP-${Date.now().toString().slice(-4)}`,
-        });
+
+        if (selectedProjectId) {
+            const matchedExpCoa = chartOfAccounts.find(a => a.name.toLowerCase() === expenseCategory.toLowerCase());
+            const matchedPayCoa = chartOfAccounts.find(a => a.name.toLowerCase() === selectedAccount.toLowerCase());
+
+            addProjectExpense(selectedProjectId, {
+                category: expenseCategory,
+                amount: expenseAmount,
+                note: expenseTitle + (expenseNote ? ` • ${expenseNote}` : ''),
+                date: new Date().toISOString().slice(0, 10),
+                paymentMethod: selectedAccount,
+                linkedAccountId: matchedExpCoa?.id,
+                paymentAccountId: matchedPayCoa?.id,
+            });
+        } else {
+            addTransaction({
+                date: new Date().toISOString().slice(0, 10),
+                type: 'EXPENSE',
+                category: expenseCategory,
+                description: expenseTitle,
+                amount: expenseAmount,
+                account: selectedAccount,
+                paymentAccount: selectedAccount,
+                accountHead: selectedAccount,
+                paymentMethod: selectedAccount,
+                refNo: `EXP-${Date.now().toString().slice(-4)}`,
+            });
+        }
+
         setShowExpenseModal(false);
         setExpenseTitle('');
         setExpenseAmount(1000);
         setExpenseNote('');
+        setSelectedProjectId('');
     };
     const handleCreateIncome = (e: React.FormEvent) => {
         e.preventDefault();
@@ -730,7 +760,15 @@ export const AccountingModule: React.FC = () => {
                   <td className="py-3 px-4 text-slate-500 font-mono text-[11px]">{tx.date}</td>
                   <td className="py-3 px-4 font-mono text-slate-600 font-semibold">{tx.refNo}</td>
                   <td className="py-3 px-4">
-                    <div className="font-bold text-slate-900">{tx.description}</div>
+                    <div className="font-bold text-slate-900 flex items-center gap-1.5 flex-wrap">
+                      <span>{tx.description}</span>
+                      {(tx.projectId || tx.projectCode) && (
+                        <span className="inline-flex items-center gap-1 font-mono text-[9px] font-bold text-amber-800 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded">
+                          <Briefcase className="w-2.5 h-2.5 text-amber-600" />
+                          <span>{tx.projectCode || tx.refNo}</span>
+                        </span>
+                      )}
+                    </div>
                     <div className="text-[10px] text-amber-700 font-medium">{tx.category}</div>
                   </td>
                   <td className="py-3 px-4 font-medium text-slate-700">{tx.paymentAccount || tx.account || tx.accountHead || 'Cash in Hand'}</td>
@@ -855,6 +893,121 @@ export const AccountingModule: React.FC = () => {
                   </select>
                 </div>
               </div>
+
+              {/* Project Linking Section */}
+              <div className={`p-3.5 rounded-xl border transition-all ${
+                isProjectExpense
+                  ? 'bg-amber-50/70 border-amber-300 ring-1 ring-amber-300/40'
+                  : selectedProjectId
+                  ? 'bg-indigo-50/60 border-indigo-200'
+                  : 'bg-slate-50 border-slate-200/80'
+              }`}>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="font-bold text-slate-800 flex items-center gap-1.5 text-xs">
+                    <Briefcase className="w-4 h-4 text-amber-600" />
+                    <span>Link to Project / সংশ্লিষ্ট প্রজেক্ট নির্বাচন</span>
+                    {isProjectExpense && (
+                      <span className="text-amber-800 text-[10px] bg-amber-100 font-extrabold px-1.5 py-0.5 rounded border border-amber-300">
+                        Project Expense
+                      </span>
+                    )}
+                  </label>
+                  {selectedProjectId && (
+                    <button
+                      type="button"
+                      onClick={() => setSelectedProjectId('')}
+                      className="text-[10px] font-bold text-rose-600 hover:underline cursor-pointer"
+                    >
+                      Clear Project Link
+                    </button>
+                  )}
+                </div>
+
+                <select
+                  value={selectedProjectId}
+                  onChange={(e) => setSelectedProjectId(e.target.value)}
+                  className="w-full px-3 py-2 border border-slate-300 rounded-xl font-medium text-xs bg-white cursor-pointer focus:ring-1 focus:ring-amber-500 focus:outline-hidden"
+                >
+                  <option value="">
+                    {isProjectExpense
+                      ? '-- Select a Project / প্রজেক্ট সিলেক্ট করুন --'
+                      : '-- No Project Linked (General Operating Expense) / সাধারণ খরচ --'}
+                  </option>
+                  {projects.map((proj) => {
+                    const isCompleted = proj.status === 'Completed';
+                    return (
+                      <option key={proj.id} value={proj.id}>
+                        [{proj.code}] {proj.name} — {proj.clientName} {isCompleted ? '(Completed)' : `(${proj.status})`}
+                      </option>
+                    );
+                  })}
+                </select>
+
+                {/* Selected Project Info Preview */}
+                {(() => {
+                  const p = projects.find((item) => item.id === selectedProjectId);
+                  if (!p) {
+                    if (isProjectExpense && projects.length > 0) {
+                      return (
+                        <p className="text-[10.5px] text-amber-800 mt-2 flex items-center gap-1.5 font-medium">
+                          <AlertCircle className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                          <span>
+                            টিপস: প্রজেক্ট সিলেক্ট করলে খরচটি স্বয়ংক্রিয়ভাবে উক্ত প্রজেক্টের খরচের তালিকায় যুক্ত হবে এবং নিট প্রফিট আপডেট হবে।
+                          </span>
+                        </p>
+                      );
+                    }
+                    return null;
+                  }
+
+                  const newTotalCost = (Number(p.totalExpenses) || 0) + (Number(expenseAmount) || 0);
+
+                  return (
+                    <div className="mt-2.5 p-2.5 bg-white rounded-lg border border-amber-200 text-[11px] space-y-1.5 animate-in fade-in duration-150">
+                      <div className="flex items-center justify-between">
+                        <div className="font-extrabold text-slate-900 flex items-center gap-1.5">
+                          <span className="font-mono text-[10px] bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded font-bold">
+                            {p.code}
+                          </span>
+                          <span className="truncate max-w-[280px] sm:max-w-md">{p.name}</span>
+                        </div>
+                        <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full border ${
+                          p.status === 'Completed'
+                            ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                            : 'bg-amber-50 text-amber-700 border-amber-200'
+                        }`}>
+                          {p.status}
+                        </span>
+                      </div>
+
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1 border-t border-slate-100 text-center">
+                        <div>
+                          <span className="text-[10px] text-slate-400 block font-medium">Client</span>
+                          <span className="font-bold text-slate-700 truncate block">{p.clientName}</span>
+                        </div>
+                        <div>
+                          <span className="text-[10px] text-slate-400 block font-medium">Project Budget</span>
+                          <span className="font-bold text-amber-700">{profile.currencySymbol}{(Number(p.budget) || 0).toLocaleString()}</span>
+                        </div>
+                        <div>
+                          <span className="text-[10px] text-slate-400 block font-medium">Current Cost</span>
+                          <span className="font-bold text-slate-600">{profile.currencySymbol}{(Number(p.totalExpenses) || 0).toLocaleString()}</span>
+                        </div>
+                        <div>
+                          <span className="text-[10px] text-rose-600 block font-bold">New Cost After</span>
+                          <span className="font-black text-rose-700 font-mono">
+                            {profile.currencySymbol}{newTotalCost.toLocaleString()}
+                          </span>
+                        </div>
+                      </div>
+
+                      <p className="text-[10.5px] text-emerald-700 font-semibold pt-1 flex items-center gap-1 border-t border-slate-100">
+                        <span>✓ এই খরচটি সরাসরি [{p.code}] {p.name} প্রজেক্টের খরচে যুক্ত হয়ে প্রজেক্ট ম্যানেজমেন্টের সাথে সিঙ্ক থাকবে।</span>
+                      </p>
+                    </div>
+                  );
+                })()}
+              </div>
             </div>
 
             <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
@@ -862,7 +1015,9 @@ export const AccountingModule: React.FC = () => {
                 {'Cancel'}
               </button>
               <button type="submit" className="px-5 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold shadow-2xs">
-                {'Confirm Expense'}
+                {selectedProjectId
+                  ? `Confirm & Link to Project (${profile.currencySymbol}${(Number(expenseAmount) || 0).toLocaleString()})`
+                  : 'Confirm Expense'}
               </button>
             </div>
           </form>
