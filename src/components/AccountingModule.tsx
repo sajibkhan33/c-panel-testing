@@ -396,9 +396,16 @@ export const AccountingModule: React.FC = () => {
             .map((t) => (t.refNo || '').toLowerCase().trim())
     );
 
+    const projectLinkedInvoiceNos = useMemo(() => new Set([
+        ...(projects || []).map(p => (p.invoiceNo || '').toLowerCase().trim()).filter(Boolean),
+        ...(projects || []).flatMap(p => (p.salesItems || []).map(s => (s.invoiceNo || '').toLowerCase().trim())).filter(Boolean),
+        ...(invoices || []).filter(inv => inv.projectId || inv.projectCode).map(inv => (inv.invoiceNo || '').toLowerCase().trim()).filter(Boolean),
+    ]), [projects, invoices]);
+
     const unrecordedInvoiceIncome = (invoices || [])
         .filter((inv) => {
             const invRef = (inv.invoiceNo || '').toLowerCase().trim();
+            if (inv.projectId || inv.projectCode || projectLinkedInvoiceNos.has(invRef)) return false;
             if (invRef && recordedInvoiceRefs.has(invRef)) return false;
             const matchDate = (!startDate || inv.date >= startDate) && (!endDate || inv.date <= endDate);
             return matchDate;

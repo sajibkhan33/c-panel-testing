@@ -214,7 +214,16 @@ export const ChartOfAccountsManager: React.FC = () => {
                 } else if (isSalesRev) {
                     // Non-project invoice sales
                     const invoiceSalesFromTx = (transactions || [])
-                        .filter(t => t.type === 'INCOME' && isInvoiceTransaction(t) && !projectLinkedInvoiceNos.has((t.refNo || '').toLowerCase().trim()))
+                        .filter(t => 
+                            t.type === 'INCOME' && 
+                            isInvoiceTransaction(t) && 
+                            !isProjectTransaction(t) && 
+                            !isProjectDueCollectionTransaction(t) && 
+                            !(t.category || '').toLowerCase().includes('project') && 
+                            !projectLinkedInvoiceNos.has((t.refNo || '').toLowerCase().trim()) && 
+                            !(t.refNo || '').toUpperCase().startsWith('COL-') && 
+                            !(t.refNo || '').toUpperCase().startsWith('PRJ-')
+                        )
                         .reduce((s, t) => s + t.amount, 0);
                     const effectiveInvoiceSales = Math.max(totalNonProjectInvoiceSales, invoiceSalesFromTx);
 
@@ -224,8 +233,12 @@ export const ChartOfAccountsManager: React.FC = () => {
                             t.type === 'INCOME' && 
                             !isInvoiceTransaction(t) && 
                             !isProjectTransaction(t) && 
+                            !isProjectDueCollectionTransaction(t) && 
+                            !(t.category || '').toLowerCase().includes('project') && 
                             !isAdvanceDepositTransaction(t) && 
-                            !isAdvanceAdjustmentTransaction(t) && (
+                            !isAdvanceAdjustmentTransaction(t) && 
+                            !(t.refNo || '').toUpperCase().startsWith('COL-') && 
+                            !(t.refNo || '').toUpperCase().startsWith('PRJ-') && (
                                 (t.category && (
                                     nameLower.includes(t.category.toLowerCase()) || 
                                     (acc.nameBn && acc.nameBn.toLowerCase().includes(t.category.toLowerCase())) || 
@@ -250,6 +263,10 @@ export const ChartOfAccountsManager: React.FC = () => {
                             t.type === 'INCOME' && 
                             !isInvoiceTransaction(t) && 
                             !isProjectTransaction(t) && 
+                            !isProjectDueCollectionTransaction(t) && 
+                            !(t.category || '').toLowerCase().includes('project') && 
+                            !(t.refNo || '').toUpperCase().startsWith('COL-') && 
+                            !(t.refNo || '').toUpperCase().startsWith('PRJ-') && 
                             !isAdvanceDepositTransaction(t) && 
                             !isAdvanceAdjustmentTransaction(t) && (
                                 (t.category && (

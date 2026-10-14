@@ -481,20 +481,29 @@ export const getCashAccountsBreakdown = (
  */
 export const isInvoiceTransaction = (tx: Partial<AccountingTransaction>): boolean => {
     if (!tx) return false;
+    // Strictly exclude any project transactions, project due collections, and project vouchers
+    if (isProjectTransaction(tx) || isProjectDueCollectionTransaction(tx)) return false;
+    const cat = (tx.category || '').toLowerCase();
+    if (cat.includes('project')) return false;
+
     const ref = (tx.refNo || '').toUpperCase();
     const desc = (tx.description || '').toLowerCase();
-    const cat = (tx.category || '').toLowerCase();
     const id = (tx.id || '').toLowerCase();
+
+    if (id.startsWith('tx-prj-')) return false;
+    if (ref.startsWith('COL-') || ref.startsWith('PRJ-')) return false;
+    if (desc.includes('project due') || desc.includes('project sales') || desc.includes('project expense')) return false;
 
     if (id.startsWith('tx-auto-inv')) return true;
     if (ref.startsWith('DCC-INV-') || ref.startsWith('INV-')) return true;
+    if (cat === 'sales revenue') return true;
     if (cat.includes('due collection') || cat.includes('pos payment') || cat.includes('invoice payment')) return true;
     if (desc.includes('sales invoice payment') || desc.includes('due collection against invoice') || desc.includes('pos payment') || desc.includes('invoice payment')) return true;
     return false;
 };
 
 /**
- * Checks whether an accounting transaction is linked to a project sales billing or expense
+ * Checks whether an accounting transaction is linked to a project sales billing, collection or expense
  */
 export const isProjectTransaction = (tx: Partial<AccountingTransaction>): boolean => {
     if (!tx) return false;
@@ -504,9 +513,9 @@ export const isProjectTransaction = (tx: Partial<AccountingTransaction>): boolea
     const id = (tx.id || '').toLowerCase();
 
     if (id.startsWith('tx-prj-')) return true;
-    if (ref.startsWith('PRJ-')) return true;
+    if (ref.startsWith('PRJ-') || ref.startsWith('COL-')) return true;
     if (cat.includes('project')) return true;
-    if (desc.includes('project income') || desc.includes('project sales') || desc.includes('project expense')) return true;
+    if (desc.includes('project income') || desc.includes('project sales') || desc.includes('project expense') || desc.includes('project due')) return true;
     return false;
 };
 
@@ -560,7 +569,11 @@ export const isProjectDueCollectionTransaction = (tx: Partial<AccountingTransact
     if (!tx) return false;
     const cat = (tx.category || '').toLowerCase();
     const desc = (tx.description || '').toLowerCase();
+    const ref = (tx.refNo || '').toUpperCase();
+    const id = (tx.id || '').toLowerCase();
     return (
+        id.startsWith('tx-prj-col') ||
+        ref.startsWith('COL-') ||
         cat.includes('project due collection') ||
         cat.includes('project due') ||
         desc.includes('project due collected') ||

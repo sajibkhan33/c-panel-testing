@@ -1007,14 +1007,27 @@ export const AppProvider: React.FC<{
                     return !isLinked;
                 });
                 const totalInvoiceSales = nonPrjInvoices.reduce((s, inv) => s + (Number(inv.grandTotal) || (Number(inv.paidAmount) + Number(inv.dueAmount)) || 0), 0);
-                const invoiceSalesFromTx = (transactions || []).filter(t => t.type === 'INCOME' && isInvoiceTransaction(t) && !projectLinkedInvoiceNos.has((t.refNo || '').toLowerCase().trim())).reduce((s, t) => s + t.amount, 0);
+                const invoiceSalesFromTx = (transactions || []).filter(t => 
+                    t.type === 'INCOME' && 
+                    isInvoiceTransaction(t) && 
+                    !isProjectTransaction(t) && 
+                    !isProjectDueCollectionTransaction(t) && 
+                    !(t.category || '').toLowerCase().includes('project') && 
+                    !projectLinkedInvoiceNos.has((t.refNo || '').toLowerCase().trim()) && 
+                    !(t.refNo || '').toUpperCase().startsWith('COL-') && 
+                    !(t.refNo || '').toUpperCase().startsWith('PRJ-')
+                ).reduce((s, t) => s + t.amount, 0);
                 const effectiveInvoiceSales = Math.max(totalInvoiceSales, invoiceSalesFromTx);
                 const directSalesRevenue = (transactions || []).filter(t => 
                     t.type === 'INCOME' && 
                     !isInvoiceTransaction(t) && 
                     !isProjectTransaction(t) && 
+                    !isProjectDueCollectionTransaction(t) && 
+                    !(t.category || '').toLowerCase().includes('project') && 
                     !isAdvanceDepositTransaction(t) && 
-                    !isAdvanceAdjustmentTransaction(t) && (
+                    !isAdvanceAdjustmentTransaction(t) && 
+                    !(t.refNo || '').toUpperCase().startsWith('COL-') && 
+                    !(t.refNo || '').toUpperCase().startsWith('PRJ-') && (
                         (t.category && (
                             t.category.toLowerCase().includes('sales') ||
                             t.category.toLowerCase().includes('বিক্রয়') ||
@@ -1078,6 +1091,10 @@ export const AppProvider: React.FC<{
                     t.type === 'INCOME' && 
                     !isInvoiceTransaction(t) && 
                     !isProjectTransaction(t) && 
+                    !isProjectDueCollectionTransaction(t) && 
+                    !(t.category || '').toLowerCase().includes('project') && 
+                    !(t.refNo || '').toUpperCase().startsWith('COL-') && 
+                    !(t.refNo || '').toUpperCase().startsWith('PRJ-') && 
                     !isAdvanceDepositTransaction(t) && 
                     !isAdvanceAdjustmentTransaction(t) && (
                         (t.category && (
@@ -1295,15 +1312,22 @@ export const AppProvider: React.FC<{
 
         // 1. Purge rogue duplicate auto-generated Sales Revenue transactions for project-linked invoices
         if (transactions && transactions.length > 0) {
-            const hasRogueTx = transactions.some(t => {
+            const isRogueTx = (t: AccountingTransaction) => {
                 const refLower = (t.refNo || '').toLowerCase().trim();
-                return t.type === 'INCOME' && t.category === 'Sales Revenue' && refLower && projectLinkedInvoiceNos.has(refLower);
-            });
+                const descLower = (t.description || '').toLowerCase();
+                const idLower = (t.id || '').toLowerCase();
+                return t.type === 'INCOME' && t.category === 'Sales Revenue' && (
+                    (refLower && projectLinkedInvoiceNos.has(refLower)) ||
+                    refLower.startsWith('col-') ||
+                    refLower.startsWith('prj-') ||
+                    idLower.startsWith('tx-prj-') ||
+                    descLower.includes('project due')
+                );
+            };
+
+            const hasRogueTx = transactions.some(isRogueTx);
             if (hasRogueTx) {
-                const cleaned = transactions.filter(t => {
-                    const refLower = (t.refNo || '').toLowerCase().trim();
-                    return !(t.type === 'INCOME' && t.category === 'Sales Revenue' && refLower && projectLinkedInvoiceNos.has(refLower));
-                });
+                const cleaned = transactions.filter(t => !isRogueTx(t));
                 setTransactions(cleaned);
                 try { localStorage.setItem(`${STORAGE_KEY}_TRANSACTIONS`, JSON.stringify(cleaned)); } catch {}
                 latestStateRef.current = {
@@ -1398,7 +1422,8 @@ export const AppProvider: React.FC<{
                 ? Number(salesItem.dueAmount) 
                 : Math.max(0, (Number(salesItem.amount) || Number(inv.grandTotal) || 0) - projPaid);
 
-            if (Number(inv.paidAmount) !== projPaid || Number(inv.dueAmount) !== projDue) {
+            const needsProjectRef = (!inv.projectId && !!linkedProj.id) || (!inv.projectCode && !!linkedProj.code);
+            if (Number(inv.paidAmount) !== projPaid || Number(inv.dueAmount) !== projDue || needsProjectRef) {
                 invsChanged = true;
                 const newStatus: PaymentStatus = projDue <= 0 ? 'Paid' : projPaid > 0 ? 'Partial' : 'Due';
                 const existingSplits = { ...(inv.splitPayments || {}) };
@@ -1411,6 +1436,9 @@ export const AppProvider: React.FC<{
                 });
                 return {
                     ...inv,
+                    projectId: inv.projectId || linkedProj.id,
+                    projectCode: inv.projectCode || linkedProj.code,
+                    chartOfAccountId: inv.chartOfAccountId || linkedProj.chartOfAccountId,
                     paidAmount: projPaid,
                     dueAmount: projDue,
                     paymentStatus: newStatus,
@@ -4336,6 +4364,12 @@ export const AppProvider: React.FC<{
             projectAccountCode: chosenCoaCode,
             invoiceId: inv.id,
             invoiceNo: inv.invoiceNo,
+        });
+
+        updateInvoice(inv.id, {
+            projectId: newProject.id,
+            projectCode: newProject.code,
+            chartOfAccountId: chosenCoaId,
         });
 
         return newProject;
