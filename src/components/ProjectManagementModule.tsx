@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useApp } from '../context/AppContext';
 import { Project, ProjectExpenseItem, ProjectSalesItem } from '../types';
 import { FolderKanban, Plus, Search, Filter, TrendingUp, TrendingDown, DollarSign, Receipt, CheckCircle2, Clock, Briefcase, Layers, Edit2, Trash2, ChevronDown, ChevronUp, FileSpreadsheet, Printer, Calendar, User, Phone, BookOpen, PieChart, Tag, CreditCard, Wallet, Landmark, Banknote, Smartphone, History, } from 'lucide-react';
@@ -96,7 +96,7 @@ export const ProjectManagementModule: React.FC = () => {
         });
         if (filtered.length > 0) return filtered;
         return [
-            { id: 'Cash', name: 'Cash in Hand', nameBn: 'হাতে নগদ', isEnabled: true, type: 'Cash' as const },
+            { id: 'Cash', name: 'Cash in Hand', nameBn: 'হাতে নগদ', isEnabled: true, type: 'cash' as const },
         ];
     }, [activePaymentMethods]);
     const paymentMethodOptions = useMemo(() => {

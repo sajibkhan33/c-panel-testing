@@ -171,7 +171,7 @@ interface AppContextType {
     cloudSyncStatus: 'idle' | 'syncing' | 'synced' | 'offline' | 'error';
     isCloudConnected: boolean;
     lastSyncedAt: string | null;
-    syncWithCloud: () => Promise<void>;
+    syncWithCloud: (options?: { forcePull?: boolean; forcePush?: boolean }) => Promise<void>;
 }
 const AppContext = createContext<AppContextType | undefined>(undefined);
 const generateUniqueId = (prefix: string) => `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}-${Math.floor(100 + Math.random() * 900)}`;
