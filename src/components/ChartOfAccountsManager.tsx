@@ -3,7 +3,7 @@ import { useApp } from '../context/AppContext';
 import { ChartOfAccount, SalesInvoice } from '../types';
 import { BookOpen, Plus, Search, Filter, Edit2, Trash2, Lock, CheckCircle2, AlertCircle, X, FileText, Printer, Layers, ArrowUpDown, Download, Upload, } from 'lucide-react';
 import * as XLSX from 'xlsx';
-import { calculateSingleAccountBalance, calculateTotalSupplierPayables, calculateInventoryValuation, isInvoiceTransaction, isProjectTransaction, isAdvanceAdjustmentTransaction, isAdvanceDepositTransaction } from '../utils/accountUtils';
+import { calculateSingleAccountBalance, calculateTotalSupplierPayables, calculateInventoryValuation, isInvoiceTransaction, isProjectTransaction, isAdvanceAdjustmentTransaction, isAdvanceDepositTransaction, isProjectDueCollectionTransaction, isDueReceivableTransaction } from '../utils/accountUtils';
 export const ChartOfAccountsManager: React.FC = () => {
     const { chartOfAccounts, invoices = [], transactions = [], accountBalances, suppliers = [], customers = [], purchaseOrders = [], products = [], journalEntries = [], language, profile, addChartOfAccount, updateChartOfAccount, deleteChartOfAccount, checkPermission, projects = [], syncProjectsWithAccounting } = useApp();
     const [searchQuery, setSearchQuery] = useState('');
@@ -196,10 +196,19 @@ export const ChartOfAccountsManager: React.FC = () => {
                 const matchingProjectSales = matchingProjects.reduce((s, p) => s + (p.totalSales || 0), 0);
 
                 if (isProjectRev || matchingProjects.length > 0) {
-                    const projectMatching = (transactions || [])
-                        .filter(t => t.type === 'INCOME' && (isProjectTransaction(t) || t.accountHead === acc.name))
-                        .reduce((s, t) => s + t.amount, 0);
-                    liveBal = (acc.openingBalance || 0) + Math.max(projectMatching, matchingProjectSales);
+                    // Standalone project revenue transactions that are NOT due collections, NOT unpaid receivable due bookings, and NOT already part of matchingProjects
+                    const standaloneProjectRevenue = (transactions || [])
+                        .filter(t => 
+                            t.type === 'INCOME' && 
+                            !isProjectDueCollectionTransaction(t) && 
+                            !isDueReceivableTransaction(t) && 
+                            !isAdvanceAdjustmentTransaction(t) && 
+                            (t.accountHead === acc.name || (t.category && t.category.toLowerCase().includes('project revenue'))) && 
+                            !matchingProjects.some(p => (p.code && t.refNo && p.code.toLowerCase() === t.refNo.toLowerCase()) || (t.description && p.code && t.description.toLowerCase().includes(p.code.toLowerCase())))
+                        )
+                        .reduce((s, t) => s + (Number(t.amount) || 0), 0);
+
+                    liveBal = (acc.openingBalance || 0) + matchingProjectSales + standaloneProjectRevenue;
                 } else if (isSalesRev) {
                     // Non-project invoice sales
                     const invoiceSalesFromTx = (transactions || [])

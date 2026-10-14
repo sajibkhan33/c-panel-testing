@@ -2,7 +2,7 @@ import React, { createContext, useContext, useState, useEffect, useMemo, useRef 
 import { CompanyProfile, ProductItem, Customer, Supplier, SalesInvoice, Quotation, PurchaseOrder, AccountingTransaction, StockMovement, Language, LocationType, AccountBalances, StaffMember, StaffRole, AuditLogEntry, ChartOfAccount, ExpenseHead, ProductCategory, UserRole, RolePermission, JournalEntry, Project, ProjectExpenseItem, ProjectSalesItem, PaymentMethodConfig, PaymentStatus, ProjectSalesCollection, ProjectSalesPaymentBreakdown } from '../types';
 import { INITIAL_COMPANY_PROFILE, INITIAL_PRODUCTS, INITIAL_CUSTOMERS, INITIAL_SUPPLIERS, INITIAL_INVOICES, INITIAL_PURCHASE_ORDERS, INITIAL_TRANSACTIONS, INITIAL_QUOTATIONS, INITIAL_STOCK_MOVEMENTS, INITIAL_STAFF_MEMBERS, INITIAL_AUDIT_LOGS, } from '../data/initialData';
 import { INITIAL_CHART_OF_ACCOUNTS, INITIAL_EXPENSE_HEADS, INITIAL_PRODUCT_CATEGORIES, INITIAL_USER_ROLES, INITIAL_JOURNAL_ENTRIES, INITIAL_PROJECTS, ALL_SYSTEM_PERMISSIONS, INITIAL_PAYMENT_METHODS, } from '../data/accountingAndConfigData';
-import { matchChannelToAccount, calculateSingleAccountBalance, getBankAccountsBreakdown, getMfsAccountsBreakdown, getCashAccountsBreakdown, isInvoiceTransaction, isProjectTransaction, isInvoiceMatchingCustomer, isAdvanceAdjustmentTransaction, isAdvanceDepositTransaction, calculateTotalSupplierPayables, calculateInventoryValuation } from '../utils/accountUtils';
+import { matchChannelToAccount, calculateSingleAccountBalance, getBankAccountsBreakdown, getMfsAccountsBreakdown, getCashAccountsBreakdown, isInvoiceTransaction, isProjectTransaction, isInvoiceMatchingCustomer, isAdvanceAdjustmentTransaction, isAdvanceDepositTransaction, isProjectDueCollectionTransaction, isDueReceivableTransaction, calculateTotalSupplierPayables, calculateInventoryValuation } from '../utils/accountUtils';
 const STORAGE_KEY = 'DOT_COLOR_ERP_V1_STATE';
 interface AppContextType {
     profile: CompanyProfile;
@@ -871,7 +871,15 @@ export const AppProvider: React.FC<{
                 acc.nameBn?.includes('বিক্রয়')
             );
             if (isSalesRevenue) {
-                const totalInvoiceSales = (invoices || []).reduce((s, inv) => s + (Number(inv.grandTotal) || (Number(inv.paidAmount) + Number(inv.dueAmount)) || 0), 0);
+                const nonPrjInvoices = (invoices || []).filter(inv => {
+                    const isLinked = Boolean(
+                        inv.projectId ||
+                        inv.projectCode ||
+                        (projects || []).some(p => p.invoiceId === inv.id || p.invoiceNo === inv.invoiceNo)
+                    );
+                    return !isLinked;
+                });
+                const totalInvoiceSales = nonPrjInvoices.reduce((s, inv) => s + (Number(inv.grandTotal) || (Number(inv.paidAmount) + Number(inv.dueAmount)) || 0), 0);
                 const invoiceSalesFromTx = (transactions || []).filter(t => t.type === 'INCOME' && isInvoiceTransaction(t)).reduce((s, t) => s + t.amount, 0);
                 const effectiveInvoiceSales = Math.max(totalInvoiceSales, invoiceSalesFromTx);
                 const directSalesRevenue = (transactions || []).filter(t => 
@@ -1180,6 +1188,86 @@ export const AppProvider: React.FC<{
             setTransactions(prev => ensureUniqueTransactions([...missingTxs, ...prev]));
         }
     }, [invoices, chartOfAccounts, paymentMethods]);
+
+    // Automatic real-time reconciliation between Projects and linked Sales Invoices
+    useEffect(() => {
+        if (!projects || projects.length === 0 || !invoices || invoices.length === 0) return;
+
+        let invsChanged = false;
+        const updatedInvoices = invoices.map(inv => {
+            const linkedProj = projects.find(p => 
+                (p.invoiceId && p.invoiceId === inv.id) ||
+                (p.invoiceNo && p.invoiceNo === inv.invoiceNo) ||
+                (p.salesItems || []).some(s => s.invoiceNo === inv.invoiceNo)
+            );
+            if (!linkedProj) return inv;
+
+            const salesItem = (linkedProj.salesItems || []).find(s => s.invoiceNo === inv.invoiceNo) || linkedProj.salesItems?.[0];
+            if (!salesItem) return inv;
+
+            const projPaid = salesItem.paidAmount !== undefined 
+                ? Number(salesItem.paidAmount) 
+                : (salesItem.collections || []).reduce((sum, c) => sum + (Number(c.amount) || 0), 0);
+            const projDue = salesItem.dueAmount !== undefined 
+                ? Number(salesItem.dueAmount) 
+                : Math.max(0, (Number(salesItem.amount) || Number(inv.grandTotal) || 0) - projPaid);
+
+            if (Number(inv.paidAmount) !== projPaid || Number(inv.dueAmount) !== projDue) {
+                invsChanged = true;
+                const newStatus: PaymentStatus = projDue <= 0 ? 'Paid' : projPaid > 0 ? 'Partial' : 'Due';
+                const existingSplits = { ...(inv.splitPayments || {}) };
+                if (projDue <= 0 && existingSplits['Due'] !== undefined) {
+                    delete existingSplits['Due'];
+                }
+                (salesItem.collections || []).forEach(c => {
+                    const m = c.paymentMethod || 'Cash in Hand';
+                    existingSplits[m] = Math.max(existingSplits[m] || 0, Number(c.amount) || 0);
+                });
+                return {
+                    ...inv,
+                    paidAmount: projPaid,
+                    dueAmount: projDue,
+                    paymentStatus: newStatus,
+                    splitPayments: Object.keys(existingSplits).length > 0 ? existingSplits : inv.splitPayments,
+                };
+            }
+            return inv;
+        });
+
+        if (invsChanged) {
+            setInvoices(updatedInvoices);
+            try { localStorage.setItem(`${STORAGE_KEY}_INVOICES`, JSON.stringify(updatedInvoices)); } catch {}
+            latestStateRef.current = {
+                ...latestStateRef.current,
+                invoices: updatedInvoices,
+            };
+            triggerImmediatePush();
+        }
+    }, [projects, invoices]);
+
+    // Automatic cleanup of legacy phantom unpaid due receivable transactions in transactions that cause double counting
+    useEffect(() => {
+        if (!transactions || transactions.length === 0) return;
+
+        const hasPhantomDueTx = transactions.some(t => 
+            t.type === 'INCOME' && 
+            isProjectTransaction(t) && 
+            isDueReceivableTransaction(t)
+        );
+
+        if (hasPhantomDueTx) {
+            const cleanedTxs = transactions.filter(t => 
+                !(t.type === 'INCOME' && isProjectTransaction(t) && isDueReceivableTransaction(t))
+            );
+            setTransactions(cleanedTxs);
+            try { localStorage.setItem(`${STORAGE_KEY}_TRANSACTIONS`, JSON.stringify(cleanedTxs)); } catch {}
+            latestStateRef.current = {
+                ...latestStateRef.current,
+                transactions: cleanedTxs,
+            };
+            triggerImmediatePush();
+        }
+    }, [transactions]);
 
     const login = (staffIdOrPasscode: string, passcode?: string): {
         success: boolean;
@@ -1631,6 +1719,48 @@ export const AppProvider: React.FC<{
         try {
             localStorage.setItem(`${STORAGE_KEY}_CUSTOMERS`, JSON.stringify(updatedCusts));
         } catch {}
+
+        // Sync to linked Project if this invoice is attached to a project
+        if (targetInv.projectId || targetInv.projectCode || (projects || []).some(p => p.invoiceId === targetInv.id || p.invoiceNo === targetInv.invoiceNo)) {
+            const currentProjs = latestStateRef.current.projects || projects;
+            const updatedProjs = currentProjs.map((p: Project) => {
+                const isMatch = (targetInv.projectId && p.id === targetInv.projectId) ||
+                                (targetInv.projectCode && p.code === targetInv.projectCode) ||
+                                (p.invoiceId && p.invoiceId === targetInv.id) ||
+                                (p.invoiceNo && p.invoiceNo === targetInv.invoiceNo);
+                if (isMatch) {
+                    const updatedSales = (p.salesItems || []).map((s: ProjectSalesItem) => {
+                        if (s.invoiceNo === targetInv.invoiceNo || (!s.invoiceNo && (p.salesItems || []).length === 1)) {
+                            const newDue = Math.max(0, (Number(s.dueAmount) || 0) - totalPaymentApplied);
+                            const newPaid = Math.min(Number(s.amount) || 0, (Number(s.paidAmount) || 0) + totalPaymentApplied);
+                            const newCol: ProjectSalesCollection = {
+                                id: `col-inv-sync-${Date.now()}`,
+                                date: new Date().toISOString().slice(0, 10),
+                                amount: totalPaymentApplied,
+                                paymentMethod: resolvedAccount,
+                                referenceNo: targetInv.invoiceNo,
+                                createdBy: activeStaff?.name || 'Managing Director',
+                            };
+                            return {
+                                ...s,
+                                dueAmount: newDue,
+                                paidAmount: newPaid,
+                                collections: [...(s.collections || []), newCol],
+                            };
+                        }
+                        return s;
+                    });
+                    return recalculateProject({ ...p, salesItems: updatedSales });
+                }
+                return p;
+            });
+            setProjects(updatedProjs);
+            try { localStorage.setItem(`${STORAGE_KEY}_PROJECTS`, JSON.stringify(updatedProjs)); } catch {}
+            latestStateRef.current = {
+                ...latestStateRef.current,
+                projects: updatedProjs,
+            };
+        }
 
         // Add transaction with guaranteed unique ID and exact channel
         const newTxsToAdd: AccountingTransaction[] = [];
@@ -3746,20 +3876,23 @@ export const AppProvider: React.FC<{
                     const isMobile = pb.method.toLowerCase().includes('bkash') || pb.method.toLowerCase().includes('nagad') || pb.method.toLowerCase().includes('rocket');
                     const isDue = pb.method.toLowerCase().includes('due') || pb.method.toLowerCase().includes('receivable');
 
-                    newTxs.push({
-                        id: generateUniqueId('tx-prj-sale-init'),
-                        date: si.date || new Date().toISOString().slice(0, 10),
-                        type: 'INCOME',
-                        category: 'Project Revenue',
-                        account: isBank ? 'BRAC Bank' : isMobile ? 'bKash / Nagad' : 'Cash in Hand',
-                        accountHead: revAcc.name,
-                        paymentMethod: pb.method,
-                        paymentAccount: isDue ? 'Accounts Receivable' : pb.method,
-                        refNo: refNo,
-                        customerOrSupplier: calculated.clientName,
-                        description: `Project Income: [${code}] ${calculated.name} - ${si.description || 'Billing'} (${pb.method})`,
-                        amount: pbAmount,
-                    });
+                    // Only cash/bank/MFS collections enter the financial ledger. Unpaid Due is tracked via JournalEntry and Project due.
+                    if (!isDue) {
+                        newTxs.push({
+                            id: generateUniqueId('tx-prj-sale-init'),
+                            date: si.date || new Date().toISOString().slice(0, 10),
+                            type: 'INCOME',
+                            category: 'Project Revenue',
+                            account: isBank ? 'BRAC Bank' : isMobile ? 'bKash / Nagad' : 'Cash in Hand',
+                            accountHead: revAcc.name,
+                            paymentMethod: pb.method,
+                            paymentAccount: pb.method,
+                            refNo: refNo,
+                            customerOrSupplier: calculated.clientName,
+                            description: `Project Income: [${code}] ${calculated.name} - ${si.description || 'Billing'} (${pb.method})`,
+                            amount: pbAmount,
+                        });
+                    }
                 });
             });
 
@@ -4200,20 +4333,22 @@ export const AppProvider: React.FC<{
             const isMobile = pb.method.toLowerCase().includes('bkash') || pb.method.toLowerCase().includes('nagad') || pb.method.toLowerCase().includes('rocket');
             const isDue = pb.method.toLowerCase().includes('due') || pb.method.toLowerCase().includes('receivable');
 
-            newTxs.push({
-                id: generateUniqueId('tx-prj-sale'),
-                date: sales.date || new Date().toISOString().slice(0, 10),
-                type: 'INCOME',
-                category: 'Project Revenue',
-                account: isBank ? 'BRAC Bank' : isMobile ? 'bKash / Nagad' : 'Cash in Hand',
-                accountHead: revAcc.name,
-                paymentMethod: pb.method,
-                paymentAccount: isDue ? 'Accounts Receivable' : pb.method,
-                refNo: refNo,
-                customerOrSupplier: clientName,
-                description: `Project Income: [${code}] ${projName} - ${sales.description || 'Billing'} (${pb.method})`,
-                amount: pbAmount,
-            });
+            if (!isDue) {
+                newTxs.push({
+                    id: generateUniqueId('tx-prj-sale'),
+                    date: sales.date || new Date().toISOString().slice(0, 10),
+                    type: 'INCOME',
+                    category: 'Project Revenue',
+                    account: isBank ? 'BRAC Bank' : isMobile ? 'bKash / Nagad' : 'Cash in Hand',
+                    accountHead: revAcc.name,
+                    paymentMethod: pb.method,
+                    paymentAccount: pb.method,
+                    refNo: refNo,
+                    customerOrSupplier: clientName,
+                    description: `Project Income: [${code}] ${projName} - ${sales.description || 'Billing'} (${pb.method})`,
+                    amount: pbAmount,
+                });
+            }
         });
 
         if (newJournals.length > 0) {
@@ -4638,6 +4773,58 @@ export const AppProvider: React.FC<{
             return next;
         });
 
+        // 4b. Sync to linked Sales Invoice and Customer Due
+        const linkedInvNo = targetSale.invoiceNo || targetProj.invoiceNo;
+        const linkedInvId = targetProj.invoiceId;
+        if (linkedInvNo || linkedInvId) {
+            const currentInvs = latestStateRef.current.invoices || invoices;
+            const updatedInvs = currentInvs.map(inv => {
+                if ((linkedInvId && inv.id === linkedInvId) || (linkedInvNo && inv.invoiceNo === linkedInvNo)) {
+                    const newPaid = Math.min(Number(inv.grandTotal) || 0, (Number(inv.paidAmount) || 0) + finalCollectAmount);
+                    const newDue = Math.max(0, (Number(inv.grandTotal) || 0) - newPaid);
+                    const newStatus: PaymentStatus = newDue <= 0 ? 'Paid' : 'Partial';
+                    const existingSplits = { ...(inv.splitPayments || {}) };
+                    existingSplits[paymentMethod] = (existingSplits[paymentMethod] || 0) + finalCollectAmount;
+                    if (existingSplits['Due'] !== undefined) {
+                        existingSplits['Due'] = Math.max(0, existingSplits['Due'] - finalCollectAmount);
+                    }
+                    return {
+                        ...inv,
+                        paidAmount: newPaid,
+                        dueAmount: newDue,
+                        paymentStatus: newStatus,
+                        splitPayments: existingSplits,
+                    };
+                }
+                return inv;
+            });
+            setInvoices(updatedInvs);
+            try { localStorage.setItem(`${STORAGE_KEY}_INVOICES`, JSON.stringify(updatedInvs)); } catch {}
+
+            const currentCusts = latestStateRef.current.customers || customers;
+            const updatedCusts = currentCusts.map(c => {
+                const isMatch = (targetProj.clientName && c.name && c.name.toLowerCase().trim() === targetProj.clientName.toLowerCase().trim()) ||
+                                (targetProj.clientPhone && c.phone && c.phone === targetProj.clientPhone) ||
+                                (c.company && targetProj.name && targetProj.name.toLowerCase().includes(c.company.toLowerCase()));
+                if (isMatch) {
+                    const clientInvoices = updatedInvs.filter(inv => isInvoiceMatchingCustomer(inv, c));
+                    const dueAmount = clientInvoices.length > 0
+                        ? clientInvoices.reduce((s, inv) => s + (Number(inv.dueAmount) || 0), 0)
+                        : Math.max(0, (Number(c.dueAmount) || 0) - finalCollectAmount);
+                    return { ...c, dueAmount };
+                }
+                return c;
+            });
+            setCustomers(updatedCusts);
+            try { localStorage.setItem(`${STORAGE_KEY}_CUSTOMERS`, JSON.stringify(updatedCusts)); } catch {}
+
+            latestStateRef.current = {
+                ...latestStateRef.current,
+                invoices: updatedInvs,
+                customers: updatedCusts,
+            };
+        }
+
         // 5. Add Audit Log
         addAuditLog({
             staffId: activeStaff?.id || 'staff-admin',
@@ -4786,7 +4973,8 @@ export const AppProvider: React.FC<{
                             });
                         }
 
-                        if (!alreadyHasTx) {
+                        const isDue = pb.method.toLowerCase().includes('due') || pb.method.toLowerCase().includes('receivable');
+                        if (!alreadyHasTx && !isDue) {
                             const isBank = pb.method.toLowerCase().includes('bank') || pb.method.toLowerCase().includes('brac');
                             const isMobile = pb.method.toLowerCase().includes('bkash') || pb.method.toLowerCase().includes('nagad');
                             newTxs.push({
