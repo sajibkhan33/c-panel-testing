@@ -272,6 +272,9 @@ export interface SalesInvoice {
   isQuote?: boolean;
   showRegionColumn?: boolean;
   showTypeColumn?: boolean;
+  projectId?: string;
+  projectCode?: string;
+  chartOfAccountId?: string;
 }
 
 export const PRESET_INVOICE_ITEM_TYPES = [
@@ -604,6 +607,8 @@ export interface Project {
   notes?: string;
   chartOfAccountId?: string;
   projectAccountCode?: string;
+  invoiceId?: string;
+  invoiceNo?: string;
 }
 
 export interface AuditLogEntry {

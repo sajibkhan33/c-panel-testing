@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useMemo, useRef } from 'react';
-import { CompanyProfile, ProductItem, Customer, Supplier, SalesInvoice, Quotation, PurchaseOrder, AccountingTransaction, StockMovement, Language, LocationType, AccountBalances, StaffMember, StaffRole, AuditLogEntry, ChartOfAccount, ExpenseHead, ProductCategory, UserRole, RolePermission, JournalEntry, Project, ProjectExpenseItem, ProjectSalesItem, PaymentMethodConfig, PaymentStatus } from '../types';
+import { CompanyProfile, ProductItem, Customer, Supplier, SalesInvoice, Quotation, PurchaseOrder, AccountingTransaction, StockMovement, Language, LocationType, AccountBalances, StaffMember, StaffRole, AuditLogEntry, ChartOfAccount, ExpenseHead, ProductCategory, UserRole, RolePermission, JournalEntry, Project, ProjectExpenseItem, ProjectSalesItem, PaymentMethodConfig, PaymentStatus, ProjectSalesCollection, ProjectSalesPaymentBreakdown } from '../types';
 import { INITIAL_COMPANY_PROFILE, INITIAL_PRODUCTS, INITIAL_CUSTOMERS, INITIAL_SUPPLIERS, INITIAL_INVOICES, INITIAL_PURCHASE_ORDERS, INITIAL_TRANSACTIONS, INITIAL_QUOTATIONS, INITIAL_STOCK_MOVEMENTS, INITIAL_STAFF_MEMBERS, INITIAL_AUDIT_LOGS, } from '../data/initialData';
 import { INITIAL_CHART_OF_ACCOUNTS, INITIAL_EXPENSE_HEADS, INITIAL_PRODUCT_CATEGORIES, INITIAL_USER_ROLES, INITIAL_JOURNAL_ENTRIES, INITIAL_PROJECTS, ALL_SYSTEM_PERMISSIONS, INITIAL_PAYMENT_METHODS, } from '../data/accountingAndConfigData';
 import { matchChannelToAccount, calculateSingleAccountBalance, getBankAccountsBreakdown, getMfsAccountsBreakdown, getCashAccountsBreakdown, isInvoiceTransaction, isProjectTransaction, isInvoiceMatchingCustomer, isAdvanceAdjustmentTransaction, isAdvanceDepositTransaction, calculateTotalSupplierPayables, calculateInventoryValuation } from '../utils/accountUtils';
@@ -147,6 +147,19 @@ interface AppContextType {
     deleteProjectSales: (projectId: string, salesId: string) => void;
     deleteProjectExpense: (projectId: string, expenseId: string) => void;
     syncProjectsWithAccounting: () => { salesSynced: number; expensesSynced: number; totalAmount: number };
+    createProjectFromInvoice: (invoiceId: string, options?: {
+        name?: string;
+        nameBn?: string;
+        chartOfAccountId?: string;
+        budget?: number;
+        status?: Project['status'];
+        startDate?: string;
+        endDate?: string;
+        notes?: string;
+        includeAsSalesItem?: boolean;
+    }) => Project | null;
+    linkInvoiceToProject: (projectId: string, invoiceId: string, chartOfAccountId?: string, syncSalesItem?: boolean) => boolean;
+    unlinkInvoiceFromProject: (projectId: string) => boolean;
     // Utilities & Module Data Cleanup
     cleanModuleData: (moduleKey: 'SALES' | 'QUOTATIONS' | 'PURCHASES' | 'INVENTORY_STOCK' | 'CUSTOM_PRODUCTS' | 'TRANSACTIONS' | 'JOURNALS' | 'AUDIT_LOGS' | 'PROJECTS' | 'ALL' | 'WIPE_ALL_EXCEPT_PRODUCTS' | 'RESET_ALL_TRANSACTIONS') => void;
     resetSalesData: () => void;
@@ -2655,6 +2668,13 @@ export const AppProvider: React.FC<{
             localStorage.setItem(`${STORAGE_KEY}_CUSTOMERS`, JSON.stringify(nextCusts));
         } catch {}
 
+        if (inv.projectId) {
+            updateProject(inv.projectId, {
+                invoiceId: undefined,
+                invoiceNo: undefined,
+            });
+        }
+
         latestStateRef.current = {
             ...latestStateRef.current,
             invoices: nextInvoices,
@@ -3622,7 +3642,11 @@ export const AppProvider: React.FC<{
         return cogsAcc || chartOfAccounts.find(a => a.classification === 'Expense') || chartOfAccounts[0];
     };
 
-    const resolveProjectRevenueAccount = () => {
+    const resolveProjectRevenueAccount = (targetAccountId?: string) => {
+        if (targetAccountId) {
+            const byId = chartOfAccounts.find(a => a.id === targetAccountId || a.code === targetAccountId);
+            if (byId) return byId;
+        }
         return chartOfAccounts.find(a => a.classification === 'Revenue' && (a.code === '4002' || a.code === '4051' || a.id === 'coa-4002' || a.id === 'coa-4051' || a.name.toLowerCase().includes('project') || a.code === '4060')) ||
                chartOfAccounts.find(a => a.classification === 'Revenue' && a.code === '4020') ||
                chartOfAccounts.find(a => a.classification === 'Revenue') ||
@@ -3663,22 +3687,135 @@ export const AppProvider: React.FC<{
     const addProject = (proj: Omit<Project, 'id' | 'code' | 'totalSales' | 'totalExpenses' | 'netProfit' | 'profitMargin'>): Project => {
         const newId = `prj-${Date.now()}`;
         const code = `PRJ-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`;
-        const revAcc = resolveProjectRevenueAccount();
+        const revAcc = resolveProjectRevenueAccount(proj.chartOfAccountId);
+        const resolvedChartOfAccountId = proj.chartOfAccountId || revAcc?.id || 'coa-4051';
+        const resolvedAccountCode = proj.projectAccountCode || revAcc?.code || '4051';
+
         const baseProject: Project = {
             ...proj,
             id: newId,
             code,
             budget: Number(proj.budget) || 0,
-            salesItems: proj.salesItems || [],
+            salesItems: (proj.salesItems || []).map(si => ({
+                ...si,
+                linkedAccountId: si.linkedAccountId || resolvedChartOfAccountId,
+            })),
             expenseItems: proj.expenseItems || [],
             totalSales: 0,
             totalExpenses: 0,
             netProfit: 0,
             profitMargin: 0,
-            chartOfAccountId: proj.chartOfAccountId || revAcc?.id || 'coa-4051',
-            projectAccountCode: proj.projectAccountCode || revAcc?.code || '4051',
+            chartOfAccountId: resolvedChartOfAccountId,
+            projectAccountCode: resolvedAccountCode,
+            invoiceId: proj.invoiceId,
+            invoiceNo: proj.invoiceNo,
         };
         const calculated = recalculateProject(baseProject);
+
+        // If project was created with initial salesItems (e.g. from an invoice), record journals and transactions
+        if (calculated.salesItems.length > 0) {
+            const newJournals: JournalEntry[] = [];
+            const newTxs: AccountingTransaction[] = [];
+            calculated.salesItems.forEach((si, sidx) => {
+                const breakdowns = (si.paymentBreakdown && si.paymentBreakdown.length > 0)
+                    ? si.paymentBreakdown
+                    : [{ id: `pb-${Date.now()}-${sidx}`, method: si.paymentMethod || 'Cash in Hand', amount: si.amount }];
+
+                breakdowns.forEach((pb, pidx) => {
+                    const pbAmount = Number(pb.amount) || 0;
+                    if (pbAmount <= 0) return;
+                    const assetAcc = resolvePaymentAssetAccount(pb.method);
+                    const refNo = si.invoiceNo || `${code}-${si.date || new Date().toISOString().slice(0, 10)}`;
+
+                    newJournals.push({
+                        id: `jnl-ps-init-${Date.now()}-${sidx}-${pidx}`,
+                        entryNo: `JNL-${new Date().getFullYear()}-${Date.now().toString().slice(-4)}${sidx}${pidx}`,
+                        date: si.date || new Date().toISOString().slice(0, 10),
+                        refNo: refNo,
+                        debitAccountId: assetAcc.id,
+                        debitAccountName: assetAcc.name,
+                        creditAccountId: revAcc.id,
+                        creditAccountName: revAcc.name,
+                        amount: pbAmount,
+                        narration: `Project Sales Income (Unified COA): [${code}] ${calculated.name} - ${si.description || 'Billing'} (${pb.method})`,
+                        source: 'PROJECT_SALES',
+                        createdBy: activeStaff?.name || 'Managing Director',
+                    });
+
+                    const isBank = pb.method.toLowerCase().includes('bank') || pb.method.toLowerCase().includes('brac') || pb.method.toLowerCase().includes('card');
+                    const isMobile = pb.method.toLowerCase().includes('bkash') || pb.method.toLowerCase().includes('nagad') || pb.method.toLowerCase().includes('rocket');
+                    const isDue = pb.method.toLowerCase().includes('due') || pb.method.toLowerCase().includes('receivable');
+
+                    newTxs.push({
+                        id: generateUniqueId('tx-prj-sale-init'),
+                        date: si.date || new Date().toISOString().slice(0, 10),
+                        type: 'INCOME',
+                        category: 'Project Revenue',
+                        account: isBank ? 'BRAC Bank' : isMobile ? 'bKash / Nagad' : 'Cash in Hand',
+                        accountHead: revAcc.name,
+                        paymentMethod: pb.method,
+                        paymentAccount: isDue ? 'Accounts Receivable' : pb.method,
+                        refNo: refNo,
+                        customerOrSupplier: calculated.clientName,
+                        description: `Project Income: [${code}] ${calculated.name} - ${si.description || 'Billing'} (${pb.method})`,
+                        amount: pbAmount,
+                    });
+                });
+            });
+
+            if (newJournals.length > 0) {
+                setJournalEntries(prev => [...newJournals, ...prev]);
+                setChartOfAccounts(prev => prev.map(acc => {
+                    let balChange = 0;
+                    newJournals.forEach(j => {
+                        if (acc.id === j.debitAccountId) {
+                            balChange += (acc.normalBalance === 'Debit' ? j.amount : -j.amount);
+                        }
+                        if (acc.id === j.creditAccountId) {
+                            balChange += (acc.normalBalance === 'Credit' ? j.amount : -j.amount);
+                        }
+                    });
+                    return balChange !== 0 ? { ...acc, currentBalance: acc.currentBalance + balChange } : acc;
+                }));
+            }
+            if (newTxs.length > 0) {
+                setTransactions(prev => ensureUniqueTransactions([...newTxs, ...prev]));
+            }
+        }
+
+        // If linked to an invoice, link on the invoice side too
+        if (proj.invoiceId || proj.invoiceNo) {
+            setInvoices(prev => {
+                const next = prev.map(inv => {
+                    if ((proj.invoiceId && inv.id === proj.invoiceId) || (proj.invoiceNo && inv.invoiceNo === proj.invoiceNo)) {
+                        return {
+                            ...inv,
+                            projectId: newId,
+                            projectCode: code,
+                            chartOfAccountId: resolvedChartOfAccountId,
+                        };
+                    }
+                    return inv;
+                });
+                try { localStorage.setItem(`${STORAGE_KEY}_INVOICES`, JSON.stringify(next)); } catch {}
+                return next;
+            });
+            latestStateRef.current = {
+                ...latestStateRef.current,
+                invoices: (latestStateRef.current.invoices || []).map((inv: SalesInvoice) => {
+                    if ((proj.invoiceId && inv.id === proj.invoiceId) || (proj.invoiceNo && inv.invoiceNo === proj.invoiceNo)) {
+                        return {
+                            ...inv,
+                            projectId: newId,
+                            projectCode: code,
+                            chartOfAccountId: resolvedChartOfAccountId,
+                        };
+                    }
+                    return inv;
+                }),
+            };
+        }
+
         setProjects((prev) => {
             const next = [calculated, ...prev];
             try {
@@ -3698,7 +3835,7 @@ export const AppProvider: React.FC<{
             actionType: 'PROJECT_CREATED',
             entityType: 'Projects',
             refNo: code,
-            details: `Created new project: ${calculated.name} for ${calculated.clientName} (Budget: Tk ${(calculated.budget || 0).toLocaleString()})`,
+            details: `Created new project: ${calculated.name} for ${calculated.clientName} (Budget: Tk ${(calculated.budget || 0).toLocaleString()})${proj.invoiceNo ? ` [Linked Invoice: ${proj.invoiceNo}]` : ''}`,
             detailsBn: undefined,
             severity: 'info',
         });
@@ -3727,7 +3864,22 @@ export const AppProvider: React.FC<{
     const deleteProject = (id: string) => {
         const target = projects.find(p => p.id === id);
         if (target) {
-            const targetJournals = (journalEntries || []).filter(j => j.refNo === target.code);
+            // Unlink invoice if linked
+            if (target.invoiceId || target.invoiceNo) {
+                setInvoices(prev => {
+                    const next = prev.map(inv => {
+                        if ((target.invoiceId && inv.id === target.invoiceId) || (target.invoiceNo && inv.invoiceNo === target.invoiceNo)) {
+                            const { projectId, projectCode, ...rest } = inv;
+                            return rest as SalesInvoice;
+                        }
+                        return inv;
+                    });
+                    try { localStorage.setItem(`${STORAGE_KEY}_INVOICES`, JSON.stringify(next)); } catch {}
+                    return next;
+                });
+            }
+
+            const targetJournals = (journalEntries || []).filter(j => j.refNo === target.code || (target.invoiceNo && j.refNo === target.invoiceNo));
             if (targetJournals.length > 0) {
                 setChartOfAccounts(prev => {
                     const next = prev.map(acc => {
@@ -3768,6 +3920,243 @@ export const AppProvider: React.FC<{
             ...latestStateRef.current,
             projects: (latestStateRef.current.projects || []).filter((p: Project) => p.id !== id),
         };
+    };
+
+    const createProjectFromInvoice = (
+        invoiceId: string,
+        options?: {
+            name?: string;
+            nameBn?: string;
+            chartOfAccountId?: string;
+            budget?: number;
+            status?: Project['status'];
+            startDate?: string;
+            endDate?: string;
+            notes?: string;
+            includeAsSalesItem?: boolean;
+        }
+    ): Project | null => {
+        const inv = invoices.find(i => i.id === invoiceId || i.invoiceNo === invoiceId);
+        if (!inv) return null;
+
+        const revAcc = resolveProjectRevenueAccount(options?.chartOfAccountId);
+        const chosenCoaId = options?.chartOfAccountId || revAcc.id || 'coa-4051';
+        const chosenCoaCode = revAcc.code || '4051';
+
+        const projectName = options?.name?.trim() || `${inv.customerName} - ${(inv.items || []).map(i => i.name).join(', ') || 'Project'}`;
+        const budgetAmount = options?.budget !== undefined ? Number(options.budget) : Number(inv.grandTotal) || 0;
+        const shouldIncludeSalesItem = options?.includeAsSalesItem !== false;
+
+        const salesItems: ProjectSalesItem[] = [];
+        if (shouldIncludeSalesItem) {
+            const paymentBreakdowns: ProjectSalesPaymentBreakdown[] = [];
+            if (inv.splitPayments && Object.keys(inv.splitPayments).length > 0) {
+                Object.entries(inv.splitPayments).forEach(([channel, amt]) => {
+                    const num = Number(amt) || 0;
+                    if (num > 0 && channel.toLowerCase() !== 'due') {
+                        paymentBreakdowns.push({
+                            id: `pb-${Date.now()}-${channel}`,
+                            method: channel,
+                            amount: num,
+                            referenceNo: inv.invoiceNo,
+                        });
+                    }
+                });
+            } else if ((inv.paidAmount || 0) > 0) {
+                paymentBreakdowns.push({
+                    id: `pb-${Date.now()}-paid`,
+                    method: inv.paymentMethod || 'Cash in Hand',
+                    amount: inv.paidAmount,
+                    referenceNo: inv.invoiceNo,
+                });
+            }
+            if ((inv.dueAmount || 0) > 0) {
+                paymentBreakdowns.push({
+                    id: `pb-${Date.now()}-due`,
+                    method: 'Due',
+                    amount: inv.dueAmount,
+                    referenceNo: inv.invoiceNo,
+                });
+            }
+
+            salesItems.push({
+                id: `ps-${Date.now()}`,
+                invoiceNo: inv.invoiceNo,
+                description: (inv.items || []).map(i => `${i.name} (x${i.qty})`).join(', ') || 'Sales Invoice Billing',
+                amount: Number(inv.grandTotal) || 0,
+                date: inv.date || new Date().toISOString().slice(0, 10),
+                clientName: inv.customerName,
+                note: `Synced from Sales Invoice #${inv.invoiceNo}`,
+                paymentMethod: inv.paymentMethod || 'Cash in Hand',
+                paymentBreakdown: paymentBreakdowns.length > 0 ? paymentBreakdowns : undefined,
+                linkedAccountId: chosenCoaId,
+                paidAmount: Number(inv.paidAmount) || 0,
+                dueAmount: Number(inv.dueAmount) || 0,
+                collections: [],
+            });
+        }
+
+        const newProject = addProject({
+            name: projectName,
+            nameBn: options?.nameBn?.trim() || undefined,
+            clientName: inv.customerName,
+            clientPhone: inv.customerPhone,
+            budget: budgetAmount,
+            status: options?.status || 'In Progress',
+            startDate: options?.startDate || inv.date || new Date().toISOString().slice(0, 10),
+            endDate: options?.endDate || '',
+            notes: options?.notes || `Created against Sales Invoice #${inv.invoiceNo} (Unified COA: ${chosenCoaCode} - ${revAcc.name})`,
+            salesItems,
+            expenseItems: [],
+            chartOfAccountId: chosenCoaId,
+            projectAccountCode: chosenCoaCode,
+            invoiceId: inv.id,
+            invoiceNo: inv.invoiceNo,
+        });
+
+        return newProject;
+    };
+
+    const linkInvoiceToProject = (
+        projectId: string,
+        invoiceId: string,
+        chartOfAccountId?: string,
+        syncSalesItem: boolean = true
+    ): boolean => {
+        const targetProj = projects.find(p => p.id === projectId);
+        const inv = invoices.find(i => i.id === invoiceId || i.invoiceNo === invoiceId);
+        if (!targetProj || !inv) return false;
+
+        const revAcc = resolveProjectRevenueAccount(chartOfAccountId || targetProj.chartOfAccountId);
+        const unifiedCoaId = chartOfAccountId || targetProj.chartOfAccountId || revAcc.id || 'coa-4051';
+        const unifiedCoaCode = revAcc.code || targetProj.projectAccountCode || '4051';
+
+        let updatedSales = [...targetProj.salesItems];
+        if (syncSalesItem && !updatedSales.some(s => s.invoiceNo === inv.invoiceNo)) {
+            const paymentBreakdowns: ProjectSalesPaymentBreakdown[] = [];
+            if (inv.splitPayments && Object.keys(inv.splitPayments).length > 0) {
+                Object.entries(inv.splitPayments).forEach(([channel, amt]) => {
+                    const num = Number(amt) || 0;
+                    if (num > 0 && channel.toLowerCase() !== 'due') {
+                        paymentBreakdowns.push({
+                            id: `pb-${Date.now()}-${channel}`,
+                            method: channel,
+                            amount: num,
+                            referenceNo: inv.invoiceNo,
+                        });
+                    }
+                });
+            } else if ((inv.paidAmount || 0) > 0) {
+                paymentBreakdowns.push({
+                    id: `pb-${Date.now()}-paid`,
+                    method: inv.paymentMethod || 'Cash in Hand',
+                    amount: inv.paidAmount,
+                    referenceNo: inv.invoiceNo,
+                });
+            }
+            if ((inv.dueAmount || 0) > 0) {
+                paymentBreakdowns.push({
+                    id: `pb-${Date.now()}-due`,
+                    method: 'Due',
+                    amount: inv.dueAmount,
+                    referenceNo: inv.invoiceNo,
+                });
+            }
+
+            const newSaleItem: ProjectSalesItem = {
+                id: `ps-${Date.now()}`,
+                invoiceNo: inv.invoiceNo,
+                description: (inv.items || []).map(i => `${i.name} (x${i.qty})`).join(', ') || 'Sales Invoice Billing',
+                amount: Number(inv.grandTotal) || 0,
+                date: inv.date || new Date().toISOString().slice(0, 10),
+                clientName: inv.customerName,
+                note: `Linked from Sales Invoice #${inv.invoiceNo}`,
+                paymentMethod: inv.paymentMethod || 'Cash in Hand',
+                paymentBreakdown: paymentBreakdowns.length > 0 ? paymentBreakdowns : undefined,
+                linkedAccountId: unifiedCoaId,
+                paidAmount: Number(inv.paidAmount) || 0,
+                dueAmount: Number(inv.dueAmount) || 0,
+                collections: [],
+            };
+            updatedSales.push(newSaleItem);
+
+            paymentBreakdowns.forEach((pb, pidx) => {
+                const pbAmount = Number(pb.amount) || 0;
+                if (pbAmount <= 0) return;
+                const assetAcc = resolvePaymentAssetAccount(pb.method);
+                const newJournal: JournalEntry = {
+                    id: `jnl-ps-link-${Date.now()}-${pidx}`,
+                    entryNo: `JNL-${new Date().getFullYear()}-${Date.now().toString().slice(-4)}${pidx}`,
+                    date: inv.date || new Date().toISOString().slice(0, 10),
+                    refNo: inv.invoiceNo,
+                    debitAccountId: assetAcc.id,
+                    debitAccountName: assetAcc.name,
+                    creditAccountId: revAcc.id,
+                    creditAccountName: revAcc.name,
+                    amount: pbAmount,
+                    narration: `Project Sales Income (Unified COA): [${targetProj.code}] ${targetProj.name} - #${inv.invoiceNo} (${pb.method})`,
+                    source: 'PROJECT_SALES',
+                    createdBy: activeStaff?.name || 'Managing Director',
+                };
+                setJournalEntries(prev => [newJournal, ...prev]);
+            });
+        }
+
+        updateProject(targetProj.id, {
+            invoiceId: inv.id,
+            invoiceNo: inv.invoiceNo,
+            chartOfAccountId: unifiedCoaId,
+            projectAccountCode: unifiedCoaCode,
+            salesItems: updatedSales,
+        });
+
+        updateInvoice(inv.id, {
+            projectId: targetProj.id,
+            projectCode: targetProj.code,
+            chartOfAccountId: unifiedCoaId,
+        });
+
+        addAuditLog({
+            staffId: activeStaff?.id || 'staff-admin',
+            staffName: activeStaff?.name || 'Staff',
+            staffRole: activeStaff?.role || 'Managing Director',
+            location: 'Office',
+            actionType: 'PROJECT_UPDATED',
+            entityType: 'Projects',
+            refNo: targetProj.code,
+            details: `Linked Sales Invoice #${inv.invoiceNo} to Project [${targetProj.code}] ${targetProj.name} with unified COA (${unifiedCoaCode} - ${revAcc.name})`,
+            severity: 'info',
+        });
+
+        return true;
+    };
+
+    const unlinkInvoiceFromProject = (projectId: string): boolean => {
+        const targetProj = projects.find(p => p.id === projectId);
+        if (!targetProj) return false;
+        const invId = targetProj.invoiceId;
+        const invNo = targetProj.invoiceNo;
+
+        updateProject(targetProj.id, {
+            invoiceId: undefined,
+            invoiceNo: undefined,
+        });
+
+        if (invId) {
+            updateInvoice(invId, {
+                projectId: undefined,
+                projectCode: undefined,
+            });
+        } else if (invNo) {
+            const matchedInv = invoices.find(i => i.invoiceNo === invNo);
+            if (matchedInv) {
+                updateInvoice(matchedInv.id, {
+                    projectId: undefined,
+                    projectCode: undefined,
+                });
+            }
+        }
+        return true;
     };
 
     const addProjectSales = (projectId: string, sales: Omit<ProjectSalesItem, 'id'>) => {
@@ -5404,6 +5793,9 @@ export const AppProvider: React.FC<{
             deleteProjectSales,
             deleteProjectExpense,
             syncProjectsWithAccounting,
+            createProjectFromInvoice,
+            linkInvoiceToProject,
+            unlinkInvoiceFromProject,
             cleanModuleData,
             resetSalesData,
             resetAllTransactionalData,
