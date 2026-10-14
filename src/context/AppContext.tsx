@@ -869,16 +869,27 @@ export const AppProvider: React.FC<{
                 acc.nameBn?.includes('বিক্রয়')
             );
             if (isSalesRevenue) {
+                const projectLinkedInvoiceNos = new Set([
+                    ...(projects || []).map(p => (p.invoiceNo || '').toLowerCase().trim()).filter(Boolean),
+                    ...(projects || []).flatMap(p => (p.salesItems || []).map(s => (s.invoiceNo || '').toLowerCase().trim())).filter(Boolean),
+                    ...(invoices || []).filter(inv => inv.projectId || inv.projectCode).map(inv => (inv.invoiceNo || '').toLowerCase().trim()).filter(Boolean),
+                ]);
+                const projectLinkedInvoiceIds = new Set([
+                    ...(projects || []).map(p => p.invoiceId).filter(Boolean) as string[],
+                    ...(invoices || []).filter(inv => inv.projectId || inv.projectCode).map(inv => inv.id).filter(Boolean) as string[],
+                ]);
                 const nonPrjInvoices = (invoices || []).filter(inv => {
+                    const invNo = (inv.invoiceNo || '').toLowerCase().trim();
                     const isLinked = Boolean(
                         inv.projectId ||
                         inv.projectCode ||
-                        (projects || []).some(p => p.invoiceId === inv.id || p.invoiceNo === inv.invoiceNo)
+                        projectLinkedInvoiceIds.has(inv.id) ||
+                        (invNo && projectLinkedInvoiceNos.has(invNo))
                     );
                     return !isLinked;
                 });
                 const totalInvoiceSales = nonPrjInvoices.reduce((s, inv) => s + (Number(inv.grandTotal) || (Number(inv.paidAmount) + Number(inv.dueAmount)) || 0), 0);
-                const invoiceSalesFromTx = (transactions || []).filter(t => t.type === 'INCOME' && isInvoiceTransaction(t)).reduce((s, t) => s + t.amount, 0);
+                const invoiceSalesFromTx = (transactions || []).filter(t => t.type === 'INCOME' && isInvoiceTransaction(t) && !projectLinkedInvoiceNos.has((t.refNo || '').toLowerCase().trim())).reduce((s, t) => s + t.amount, 0);
                 const effectiveInvoiceSales = Math.max(totalInvoiceSales, invoiceSalesFromTx);
                 const directSalesRevenue = (transactions || []).filter(t => 
                     t.type === 'INCOME' && 
@@ -1144,8 +1155,49 @@ export const AppProvider: React.FC<{
     useEffect(() => {
         if (!invoices || invoices.length === 0) return;
 
+        const projectLinkedInvoiceNos = new Set([
+            ...(projects || []).map(p => (p.invoiceNo || '').toLowerCase().trim()).filter(Boolean),
+            ...(projects || []).flatMap(p => (p.salesItems || []).map(s => (s.invoiceNo || '').toLowerCase().trim())).filter(Boolean),
+            ...(invoices || []).filter(inv => inv.projectId || inv.projectCode).map(inv => (inv.invoiceNo || '').toLowerCase().trim()).filter(Boolean),
+        ]);
+        const projectLinkedInvoiceIds = new Set([
+            ...(projects || []).map(p => p.invoiceId).filter(Boolean) as string[],
+            ...(invoices || []).filter(inv => inv.projectId || inv.projectCode).map(inv => inv.id).filter(Boolean) as string[],
+        ]);
+
+        const isInvLinkedToProject = (inv: SalesInvoice) => {
+            const invNo = (inv.invoiceNo || '').toLowerCase().trim();
+            return Boolean(
+                inv.projectId ||
+                inv.projectCode ||
+                projectLinkedInvoiceIds.has(inv.id) ||
+                (invNo && projectLinkedInvoiceNos.has(invNo))
+            );
+        };
+
+        // 1. Purge rogue duplicate auto-generated Sales Revenue transactions for project-linked invoices
+        if (transactions && transactions.length > 0) {
+            const hasRogueTx = transactions.some(t => {
+                const refLower = (t.refNo || '').toLowerCase().trim();
+                return t.type === 'INCOME' && t.category === 'Sales Revenue' && refLower && projectLinkedInvoiceNos.has(refLower);
+            });
+            if (hasRogueTx) {
+                const cleaned = transactions.filter(t => {
+                    const refLower = (t.refNo || '').toLowerCase().trim();
+                    return !(t.type === 'INCOME' && t.category === 'Sales Revenue' && refLower && projectLinkedInvoiceNos.has(refLower));
+                });
+                setTransactions(cleaned);
+                try { localStorage.setItem(`${STORAGE_KEY}_TRANSACTIONS`, JSON.stringify(cleaned)); } catch {}
+                latestStateRef.current = {
+                    ...latestStateRef.current,
+                    transactions: cleaned,
+                };
+            }
+        }
+
+        const currentTxs = latestStateRef.current.transactions || transactions || [];
         const recordedRefs = new Set(
-            (transactions || [])
+            currentTxs
                 .filter(t => t.type === 'INCOME' && t.refNo)
                 .map(t => (t.refNo || '').toLowerCase().trim())
         );
@@ -1157,6 +1209,9 @@ export const AppProvider: React.FC<{
 
         const missingTxs: AccountingTransaction[] = [];
         invoices.forEach(inv => {
+            // NEVER generate generic Sales Revenue transactions for invoices linked to projects!
+            if (isInvLinkedToProject(inv)) return;
+
             const ref = (inv.invoiceNo || '').toLowerCase().trim();
             if (!ref || recordedRefs.has(ref) || deletedRefs.has(ref)) return;
 
@@ -1200,7 +1255,7 @@ export const AppProvider: React.FC<{
         if (missingTxs.length > 0) {
             setTransactions(prev => ensureUniqueTransactions([...missingTxs, ...prev]));
         }
-    }, [invoices, chartOfAccounts, paymentMethods]);
+    }, [invoices, chartOfAccounts, paymentMethods, projects]);
 
     // Automatic real-time reconciliation between Projects and linked Sales Invoices
     useEffect(() => {
@@ -4897,6 +4952,8 @@ export const AppProvider: React.FC<{
                     }
                     return {
                         ...inv,
+                        projectId: inv.projectId || targetProj.id,
+                        projectCode: inv.projectCode || targetProj.code,
                         paidAmount: newPaid,
                         dueAmount: newDue,
                         paymentStatus: newStatus,
@@ -5992,9 +6049,9 @@ export const AppProvider: React.FC<{
             }
         });
 
-        const mfsData = getMfsAccountsBreakdown(chartOfAccounts, transactions, invoices);
-        const bankData = getBankAccountsBreakdown(chartOfAccounts, transactions, invoices);
-        const cashData = getCashAccountsBreakdown(chartOfAccounts, transactions, invoices);
+        const mfsData = getMfsAccountsBreakdown(chartOfAccounts, transactions, invoices, projects);
+        const bankData = getBankAccountsBreakdown(chartOfAccounts, transactions, invoices, projects);
+        const cashData = getCashAccountsBreakdown(chartOfAccounts, transactions, invoices, projects);
         const dynamicBankTotal = bankData.reduce((acc, b) => acc + b.balance, 0);
 
         return {
@@ -6006,7 +6063,7 @@ export const AppProvider: React.FC<{
             nagad: mfsData.nagad,
             bankBreakdown: bankData,
         };
-    }, [transactions, chartOfAccounts, profile.bankName, invoices]);
+    }, [transactions, chartOfAccounts, profile.bankName, invoices, projects]);
     return (<AppContext.Provider value={{
             profile,
             products,

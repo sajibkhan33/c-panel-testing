@@ -75,7 +75,7 @@ export const AccountingModule: React.FC = () => {
                 const key = acc.name.trim().toLowerCase();
                 if (!seen.has(key)) {
                     seen.add(key);
-                    const bal = calculateSingleAccountBalance(acc, transactions, invoices);
+                    const bal = calculateSingleAccountBalance(acc, transactions, invoices, projects);
                     list.push({
                         id: acc.id,
                         name: acc.name,

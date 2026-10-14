@@ -189,7 +189,8 @@ export const doesTransactionMatchAccount = (
 export const calculateSingleAccountBalance = (
     acc: ChartOfAccount,
     transactions: AccountingTransaction[],
-    invoices: SalesInvoice[] = []
+    invoices: SalesInvoice[] = [],
+    projects: any[] = []
 ): number => {
     let balance = Number(acc.openingBalance) || 0;
 
@@ -220,8 +221,25 @@ export const calculateSingleAccountBalance = (
             .map((t) => (t.refNo || '').toLowerCase().trim())
     );
 
+    // Build set of invoice numbers / IDs linked to projects to prevent double-counting
+    const projectLinkedInvoiceNos = new Set<string>();
+    if (projects && Array.isArray(projects)) {
+        projects.forEach((p: any) => {
+            if (p.invoiceNo) projectLinkedInvoiceNos.add(p.invoiceNo.toLowerCase().trim());
+            (p.salesItems || []).forEach((s: any) => {
+                if (s.invoiceNo) projectLinkedInvoiceNos.add(s.invoiceNo.toLowerCase().trim());
+            });
+        });
+    }
+
     (invoices || []).forEach((inv) => {
         const invRef = (inv.invoiceNo || '').toLowerCase().trim();
+
+        // Skip invoices that belong to projects - project collections/sales are recorded via project vouchers/transactions
+        if (inv.projectId || inv.projectCode || (invRef && projectLinkedInvoiceNos.has(invRef))) {
+            return;
+        }
+
         if (invRef && recordedInvoiceRefs.has(invRef)) {
             return; // Already accounted for in transactions
         }
@@ -285,12 +303,13 @@ export const getPaymentMethodLiveBalance = (
     chartOfAccounts: ChartOfAccount[] = [],
     transactions: AccountingTransaction[] = [],
     invoices: SalesInvoice[] = [],
-    accountBalances?: AccountBalances
+    accountBalances?: AccountBalances,
+    projects: any[] = []
 ): number => {
     // 1. Try to find the exact linked or matching account head in Chart of Accounts
     const matchingAcc = matchChannelToAccount(pm.name, chartOfAccounts, [pm]);
     if (matchingAcc) {
-        return calculateSingleAccountBalance(matchingAcc, transactions, invoices);
+        return calculateSingleAccountBalance(matchingAcc, transactions, invoices, projects);
     }
 
     // 2. If no COA head matched, compute directly from transactions & invoices matching this payment method
@@ -326,7 +345,8 @@ export const getPaymentMethodLiveBalance = (
 export const getBankAccountsBreakdown = (
     chartOfAccounts: ChartOfAccount[] = [],
     transactions: AccountingTransaction[] = [],
-    invoices: SalesInvoice[] = []
+    invoices: SalesInvoice[] = [],
+    projects: any[] = []
 ): Array<{ id: string; code: string; name: string; balance: number }> => {
     const isMobile = (name: string) => {
         const n = name.toLowerCase();
@@ -345,7 +365,7 @@ export const getBankAccountsBreakdown = (
         id: acc.id,
         code: acc.code,
         name: acc.name,
-        balance: calculateSingleAccountBalance(acc, transactions, invoices),
+        balance: calculateSingleAccountBalance(acc, transactions, invoices, projects),
     }));
 };
 
@@ -355,7 +375,8 @@ export const getBankAccountsBreakdown = (
 export const getMfsAccountsBreakdown = (
     chartOfAccounts: ChartOfAccount[] = [],
     transactions: AccountingTransaction[] = [],
-    invoices: SalesInvoice[] = []
+    invoices: SalesInvoice[] = [],
+    projects: any[] = []
 ): {
     bkash: number;
     nagad: number;
@@ -372,7 +393,7 @@ export const getMfsAccountsBreakdown = (
     let bkash = 0;
     let nagad = 0;
     const accounts = mfsAccs.map((acc) => {
-        const bal = calculateSingleAccountBalance(acc, transactions, invoices);
+        const bal = calculateSingleAccountBalance(acc, transactions, invoices, projects);
         const n = acc.name.toLowerCase();
         if (n.includes('bkash') || (acc.nameBn && acc.nameBn.includes('বিকাশ'))) {
             bkash += bal;
@@ -401,7 +422,8 @@ export const getMfsAccountsBreakdown = (
 export const getCashAccountsBreakdown = (
     chartOfAccounts: ChartOfAccount[] = [],
     transactions: AccountingTransaction[] = [],
-    invoices: SalesInvoice[] = []
+    invoices: SalesInvoice[] = [],
+    projects: any[] = []
 ): {
     total: number;
     officeCash: number;
@@ -428,7 +450,7 @@ export const getCashAccountsBreakdown = (
     let factoryCash = 0;
     let total = 0;
     const accounts = cashAccs.map((acc) => {
-        const bal = calculateSingleAccountBalance(acc, transactions, invoices);
+        const bal = calculateSingleAccountBalance(acc, transactions, invoices, projects);
         total += bal;
         const n = acc.name.toLowerCase();
         if (n.includes('factory') || acc.code === '1020') {

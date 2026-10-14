@@ -36,18 +36,22 @@ export const ChartOfAccountsManager: React.FC = () => {
         const totalProjectSales = (projects || []).reduce((s, p) => s + (p.totalSales || 0), 0);
         const totalProjectExpenses = (projects || []).reduce((s, p) => s + (p.totalExpenses || 0), 0);
 
-        const projectLinkedInvoiceIds = new Set(
-            (projects || []).map(p => p.invoiceId).filter(Boolean) as string[]
-        );
-        const projectLinkedInvoiceNos = new Set(
-            (projects || []).map(p => p.invoiceNo).filter(Boolean) as string[]
-        );
+        const projectLinkedInvoiceNos = new Set([
+            ...(projects || []).map(p => (p.invoiceNo || '').toLowerCase().trim()).filter(Boolean),
+            ...(projects || []).flatMap(p => (p.salesItems || []).map(s => (s.invoiceNo || '').toLowerCase().trim())).filter(Boolean),
+            ...(invoices || []).filter(inv => inv.projectId || inv.projectCode).map(inv => (inv.invoiceNo || '').toLowerCase().trim()).filter(Boolean),
+        ]);
+        const projectLinkedInvoiceIds = new Set([
+            ...(projects || []).map(p => p.invoiceId).filter(Boolean) as string[],
+            ...(invoices || []).filter(inv => inv.projectId || inv.projectCode).map(inv => inv.id).filter(Boolean) as string[],
+        ]);
         const isInvLinkedToProject = (inv: SalesInvoice) => {
+            const invNo = (inv.invoiceNo || '').toLowerCase().trim();
             return Boolean(
                 inv.projectId ||
                 inv.projectCode ||
                 projectLinkedInvoiceIds.has(inv.id) ||
-                projectLinkedInvoiceNos.has(inv.invoiceNo)
+                (invNo && projectLinkedInvoiceNos.has(invNo))
             );
         };
 
@@ -132,7 +136,7 @@ export const ChartOfAccountsManager: React.FC = () => {
                     liveBal = calculateInventoryValuation(products, purchaseOrders, acc, journalEntries);
                 } else {
                     // Dynamic individual live balance calculation for Cash, City Bank PLC, Southeast Bank, Nagad, bKash, etc.
-                    liveBal = calculateSingleAccountBalance(acc, transactions, invoices);
+                    liveBal = calculateSingleAccountBalance(acc, transactions, invoices, projects);
                 }
             } else if (acc.classification === 'Liability') {
                 const isPayable = acc.code === '2001' || acc.code === '2010' || nameLower.includes('payable') || nameLower.includes('supplier') || nameBn.includes('দেনা') || nameBn.includes('প্রদেয়');
@@ -210,7 +214,7 @@ export const ChartOfAccountsManager: React.FC = () => {
                 } else if (isSalesRev) {
                     // Non-project invoice sales
                     const invoiceSalesFromTx = (transactions || [])
-                        .filter(t => t.type === 'INCOME' && isInvoiceTransaction(t) && !projectLinkedInvoiceNos.has(t.refNo || ''))
+                        .filter(t => t.type === 'INCOME' && isInvoiceTransaction(t) && !projectLinkedInvoiceNos.has((t.refNo || '').toLowerCase().trim()))
                         .reduce((s, t) => s + t.amount, 0);
                     const effectiveInvoiceSales = Math.max(totalNonProjectInvoiceSales, invoiceSalesFromTx);
 
