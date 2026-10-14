@@ -19,7 +19,7 @@ export interface ExpenseBreakdownRow {
     paymentMethod?: string;
 }
 export const ProjectManagementModule: React.FC = () => {
-    const { projects, addProject, updateProject, deleteProject, addProjectSales, addProjectExpense, addProjectExpenses, deleteProjectSales, deleteProjectExpense, syncProjectsWithAccounting, journalEntries = [], chartOfAccounts = [], expenseHeads = [], language, profile, paymentMethods = [], } = useApp();
+    const { projects, addProject, updateProject, deleteProject, addProjectSales, collectProjectDue, addProjectExpense, addProjectExpenses, deleteProjectSales, deleteProjectExpense, syncProjectsWithAccounting, journalEntries = [], chartOfAccounts = [], expenseHeads = [], language, profile, paymentMethods = [], } = useApp();
     const isBn = language === 'bn';
     const [searchTerm, setSearchType] = useState('');
     const [statusFilter, setStatusFilter] = useState<string>('ALL');
@@ -29,6 +29,18 @@ export const ProjectManagementModule: React.FC = () => {
     const [showCreateModal, setShowCreateModal] = useState(false);
     const [showSalesModal, setShowSalesModal] = useState<string | null>(null); // projectId
     const [showExpenseModal, setShowExpenseModal] = useState<string | null>(null); // projectId
+    const [collectingDueSale, setCollectingDueSale] = useState<{
+        project: Project;
+        sale: ProjectSalesItem;
+        dueAmount: number;
+    } | null>(null);
+    const [collectDueForm, setCollectDueForm] = useState({
+        amount: '' as number | '',
+        paymentMethod: 'Cash in Hand',
+        date: new Date().toISOString().split('T')[0],
+        referenceNo: '',
+        note: '',
+    });
     const [editingProject, setEditingProject] = useState<Project | null>(null);
     const [projectToDelete, setProjectToDelete] = useState<Project | null>(null);
     // New Project Form State
@@ -135,6 +147,24 @@ export const ProjectManagementModule: React.FC = () => {
         return list;
     }, [chartOfAccounts]);
 
+    const collectPaymentAccounts = useMemo(() => {
+        const accounts: string[] = [];
+        availablePaymentAccounts.forEach(a => {
+            if (!accounts.includes(a.name) && !a.name.toLowerCase().includes('due') && !a.name.toLowerCase().includes('receivable')) {
+                accounts.push(a.name);
+            }
+        });
+        (activePaymentMethods || []).forEach(pm => {
+            if (!accounts.includes(pm.name) && !pm.name.toLowerCase().includes('due') && !pm.name.toLowerCase().includes('receivable')) {
+                accounts.push(pm.name);
+            }
+        });
+        if (accounts.length === 0) {
+            accounts.push('Cash in Hand', 'City Bank PLC', 'Southeast Bank', 'Nagad', 'bKash');
+        }
+        return accounts;
+    }, [availablePaymentAccounts, activePaymentMethods]);
+
 
 
     const projectRevAcc = useMemo(() => {
@@ -193,6 +223,8 @@ export const ProjectManagementModule: React.FC = () => {
         const totalProjects = projects.length;
         const totalBudget = projects.reduce((sum, p) => sum + (Number(p.budget) || 0), 0);
         const totalSales = projects.reduce((sum, p) => sum + (p.totalSales || 0), 0);
+        const totalCollected = projects.reduce((sum, p) => sum + (p.totalCollected || 0), 0);
+        const totalDue = projects.reduce((sum, p) => sum + (p.totalDue || 0), 0);
         const totalExpenses = projects.reduce((sum, p) => sum + (p.totalExpenses || 0), 0);
         const totalNetProfit = totalSales - totalExpenses;
         const overallMargin = totalSales > 0 ? (totalNetProfit / totalSales) * 100 : 0;
@@ -200,6 +232,8 @@ export const ProjectManagementModule: React.FC = () => {
             totalProjects,
             totalBudget,
             totalSales,
+            totalCollected,
+            totalDue,
             totalExpenses,
             totalNetProfit,
             overallMargin,
@@ -321,6 +355,37 @@ export const ProjectManagementModule: React.FC = () => {
         });
         setShowSalesModal(null);
     };
+
+    const handleOpenCollectDue = (project: Project, sale: ProjectSalesItem, dueAmount: number) => {
+        setCollectingDueSale({ project, sale, dueAmount });
+        setCollectDueForm({
+            amount: dueAmount,
+            paymentMethod: collectPaymentAccounts[0] || 'Cash in Hand',
+            date: new Date().toISOString().split('T')[0],
+            referenceNo: '',
+            note: '',
+        });
+    };
+
+    const handleConfirmCollectDue = (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!collectingDueSale) return;
+        const amt = Number(collectDueForm.amount) || 0;
+        if (amt <= 0) return;
+
+        collectProjectDue(
+            collectingDueSale.project.id,
+            collectingDueSale.sale.id,
+            amt,
+            collectDueForm.paymentMethod,
+            collectDueForm.date,
+            collectDueForm.note,
+            collectDueForm.referenceNo
+        );
+
+        setCollectingDueSale(null);
+    };
+
     const handleAddExpenseRow = () => {
         const newId = `exp-${Date.now()}-${expenseRows.length + 1}`;
         setExpenseRows((prev) => [
@@ -487,9 +552,16 @@ export const ProjectManagementModule: React.FC = () => {
                 {profile.currencySymbol}
                 {metrics.totalSales.toLocaleString()}
               </h3>
-              <p className="text-[11px] text-slate-500 mt-1">
-                {'All Billed Sales'}
-              </p>
+              <div className="flex flex-wrap gap-1 mt-1 text-[10px]">
+                <span className="font-bold text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-100">
+                  Paid: {profile.currencySymbol}{metrics.totalCollected.toLocaleString()}
+                </span>
+                {metrics.totalDue > 0 && (
+                  <span className="font-bold text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200">
+                    Due: {profile.currencySymbol}{metrics.totalDue.toLocaleString()}
+                  </span>
+                )}
+              </div>
             </div>
             <div className="w-10 h-10 bg-emerald-50 rounded-xl flex items-center justify-center text-emerald-600 border border-emerald-100">
               <TrendingUp className="w-5 h-5"/>
@@ -683,6 +755,11 @@ export const ProjectManagementModule: React.FC = () => {
                           {profile.currencySymbol}
                           {project.totalSales.toLocaleString()}
                         </p>
+                        {(project.totalDue || 0) > 0 && (
+                          <p className="text-[9px] font-extrabold text-amber-600 mt-0.5 leading-none">
+                            Due: {profile.currencySymbol}{(project.totalDue || 0).toLocaleString()}
+                          </p>
+                        )}
                       </div>
 
                       <div className="h-6 w-px bg-slate-200"/>
@@ -885,34 +962,87 @@ export const ProjectManagementModule: React.FC = () => {
                                 </tr>
                               </thead>
                               <tbody className="divide-y divide-slate-100">
-                                {project.salesItems.map((sales) => (<tr key={sales.id} className="hover:bg-slate-50">
-                                    <td className="py-2">
-                                      <div className="font-semibold text-slate-800">{sales.description}</div>
-                                      <div className="text-[10px] text-slate-400">
-                                        {sales.date} {sales.invoiceNo ? `• ${sales.invoiceNo}` : ''}
-                                      </div>
-                                      {sales.paymentBreakdown && sales.paymentBreakdown.length > 0 ? (<div className="flex flex-wrap gap-1 mt-1">
-                                          {sales.paymentBreakdown.map((pb, pidx) => (<span key={pidx} className="inline-flex items-center gap-1 text-[10px] bg-emerald-50 text-emerald-800 font-bold px-1.5 py-0.5 rounded border border-emerald-200">
-                                              <span>{pb.method}:</span>
-                                              <span className="font-mono">{profile.currencySymbol}{pb.amount.toLocaleString()}</span>
-                                              {pb.note && <span className="text-slate-500 font-normal">({pb.note})</span>}
-                                            </span>))}
-                                        </div>) : sales.paymentMethod ? (<div className="mt-1">
-                                          <span className="text-[10px] bg-slate-100 text-slate-700 font-semibold px-1.5 py-0.5 rounded">
-                                            {sales.paymentMethod}
-                                          </span>
-                                        </div>) : null}
-                                    </td>
-                                    <td className="py-2 text-right font-extrabold text-slate-900">
-                                      {profile.currencySymbol}
-                                      {sales.amount.toLocaleString()}
-                                    </td>
-                                    <td className="py-2 text-center">
-                                      <button type="button" onClick={() => deleteProjectSales(project.id, sales.id)} className="text-slate-300 hover:text-rose-600 p-1">
-                                        <Trash2 className="w-3.5 h-3.5"/>
-                                      </button>
-                                    </td>
-                                  </tr>))}
+                                {project.salesItems.map((sales) => {
+                                    const itemDue = sales.dueAmount !== undefined
+                                      ? Number(sales.dueAmount)
+                                      : (() => {
+                                          const dueRow = (sales.paymentBreakdown || []).find(b => {
+                                            const m = (b.method || '').toLowerCase();
+                                            return m.includes('due') || m.includes('receivable');
+                                          });
+                                          const dueInitial = dueRow ? Number(dueRow.amount) || 0 : 0;
+                                          const pastCols = (sales.collections || []).reduce((sum, c) => sum + (Number(c.amount) || 0), 0);
+                                          return Math.max(0, dueInitial - pastCols);
+                                        })();
+
+                                    return (<tr key={sales.id} className="hover:bg-slate-50">
+                                      <td className="py-2">
+                                        <div className="font-semibold text-slate-800 flex items-center gap-1.5 flex-wrap">
+                                          <span>{sales.description}</span>
+                                          {itemDue > 0 ? (
+                                            <span className="inline-flex items-center text-[9px] font-bold bg-amber-50 text-amber-800 px-1.5 py-0.5 rounded border border-amber-200">
+                                              Due Remaining: {profile.currencySymbol}{itemDue.toLocaleString()}
+                                            </span>
+                                          ) : (
+                                            <span className="inline-flex items-center text-[9px] font-semibold bg-emerald-50 text-emerald-700 px-1.5 py-0.5 rounded border border-emerald-200">
+                                              ✓ Paid
+                                            </span>
+                                          )}
+                                        </div>
+                                        <div className="text-[10px] text-slate-400">
+                                          {sales.date} {sales.invoiceNo ? `• ${sales.invoiceNo}` : ''}
+                                        </div>
+                                        {sales.paymentBreakdown && sales.paymentBreakdown.length > 0 ? (<div className="flex flex-wrap gap-1 mt-1">
+                                            {sales.paymentBreakdown.map((pb, pidx) => {
+                                              const isDue = (pb.method || '').toLowerCase().includes('due') || (pb.method || '').toLowerCase().includes('receivable');
+                                              return (
+                                                <span key={pidx} className={`inline-flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded border ${isDue ? 'bg-amber-50 text-amber-800 border-amber-200' : 'bg-emerald-50 text-emerald-800 border-emerald-200'}`}>
+                                                  <span>{pb.method}:</span>
+                                                  <span className="font-mono">{profile.currencySymbol}{pb.amount.toLocaleString()}</span>
+                                                  {pb.note && <span className="text-slate-500 font-normal">({pb.note})</span>}
+                                                </span>
+                                              );
+                                            })}
+                                          </div>) : sales.paymentMethod ? (<div className="mt-1">
+                                            <span className="text-[10px] bg-slate-100 text-slate-700 font-semibold px-1.5 py-0.5 rounded">
+                                              {sales.paymentMethod}
+                                            </span>
+                                          </div>) : null}
+
+                                        {sales.collections && sales.collections.length > 0 && (
+                                          <div className="flex flex-wrap gap-1 mt-1">
+                                            {sales.collections.map((col, cidx) => (
+                                              <span key={cidx} className="inline-flex items-center gap-1 text-[9px] bg-blue-50 text-blue-800 font-semibold px-1.5 py-0.5 rounded border border-blue-200">
+                                                <span>✓ Collected {profile.currencySymbol}{col.amount.toLocaleString()} via {col.paymentMethod} ({col.date})</span>
+                                              </span>
+                                            ))}
+                                          </div>
+                                        )}
+                                      </td>
+                                      <td className="py-2 text-right font-extrabold text-slate-900">
+                                        {profile.currencySymbol}
+                                        {sales.amount.toLocaleString()}
+                                      </td>
+                                      <td className="py-2 text-center">
+                                        <div className="flex items-center justify-center gap-1.5">
+                                          {itemDue > 0 && (
+                                            <button
+                                              type="button"
+                                              onClick={() => handleOpenCollectDue(project, sales, itemDue)}
+                                              className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 rounded px-2 py-0.5 shadow-2xs transition-colors cursor-pointer"
+                                              title="Collect / Adjust Project Due"
+                                            >
+                                              <DollarSign className="w-3 h-3" />
+                                              <span>+ Collect Due</span>
+                                            </button>
+                                          )}
+                                          <button type="button" onClick={() => deleteProjectSales(project.id, sales.id)} className="text-slate-300 hover:text-rose-600 p-1" title="Delete Sale">
+                                            <Trash2 className="w-3.5 h-3.5"/>
+                                          </button>
+                                        </div>
+                                      </td>
+                                    </tr>);
+                                  })}
                               </tbody>
                             </table>
                           </div>)}
@@ -1442,6 +1572,168 @@ export const ProjectManagementModule: React.FC = () => {
             </div>
           </form>
         </div>)}
+
+      {/* COLLECT PROJECT DUE MODAL */}
+      {collectingDueSale && (
+        <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
+          <form onSubmit={handleConfirmCollectDue} className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl border border-slate-200 space-y-4 my-8">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-emerald-100 flex items-center justify-center text-emerald-700">
+                  <DollarSign className="w-5 h-5"/>
+                </div>
+                <div>
+                  <h3 className="font-bold text-slate-900 text-sm">
+                    {'Collect Project Due / বকেয়া আদায় ও সমন্বয়'}
+                  </h3>
+                  <p className="text-[11px] text-slate-500">
+                    {collectingDueSale.project.name} ({collectingDueSale.project.code})
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setCollectingDueSale(null)}
+                className="text-slate-400 hover:text-slate-700 text-sm font-bold p-1 rounded-lg hover:bg-slate-100 cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Outstanding Due Summary Banner */}
+            <div className="bg-amber-50/80 p-4 rounded-xl border border-amber-200/90 flex items-center justify-between">
+              <div>
+                <p className="text-[10px] font-bold text-amber-800 uppercase tracking-wider">
+                  {'Remaining Due (বকেয়া)'}
+                </p>
+                <p className="text-xl font-black text-amber-900 mt-0.5">
+                  {profile.currencySymbol}{collectingDueSale.dueAmount.toLocaleString()}
+                </p>
+                <p className="text-[11px] text-slate-600 mt-0.5">
+                  Client: <span className="font-semibold">{collectingDueSale.project.clientName}</span>
+                </p>
+              </div>
+              <div className="text-right">
+                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Total Billed</p>
+                <p className="text-sm font-extrabold text-slate-700 font-mono mt-0.5">
+                  {profile.currencySymbol}{collectingDueSale.sale.amount.toLocaleString()}
+                </p>
+                {collectingDueSale.sale.invoiceNo && (
+                  <p className="text-[10px] text-slate-400 mt-0.5">
+                    {collectingDueSale.sale.invoiceNo}
+                  </p>
+                )}
+              </div>
+            </div>
+
+            {/* Inputs */}
+            <div className="space-y-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    {'Collection Amount (Tk) *'}
+                  </label>
+                  <input
+                    type="number"
+                    min={1}
+                    max={collectingDueSale.dueAmount}
+                    required
+                    value={collectDueForm.amount}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setCollectDueForm(prev => ({
+                        ...prev,
+                        amount: val === '' ? '' : Math.min(collectingDueSale.dueAmount, Number(val))
+                      }));
+                    }}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-xl text-xs font-black text-emerald-800 focus:outline-hidden focus:ring-2 focus:ring-emerald-500"
+                    placeholder="Enter collected amount"
+                  />
+                  <span className="text-[10px] text-slate-400 mt-1 block">
+                    Max: {profile.currencySymbol}{collectingDueSale.dueAmount.toLocaleString()}
+                  </span>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    {'Collection Date *'}
+                  </label>
+                  <input
+                    type="date"
+                    required
+                    value={collectDueForm.date}
+                    onChange={(e) => setCollectDueForm(prev => ({ ...prev, date: e.target.value }))}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-xl text-xs font-medium focus:outline-hidden focus:ring-2 focus:ring-emerald-500"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  {'Receive Into Account (Payment Channel) *'}
+                </label>
+                <select
+                  value={collectDueForm.paymentMethod}
+                  onChange={(e) => setCollectDueForm(prev => ({ ...prev, paymentMethod: e.target.value }))}
+                  className="w-full px-3 py-2 border border-slate-300 rounded-xl text-xs font-bold text-slate-800 focus:outline-hidden focus:ring-2 focus:ring-emerald-500 bg-white cursor-pointer"
+                >
+                  {collectPaymentAccounts.map((accName, idx) => (
+                    <option key={idx} value={accName}>
+                      {accName}
+                    </option>
+                  ))}
+                </select>
+                <p className="text-[10px] text-slate-500 mt-1">
+                  • <strong>Debit:</strong> Selected Cash/Bank Account | • <strong>Credit:</strong> 1003 Accounts Receivable - Customers
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  {'Reference / Cheque / TrxID (Optional)'}
+                </label>
+                <input
+                  type="text"
+                  placeholder="e.g. Cheque #58129 / Trx-Nagad-9382"
+                  value={collectDueForm.referenceNo}
+                  onChange={(e) => setCollectDueForm(prev => ({ ...prev, referenceNo: e.target.value }))}
+                  className="w-full px-3 py-2 border border-slate-300 rounded-xl text-xs font-medium focus:outline-hidden focus:ring-2 focus:ring-emerald-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  {'Note / Remarks (Optional)'}
+                </label>
+                <input
+                  type="text"
+                  placeholder="e.g. Paid via bank transfer"
+                  value={collectDueForm.note}
+                  onChange={(e) => setCollectDueForm(prev => ({ ...prev, note: e.target.value }))}
+                  className="w-full px-3 py-2 border border-slate-300 rounded-xl text-xs font-medium focus:outline-hidden focus:ring-2 focus:ring-emerald-500"
+                />
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-2 pt-3 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => setCollectingDueSale(null)}
+                className="px-4 py-2 border border-slate-200 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-50 cursor-pointer"
+              >
+                {'Cancel'}
+              </button>
+              <button
+                type="submit"
+                disabled={!collectDueForm.amount || Number(collectDueForm.amount) <= 0}
+                className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-xl text-xs font-bold shadow-sm cursor-pointer transition-all"
+              >
+                {`Confirm Collection (${profile.currencySymbol}${Number(collectDueForm.amount || 0).toLocaleString()})`}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
 
       {/* DELETE CONFIRMATION MODAL */}
       {projectToDelete && (<div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-4">

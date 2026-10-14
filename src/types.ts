@@ -528,7 +528,8 @@ export type AuditActionType =
   | 'PROJECT_UPDATED'
   | 'PROJECT_DELETED'
   | 'PROJECT_SALES_ADDED'
-  | 'PROJECT_EXPENSE_ADDED';
+  | 'PROJECT_EXPENSE_ADDED'
+  | 'PROJECT_DUE_COLLECTED';
 
 export interface ProjectExpenseItem {
   id: string;
@@ -553,6 +554,17 @@ export interface ProjectSalesPaymentBreakdown {
   referenceNo?: string;
 }
 
+export interface ProjectSalesCollection {
+  id: string;
+  date: string;
+  amount: number;
+  paymentMethod: string;
+  paymentAccountId?: string;
+  note?: string;
+  referenceNo?: string;
+  createdBy?: string;
+}
+
 export interface ProjectSalesItem {
   id: string;
   invoiceNo?: string;
@@ -564,6 +576,9 @@ export interface ProjectSalesItem {
   paymentMethod?: string;
   paymentBreakdown?: ProjectSalesPaymentBreakdown[];
   linkedAccountId?: string;
+  paidAmount?: number;
+  dueAmount?: number;
+  collections?: ProjectSalesCollection[];
 }
 
 export interface Project {
@@ -582,6 +597,8 @@ export interface Project {
   expenseItems: ProjectExpenseItem[];
   totalSales: number;
   totalExpenses: number;
+  totalCollected?: number;
+  totalDue?: number;
   netProfit: number;
   profitMargin: number;
   notes?: string;

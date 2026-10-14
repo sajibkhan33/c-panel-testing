@@ -141,6 +141,7 @@ interface AppContextType {
     updateProject: (id: string, updates: Partial<Project>) => void;
     deleteProject: (id: string) => void;
     addProjectSales: (projectId: string, sales: Omit<ProjectSalesItem, 'id'>) => void;
+    collectProjectDue: (projectId: string, salesItemId: string, amount: number, paymentMethod: string, date?: string, note?: string, referenceNo?: string) => void;
     addProjectExpense: (projectId: string, expense: Omit<ProjectExpenseItem, 'id'>) => void;
     addProjectExpenses: (projectId: string, expenses: Omit<ProjectExpenseItem, 'id'>[]) => void;
     deleteProjectSales: (projectId: string, salesId: string) => void;
@@ -3633,7 +3634,30 @@ export const AppProvider: React.FC<{
         const totalExpenses = (p.expenseItems || []).reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
         const netProfit = totalSales - totalExpenses;
         const profitMargin = totalSales > 0 ? Number(((netProfit / totalSales) * 100).toFixed(2)) : 0;
-        return { ...p, totalSales, totalExpenses, netProfit, profitMargin };
+
+        let totalDue = 0;
+        let totalCollected = 0;
+        (p.salesItems || []).forEach(item => {
+            let itemDue = 0;
+            if (item.dueAmount !== undefined) {
+                itemDue = Number(item.dueAmount) || 0;
+            } else {
+                const breakdowns = item.paymentBreakdown || [];
+                const dueRow = breakdowns.find(b => {
+                    const m = (b.method || '').toLowerCase();
+                    return m.includes('due') || m.includes('receivable');
+                });
+                const dueInitial = dueRow ? Number(dueRow.amount) || 0 : 0;
+                const pastCollections = (item.collections || []).reduce((sum, c) => sum + (Number(c.amount) || 0), 0);
+                itemDue = Math.max(0, dueInitial - pastCollections);
+            }
+            const itemTotal = Number(item.amount) || 0;
+            const itemPaid = item.paidAmount !== undefined ? Number(item.paidAmount) : Math.max(0, itemTotal - itemDue);
+            totalDue += itemDue;
+            totalCollected += itemPaid;
+        });
+
+        return { ...p, totalSales, totalExpenses, totalCollected, totalDue, netProfit, profitMargin };
     };
 
     const addProject = (proj: Omit<Project, 'id' | 'code' | 'totalSales' | 'totalExpenses' | 'netProfit' | 'profitMargin'>): Project => {
@@ -3825,10 +3849,22 @@ export const AppProvider: React.FC<{
             }));
         }
 
+        let initialDue = 0;
+        validBreakdowns.forEach(pb => {
+            const m = (pb.method || '').toLowerCase();
+            if (m.includes('due') || m.includes('receivable')) {
+                initialDue += Number(pb.amount) || 0;
+            }
+        });
+        const initialPaid = Math.max(0, (Number(sales.amount) || 0) - initialDue);
+
         const newItem: ProjectSalesItem = {
             ...sales,
             id: newItemId,
             linkedAccountId: revAcc.id,
+            paidAmount: initialPaid,
+            dueAmount: initialDue,
+            collections: [],
         };
 
         setProjects((prev) => {
@@ -4063,6 +4099,171 @@ export const AppProvider: React.FC<{
                 return p;
             }),
         };
+    };
+
+    const collectProjectDue = (
+        projectId: string,
+        salesItemId: string,
+        amount: number,
+        paymentMethod: string,
+        date?: string,
+        note?: string,
+        referenceNo?: string
+    ) => {
+        const collectAmount = Math.max(0, Number(amount) || 0);
+        if (collectAmount <= 0) return;
+
+        const currentProjects = latestStateRef.current.projects || projects;
+        const targetProj = currentProjects.find((p: Project) => p.id === projectId);
+        if (!targetProj) return;
+
+        const targetSale = (targetProj.salesItems || []).find((s: ProjectSalesItem) => s.id === salesItemId);
+        if (!targetSale) return;
+
+        // Determine current due amount on this sales item
+        let currentItemDue = 0;
+        if (targetSale.dueAmount !== undefined) {
+            currentItemDue = Number(targetSale.dueAmount) || 0;
+        } else {
+            const breakdowns = targetSale.paymentBreakdown || [];
+            const dueRow = breakdowns.find(b => {
+                const m = (b.method || '').toLowerCase();
+                return m.includes('due') || m.includes('receivable');
+            });
+            const dueInitial = dueRow ? Number(dueRow.amount) || 0 : 0;
+            const pastCollections = (targetSale.collections || []).reduce((sum, c) => sum + (Number(c.amount) || 0), 0);
+            currentItemDue = Math.max(0, dueInitial - pastCollections);
+        }
+
+        if (currentItemDue <= 0) return;
+
+        const finalCollectAmount = Math.min(collectAmount, currentItemDue);
+        const colDate = date || new Date().toISOString().slice(0, 10);
+        const ref = referenceNo || targetSale.invoiceNo || `${targetProj.code}-${colDate}`;
+
+        const newCollection: ProjectSalesCollection = {
+            id: `col-prj-${Date.now()}-${Math.floor(100 + Math.random() * 900)}`,
+            date: colDate,
+            amount: finalCollectAmount,
+            paymentMethod,
+            note: note?.trim() || undefined,
+            referenceNo: ref,
+            createdBy: activeStaff?.name || 'Managing Director',
+        };
+
+        const updatedCollections = [...(targetSale.collections || []), newCollection];
+        const newDueAmount = Math.max(0, currentItemDue - finalCollectAmount);
+        const newPaidAmount = Math.max(0, (Number(targetSale.amount) || 0) - newDueAmount);
+
+        // 1. Update Project in state and local storage
+        const updatedProjects = currentProjects.map((p: Project) => {
+            if (p.id !== projectId) return p;
+            const updatedSales = (p.salesItems || []).map((s: ProjectSalesItem) => {
+                if (s.id !== salesItemId) return s;
+                return {
+                    ...s,
+                    dueAmount: newDueAmount,
+                    paidAmount: newPaidAmount,
+                    collections: updatedCollections,
+                };
+            });
+            return recalculateProject({ ...p, salesItems: updatedSales });
+        });
+
+        setProjects(updatedProjects);
+        try { localStorage.setItem(`${STORAGE_KEY}_PROJECTS`, JSON.stringify(updatedProjects)); } catch {}
+
+        latestStateRef.current = {
+            ...latestStateRef.current,
+            projects: updatedProjects,
+        };
+
+        // 2. Accounting Double-Entry (Journal Entry)
+        // Debit: Selected Cash/Bank/MFS Asset Account
+        // Credit: Accounts Receivable - Customers (1003)
+        const debitAcc = resolvePaymentAssetAccount(paymentMethod);
+        const creditAcc = resolvePaymentAssetAccount('Due');
+
+        const newJnl: JournalEntry = {
+            id: `jnl-pcol-${Date.now()}`,
+            entryNo: `JNL-${new Date().getFullYear()}-${Date.now().toString().slice(-4)}`,
+            date: colDate,
+            refNo: ref,
+            debitAccountId: debitAcc.id,
+            debitAccountName: debitAcc.name,
+            creditAccountId: creditAcc.id,
+            creditAccountName: creditAcc.name,
+            amount: finalCollectAmount,
+            narration: `Project Due Collection: [${targetProj.code}] ${targetProj.name} - Collected via ${paymentMethod} (Inv: ${targetSale.invoiceNo || 'N/A'})${note ? ` - ${note}` : ''}`,
+            source: 'PROJECT_SALES',
+            createdBy: activeStaff?.name || 'Managing Director',
+        };
+
+        setJournalEntries(prev => {
+            const next = [newJnl, ...prev];
+            try { localStorage.setItem(`${STORAGE_KEY}_JOURNALS`, JSON.stringify(next)); } catch {}
+            return next;
+        });
+
+        // 3. Accounting Transaction (Cash/Bank in-flow)
+        const isBank = paymentMethod.toLowerCase().includes('bank') || paymentMethod.toLowerCase().includes('plc');
+        const isMobile = paymentMethod.toLowerCase().includes('bkash') || paymentMethod.toLowerCase().includes('nagad') || paymentMethod.toLowerCase().includes('rocket');
+        const newTx: AccountingTransaction = {
+            id: generateUniqueId('tx-prj-col'),
+            date: colDate,
+            type: 'INCOME',
+            category: 'Project Due Collection',
+            account: isBank ? (paymentMethod.includes('City') ? 'City Bank PLC' : paymentMethod.includes('Southeast') ? 'Southeast Bank' : 'Bank Account') : isMobile ? paymentMethod : 'Cash in Hand',
+            accountHead: debitAcc.name,
+            paymentMethod: paymentMethod,
+            paymentAccount: debitAcc.name,
+            refNo: ref,
+            customerOrSupplier: targetProj.clientName,
+            description: `Project Due Collected: [${targetProj.code}] ${targetProj.name} - ${targetSale.description || 'Billing'} (${paymentMethod})`,
+            amount: finalCollectAmount,
+        };
+
+        setTransactions(prev => {
+            const next = ensureUniqueTransactions([newTx, ...prev]);
+            try { localStorage.setItem(`${STORAGE_KEY}_TRANSACTIONS`, JSON.stringify(next)); } catch {}
+            return next;
+        });
+
+        // 4. Update Chart of Accounts balances directly
+        setChartOfAccounts(prev => {
+            const next = prev.map(acc => {
+                if (acc.id === debitAcc.id) {
+                    const delta = acc.normalBalance === 'Debit' ? finalCollectAmount : -finalCollectAmount;
+                    return { ...acc, currentBalance: acc.currentBalance + delta };
+                }
+                if (acc.id === creditAcc.id) {
+                    const delta = acc.normalBalance === 'Debit' ? -finalCollectAmount : finalCollectAmount;
+                    return { ...acc, currentBalance: acc.currentBalance + delta };
+                }
+                return acc;
+            });
+            try {
+                localStorage.setItem(`${STORAGE_KEY}_COA`, JSON.stringify(next));
+                localStorage.setItem(`${STORAGE_KEY}_CHART_OF_ACCOUNTS`, JSON.stringify(next));
+            } catch {}
+            return next;
+        });
+
+        // 5. Add Audit Log
+        addAuditLog({
+            staffId: activeStaff?.id || 'staff-admin',
+            staffName: activeStaff?.name || 'Staff',
+            staffRole: activeStaff?.role || 'Managing Director',
+            location: 'Office',
+            actionType: 'PROJECT_DUE_COLLECTED' as any,
+            entityType: 'Projects',
+            refNo: targetProj.code,
+            details: `Collected Project Due of Tk ${finalCollectAmount.toLocaleString()} via ${paymentMethod} for Project ${targetProj.code} (${targetProj.name})`,
+            amount: finalCollectAmount,
+            severity: 'success',
+        });
+
+        triggerImmediatePush();
     };
 
     const deleteProjectExpense = (projectId: string, expenseId: string) => {
@@ -5197,6 +5398,7 @@ export const AppProvider: React.FC<{
             updateProject,
             deleteProject,
             addProjectSales,
+            collectProjectDue,
             addProjectExpense,
             addProjectExpenses,
             deleteProjectSales,
