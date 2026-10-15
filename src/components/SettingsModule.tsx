@@ -960,7 +960,7 @@ export const SettingsModule: React.FC = () => {
                 { id: 'cash', label: 'Cash in Hand', count: paymentMethods.filter((p) => p.type === 'cash').length },
                 { id: 'mfs', label: 'Mobile Banking (MFS)', count: paymentMethods.filter((p) => p.type === 'mfs').length },
                 { id: 'bank', label: 'Bank Wire Transfer', count: paymentMethods.filter((p) => p.type === 'bank').length },
-                { id: 'credit', label: 'Customer Due / Credit', count: paymentMethods.filter((p) => p.name.toLowerCase().includes('due') || p.name.toLowerCase().includes('credit') || p.type === 'cheque').length || 1 },
+                { id: 'credit', label: 'Customer Due / Credit', count: paymentMethods.filter((p) => p.name.toLowerCase().includes('due') || p.name.toLowerCase().includes('credit') || p.type === 'cheque').length },
                 { id: 'gateway', label: 'Bangla QR (Universal QR)', count: paymentMethods.filter((p) => p.type === 'gateway' || p.name.toLowerCase().includes('qr') || p.name.toLowerCase().includes('ssl')).length },
             ].map((tab) => {
                 const isActive = paymentFilterType === tab.id;

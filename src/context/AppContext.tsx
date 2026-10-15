@@ -394,7 +394,23 @@ export const AppProvider: React.FC<{
         return safeGetLocalStorage<Project[]>(`${STORAGE_KEY}_PROJECTS`, INITIAL_PROJECTS);
     });
     const [paymentMethods, setPaymentMethods] = useState<PaymentMethodConfig[]>(() => {
-        return safeGetLocalStorage<PaymentMethodConfig[]>(`${STORAGE_KEY}_PAYMENT_METHODS`, INITIAL_PAYMENT_METHODS);
+        const saved = safeGetLocalStorage<PaymentMethodConfig[]>(`${STORAGE_KEY}_PAYMENT_METHODS`, INITIAL_PAYMENT_METHODS);
+        if (Array.isArray(saved) && saved.length > 0) {
+            // Only auto-seed default methods if user was stuck on legacy single-cash default
+            if (saved.length === 1 && saved[0].type === 'cash') {
+                const existingNames = new Set(saved.map((p) => p.name.toLowerCase().trim()));
+                const missing = INITIAL_PAYMENT_METHODS.filter((p) => !existingNames.has(p.name.toLowerCase().trim()));
+                if (missing.length > 0) {
+                    const merged = [...saved, ...missing];
+                    try {
+                        localStorage.setItem(`${STORAGE_KEY}_PAYMENT_METHODS`, JSON.stringify(merged));
+                    } catch { }
+                    return merged;
+                }
+            }
+            return saved;
+        }
+        return INITIAL_PAYMENT_METHODS;
     });
     const [activeStaff, setActiveStaff] = useState<StaffMember>(() => {
         try {
