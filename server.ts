@@ -166,8 +166,8 @@ app.get('/api/public/invoice/:id', async (req, res) => {
 // --- Real-Time Multi-Device Broadcast Bus (Server-Sent Events) ---
 const sseClients = new Set<express.Response>();
 
-const broadcastStateUpdate = (updatedAt: any) => {
-  const payload = `data: ${JSON.stringify({ type: 'STATE_UPDATED', updatedAt })}\n\n`;
+const broadcastStateUpdate = (updatedAt: any, senderTabId?: string) => {
+  const payload = `data: ${JSON.stringify({ type: 'STATE_UPDATED', updatedAt, senderTabId })}\n\n`;
   for (const client of sseClients) {
     try {
       client.write(payload);
@@ -216,7 +216,7 @@ app.post('/api/state', async (req, res) => {
   }
 
   try {
-    const { data } = req.body;
+    const { data, senderTabId } = req.body;
     if (!data) {
       return res.status(400).json({ success: false, message: 'Data payload is required.' });
     }
@@ -227,8 +227,8 @@ app.post('/api/state', async (req, res) => {
       { upsert: true, new: true, setDefaultsOnInsert: true }
     );
 
-    // Instant real-time broadcast to all other open devices/tabs
-    broadcastStateUpdate(updated.updatedAt);
+    // Instant real-time broadcast to all other open devices/tabs (echo-filtered)
+    broadcastStateUpdate(updated.updatedAt, senderTabId);
 
     res.json({ success: true, updatedAt: updated.updatedAt });
   } catch (error: any) {

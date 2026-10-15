@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { useApp } from '../context/AppContext';
 import { Project, ProjectExpenseItem, ProjectSalesItem } from '../types';
-import { FolderKanban, Plus, Search, Filter, TrendingUp, TrendingDown, DollarSign, Receipt, CheckCircle2, Clock, Briefcase, Layers, Edit2, Trash2, ChevronDown, ChevronUp, FileSpreadsheet, Printer, Calendar, User, Phone, BookOpen, PieChart, Tag, CreditCard, Wallet, Landmark, Banknote, Smartphone, History, FileText, X } from 'lucide-react';
+import { FolderKanban, Plus, Search, Filter, TrendingUp, TrendingDown, DollarSign, Receipt, CheckCircle2, Clock, Briefcase, Layers, Edit2, Trash2, ChevronDown, ChevronUp, FileSpreadsheet, Printer, Calendar, User, Phone, BookOpen, PieChart, Tag, CreditCard, Wallet, Landmark, Banknote, Smartphone, History, FileText, X, RotateCw } from 'lucide-react';
 import { getPaymentMethodLiveBalance, isInvoiceMatchingCustomer } from '../utils/accountUtils';
 export interface SalesPaymentRow {
     id: string;
@@ -23,7 +23,7 @@ export interface ProjectManagementModuleProps {
     onOpenInvoiceModal?: (id: string, mode?: 'invoice' | 'challan' | 'pos', options?: { autoPrint?: boolean; isPadMode?: boolean }) => void;
 }
 export const ProjectManagementModule: React.FC<ProjectManagementModuleProps> = ({ onOpenInvoiceModal }) => {
-    const { projects, addProject, updateProject, deleteProject, addProjectSales, collectProjectDue, addProjectExpense, addProjectExpenses, deleteProjectSales, deleteProjectExpense, syncProjectsWithAccounting, journalEntries = [], chartOfAccounts = [], expenseHeads = [], language, profile, paymentMethods = [], invoices = [], linkInvoiceToProject, unlinkInvoiceFromProject, createProjectFromInvoice, generateInvoiceForProject, customers = [], transactions = [], accountBalances, } = useApp();
+    const { projects, addProject, updateProject, deleteProject, addProjectSales, collectProjectDue, addProjectExpense, addProjectExpenses, deleteProjectSales, deleteProjectExpense, syncProjectsWithAccounting, journalEntries = [], chartOfAccounts = [], expenseHeads = [], language, profile, paymentMethods = [], invoices = [], linkInvoiceToProject, unlinkInvoiceFromProject, createProjectFromInvoice, generateInvoiceForProject, syncProjectInvoice, customers = [], transactions = [], accountBalances, } = useApp();
     const isBn = language === 'bn';
     const [searchTerm, setSearchType] = useState(() => {
         try {
@@ -977,6 +977,18 @@ export const ProjectManagementModule: React.FC<ProjectManagementModuleProps> = (
                           <button
                             type="button"
                             onClick={() => {
+                              syncProjectInvoice(project.id);
+                              setSyncNotice(`Invoice #${project.invoiceNo} synced with current project sales.`);
+                              setTimeout(() => setSyncNotice(null), 1500);
+                            }}
+                            className="p-1 text-slate-400 hover:text-indigo-600 rounded hover:bg-indigo-50 transition-colors cursor-pointer"
+                            title="Sync / Update Linked Invoice with Project Sales"
+                          >
+                            <RotateCw className="w-3 h-3" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
                               if (window.confirm(`Unlink Sales Invoice #${project.invoiceNo} from this project?`)) {
                                 unlinkInvoiceFromProject(project.id);
                               }
@@ -992,7 +1004,7 @@ export const ProjectManagementModule: React.FC<ProjectManagementModuleProps> = (
                       <button type="button" onClick={() => {
                     setShowSalesModal(project.id);
                     setSalesForm({
-                        invoiceNo: '',
+                        invoiceNo: project.invoiceNo || '',
                         description: '',
                         date: new Date().toISOString().split('T')[0],
                         clientName: project.clientName,
