@@ -226,6 +226,12 @@ export const sanitizeUserRoles = (list: UserRole[]): UserRole[] => {
         permissions: ALL_SYSTEM_PERMISSIONS.map((p) => p.code),
     };
 
+    const legacyPermMap: Record<string, string> = {
+        'POS_CREATE_INVOICE': 'pos.create_sale',
+        'SALES_VIEW_LIST': 'sales.view',
+        'INVENTORY_VIEW_LIST': 'inventory.view',
+    };
+
     const seenIds = new Set<string>(['role-superadmin']);
     const nonSuperRoles: UserRole[] = [];
 
@@ -233,7 +239,15 @@ export const sanitizeUserRoles = (list: UserRole[]): UserRole[] => {
         if (isSuper(role)) continue;
         if (!seenIds.has(role.id)) {
             seenIds.add(role.id);
-            nonSuperRoles.push(role);
+            const normalizedPerms = Array.from(
+                new Set(
+                    (role.permissions || []).map((code) => legacyPermMap[code] || code)
+                )
+            );
+            nonSuperRoles.push({
+                ...role,
+                permissions: normalizedPerms,
+            });
         }
     }
 
@@ -3821,9 +3835,6 @@ export const AppProvider: React.FC<{
             if (role.permissions.some((p) => checkList.includes(p))) {
                 return true;
             }
-        }
-        if (activeStaff.role === 'Managing Director' || activeStaff.role === 'Super Admin' || activeStaff.id === 'staff-01') {
-            return true;
         }
         return false;
     };

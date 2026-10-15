@@ -390,7 +390,7 @@ export const SettingsModule: React.FC = () => {
             name: '',
             nameBn: '',
             description: '',
-            permissions: ['POS_CREATE_INVOICE', 'SALES_VIEW_LIST', 'INVENTORY_VIEW_LIST'],
+            permissions: ['pos.view', 'pos.create_sale', 'sales.view', 'inventory.view'],
         });
         setEditingRole(null);
         setShowRoleModal(true);
