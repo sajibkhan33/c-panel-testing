@@ -1144,6 +1144,7 @@ export const InvoicePrintModal: React.FC<InvoicePrintModalProps> = ({ invoiceId,
             </>)}
         </div>
       </div>);
+    }
     const hasExtraCols = Boolean(showType || showRegion);
     const invoicePages = getInvoicePages(invoice.items, invoice, isPadMode, padTopMarginMm, hasExtraCols);
 
