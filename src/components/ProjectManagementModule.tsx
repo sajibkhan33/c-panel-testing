@@ -343,6 +343,7 @@ export const ProjectManagementModule: React.FC = () => {
                 includeAsSalesItem: newProject.includeSalesItem,
             });
             setSyncNotice(`Project created against invoice with unified Chart of Accounts.`);
+            setTimeout(() => setSyncNotice(null), 1500);
         }
         else {
             addProject({
@@ -382,6 +383,7 @@ export const ProjectManagementModule: React.FC = () => {
         if (!linkingProject || !linkInvoiceForm.invoiceId) return;
         linkInvoiceToProject(linkingProject.id, linkInvoiceForm.invoiceId, linkInvoiceForm.chartOfAccountId, linkInvoiceForm.syncSalesItem);
         setSyncNotice(`Linked sales invoice to project [${linkingProject.code}] with unified COA.`);
+        setTimeout(() => setSyncNotice(null), 1500);
         setLinkingProject(null);
     };
     const handleAddPaymentRow = () => {
@@ -555,29 +557,30 @@ export const ProjectManagementModule: React.FC = () => {
           <div className="w-12 h-12 bg-amber-50 rounded-xl flex items-center justify-center text-amber-600 border border-amber-200">
             <FolderKanban className="w-6 h-6"/>
           </div>
-            <div className="flex items-center gap-2 flex-wrap">
+            <div>
               <h1 className="text-xl font-bold text-slate-900">
                 {'Projects'}
               </h1>
-              <button
-                type="button"
-                onClick={() => {
-                  if (syncProjectsWithAccounting) {
-                    const res = syncProjectsWithAccounting();
-                    setSyncNotice(`Synced ${res.salesSynced} sales & ${res.expensesSynced} expenses to Chart of Accounts (Tk ${res.totalAmount.toLocaleString()})!`);
-                    setTimeout(() => setSyncNotice(null), 5000);
-                  }
-                }}
-                className="bg-emerald-100 hover:bg-emerald-200 text-emerald-800 text-[11px] font-extrabold px-3 py-1 rounded-full border border-emerald-300 flex items-center gap-1.5 shadow-2xs transition-all cursor-pointer"
-                title="Click to dynamically synchronize all project vouchers with Chart of Accounts"
-              >
-                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-                <span>Chart of Accounts Synced {activeProjectJournalsCount > 0 ? `(${activeProjectJournalsCount} Vouchers Live)` : ''}</span>
-              </button>
             </div>
         </div>
 
         <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => {
+              if (syncProjectsWithAccounting) {
+                const res = syncProjectsWithAccounting();
+                setSyncNotice(`Projects Aligned: ${res.salesSynced} sales & ${res.expensesSynced} expenses synced (Tk ${res.totalAmount.toLocaleString()})`);
+                setTimeout(() => setSyncNotice(null), 1500);
+              }
+            }}
+            className="flex items-center gap-1.5 px-3 py-2 border border-slate-200 hover:border-emerald-300 hover:bg-emerald-50 text-slate-700 hover:text-emerald-800 rounded-xl font-bold text-xs transition-all cursor-pointer shadow-2xs"
+            title="Click to dynamically synchronize all project vouchers with Chart of Accounts"
+          >
+            <Layers className="w-3.5 h-3.5 text-emerald-600" />
+            <span>{'Sync COA'}</span>
+          </button>
+
           <button type="button" onClick={() => {
             setEditingProject(null);
             setNewProject({
@@ -602,13 +605,12 @@ export const ProjectManagementModule: React.FC = () => {
         </div>
       </div>
 
+      {/* Floating Sync Toaster (Auto-dismisses in 1.5s) */}
       {syncNotice && (
-        <div className="p-3 bg-emerald-50 border border-emerald-300 rounded-xl text-xs font-bold text-emerald-900 flex items-center justify-between animate-fade-in shadow-2xs">
-          <div className="flex items-center gap-2">
-            <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-            <span>{syncNotice}</span>
-          </div>
-          <button type="button" onClick={() => setSyncNotice(null)} className="text-emerald-500 hover:text-emerald-800 font-bold">✕</button>
+        <div className="fixed top-20 right-6 z-50 bg-emerald-900/95 backdrop-blur-md text-white px-4 py-3 rounded-2xl shadow-2xl border border-emerald-500/40 flex items-center gap-2.5 text-xs font-bold animate-in fade-in slide-in-from-top-4 transition-all duration-300">
+          <CheckCircle2 className="w-4 h-4 text-emerald-300 shrink-0" />
+          <span>{syncNotice}</span>
+          <button type="button" onClick={() => setSyncNotice(null)} className="ml-2 text-emerald-300 hover:text-white font-bold text-sm cursor-pointer">✕</button>
         </div>
       )}
 
