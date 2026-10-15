@@ -883,7 +883,10 @@ export const SalesModule: React.FC<SalesModuleProps> = ({ onOpenInvoiceModal, on
                               type="button"
                               onClick={() => {
                                 setProjectModalInvoice(inv);
-                                const defaultProjectName = `${inv.customerName} - ${(inv.items || []).map(i => i.name).join(', ') || 'Signboard Project'}`;
+                                const itemsCount = (inv.items || []).length;
+                                const defaultProjectName = itemsCount > 1
+                                  ? `${inv.customerName} - Project (#${inv.invoiceNo})`
+                                  : (inv.items?.[0]?.name ? `${inv.customerName} - ${inv.items[0].name}` : `${inv.customerName} - Project`);
                                 setProjectFormData({
                                   name: defaultProjectName,
                                   nameBn: '',
@@ -2718,8 +2721,10 @@ export const SalesModule: React.FC<SalesModuleProps> = ({ onOpenInvoiceModal, on
                 </div>
               </div>
               <div className="flex items-center justify-between text-[11px] text-slate-600 pt-1 border-t border-amber-200/60">
-                <span className="truncate max-w-[280px]">
-                  <strong>Items:</strong> {(projectModalInvoice.items || []).map(i => `${i?.name || 'Item'} (x${i?.qty || 1})`).join(', ')}
+                <span className="truncate max-w-[280px]" title={(projectModalInvoice.items || []).map(i => `${i?.name || 'Item'} (x${i?.qty || 1})`).join(', ')}>
+                  <strong>Items:</strong> {(projectModalInvoice.items || []).length > 2
+                    ? `${(projectModalInvoice.items || []).slice(0, 2).map(i => `${i?.name || 'Item'} (x${i?.qty || 1})`).join(', ')} +${(projectModalInvoice.items || []).length - 2} more`
+                    : (projectModalInvoice.items || []).map(i => `${i?.name || 'Item'} (x${i?.qty || 1})`).join(', ') || 'None'}
                 </span>
                 <span className={(Number(projectModalInvoice.dueAmount) || 0) > 0 ? "text-rose-600 font-bold" : "text-emerald-700 font-bold"}>
                   {(Number(projectModalInvoice.dueAmount) || 0) > 0 ? `Due: ${profile.currencySymbol}${(Number(projectModalInvoice.dueAmount) || 0).toLocaleString()}` : 'Fully Paid'}

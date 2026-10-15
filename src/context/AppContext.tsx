@@ -1553,10 +1553,18 @@ export const AppProvider: React.FC<{
                 });
             }
 
+            const itemsCount = (inv.items || []).length;
+            const defaultProjName = itemsCount > 1
+                ? `${inv.customerName} - Project (#${inv.invoiceNo})`
+                : (inv.items?.[0]?.name ? `${inv.customerName} - ${inv.items[0].name}` : `${inv.customerName} - Project`);
+            const defaultSalesItemDesc = itemsCount > 1
+                ? `Invoice #${inv.invoiceNo} Billing (${itemsCount} items)`
+                : (inv.items?.[0] ? `${inv.items[0].name} (x${inv.items[0].qty || 1})` : `Invoice #${inv.invoiceNo} Billing`);
+
             const reconstructed: Project = recalculateProject({
                 id: pId,
                 code: pCode,
-                name: `${inv.customerName} - ${(inv.items || []).map(i => i.name).join(', ') || 'Project'}`,
+                name: defaultProjName,
                 clientName: inv.customerName,
                 clientPhone: inv.customerPhone,
                 budget: Number(inv.grandTotal) || 0,
@@ -1567,7 +1575,7 @@ export const AppProvider: React.FC<{
                 salesItems: [{
                     id: `ps-${Date.now()}`,
                     invoiceNo: inv.invoiceNo,
-                    description: (inv.items || []).map(i => `${i.name} (x${i.qty})`).join(', ') || 'Sales Invoice Billing',
+                    description: defaultSalesItemDesc,
                     amount: Number(inv.grandTotal) || 0,
                     date: inv.date || new Date().toISOString().slice(0, 10),
                     clientName: inv.customerName,
@@ -4286,6 +4294,8 @@ export const AppProvider: React.FC<{
                     const assetAcc = resolvePaymentAssetAccount(pb.method);
                     const refNo = si.invoiceNo || `${code}-${si.date || new Date().toISOString().slice(0, 10)}`;
 
+                    const descDetail = si.invoiceNo ? `Invoice #${si.invoiceNo}` : (si.description || 'Billing');
+
                     newJournals.push({
                         id: `jnl-ps-init-${Date.now()}-${sidx}-${pidx}`,
                         entryNo: `JNL-${new Date().getFullYear()}-${Date.now().toString().slice(-4)}${sidx}${pidx}`,
@@ -4296,7 +4306,7 @@ export const AppProvider: React.FC<{
                         creditAccountId: revAcc.id,
                         creditAccountName: revAcc.name,
                         amount: pbAmount,
-                        narration: `Project Sales Income (Unified COA): [${code}] ${calculated.name} - ${si.description || 'Billing'} (${pb.method})`,
+                        narration: `Project Sales Income (Unified COA): [${code}] ${calculated.clientName} - ${descDetail} (${pb.method})`,
                         source: 'PROJECT_SALES',
                         createdBy: activeStaff?.name || 'Managing Director',
                     });
@@ -4318,7 +4328,7 @@ export const AppProvider: React.FC<{
                             paymentAccount: pb.method,
                             refNo: refNo,
                             customerOrSupplier: calculated.clientName,
-                            description: `Project Income: [${code}] ${calculated.name} - ${si.description || 'Billing'} (${pb.method})`,
+                            description: `Project Income: [${code}] ${calculated.clientName} - ${descDetail} (${pb.method})`,
                             amount: pbAmount,
                         });
                     }
@@ -4508,7 +4518,11 @@ export const AppProvider: React.FC<{
         const chosenCoaId = options?.chartOfAccountId || revAcc.id || 'coa-4051';
         const chosenCoaCode = revAcc.code || '4051';
 
-        const projectName = options?.name?.trim() || `${inv.customerName} - ${(inv.items || []).map(i => i.name).join(', ') || 'Project'}`;
+        const itemsCount = (inv.items || []).length;
+        const defaultProjName = itemsCount > 1
+            ? `${inv.customerName} - Project (#${inv.invoiceNo})`
+            : (inv.items?.[0]?.name ? `${inv.customerName} - ${inv.items[0].name}` : `${inv.customerName} - Project`);
+        const projectName = options?.name?.trim() || defaultProjName;
         const budgetAmount = options?.budget !== undefined ? Number(options.budget) : Number(inv.grandTotal) || 0;
         const shouldIncludeSalesItem = options?.includeAsSalesItem !== false;
 
@@ -4547,7 +4561,9 @@ export const AppProvider: React.FC<{
             salesItems.push({
                 id: `ps-${Date.now()}`,
                 invoiceNo: inv.invoiceNo,
-                description: (inv.items || []).map(i => `${i.name} (x${i.qty})`).join(', ') || 'Sales Invoice Billing',
+                description: itemsCount > 1
+                    ? `Invoice #${inv.invoiceNo} Billing (${itemsCount} items)`
+                    : (inv.items?.[0] ? `${inv.items[0].name} (x${inv.items[0].qty || 1})` : `Invoice #${inv.invoiceNo} Billing`),
                 amount: Number(inv.grandTotal) || 0,
                 date: inv.date || new Date().toISOString().slice(0, 10),
                 clientName: inv.customerName,
@@ -4636,10 +4652,15 @@ export const AppProvider: React.FC<{
                 });
             }
 
+            const itemsCount = (inv.items || []).length;
+            const salesItemDesc = itemsCount > 1
+                ? `Invoice #${inv.invoiceNo} Billing (${itemsCount} items)`
+                : (inv.items?.[0] ? `${inv.items[0].name} (x${inv.items[0].qty || 1})` : `Invoice #${inv.invoiceNo} Billing`);
+
             const newSaleItem: ProjectSalesItem = {
                 id: `ps-${Date.now()}`,
                 invoiceNo: inv.invoiceNo,
-                description: (inv.items || []).map(i => `${i.name} (x${i.qty})`).join(', ') || 'Sales Invoice Billing',
+                description: salesItemDesc,
                 amount: Number(inv.grandTotal) || 0,
                 date: inv.date || new Date().toISOString().slice(0, 10),
                 clientName: inv.customerName,
@@ -4667,7 +4688,7 @@ export const AppProvider: React.FC<{
                     creditAccountId: revAcc.id,
                     creditAccountName: revAcc.name,
                     amount: pbAmount,
-                    narration: `Project Sales Income (Unified COA): [${targetProj.code}] ${targetProj.name} - #${inv.invoiceNo} (${pb.method})`,
+                    narration: `Project Sales Income (Unified COA): [${targetProj.code}] ${targetProj.clientName} - Invoice #${inv.invoiceNo} (${pb.method})`,
                     source: 'PROJECT_SALES',
                     createdBy: activeStaff?.name || 'Managing Director',
                 };
@@ -5045,6 +5066,8 @@ export const AppProvider: React.FC<{
             const assetAcc = resolvePaymentAssetAccount(pb.method);
             const refNo = sales.invoiceNo || `${code}-${sales.date || new Date().toISOString().slice(0, 10)}`;
 
+            const descDetail = sales.invoiceNo ? `Invoice #${sales.invoiceNo}` : (sales.description || 'Project Billing');
+
             newJournals.push({
                 id: `jnl-ps-${Date.now()}-${pidx}`,
                 entryNo: `JNL-${new Date().getFullYear()}-${Date.now().toString().slice(-4)}${pidx}`,
@@ -5055,7 +5078,7 @@ export const AppProvider: React.FC<{
                 creditAccountId: revAcc.id,
                 creditAccountName: revAcc.name,
                 amount: pbAmount,
-                narration: `Project Sales Income: [${code}] ${projName} - ${sales.description || 'Project Billing'} (${pb.method}${pb.note ? `: ${pb.note}` : ''})`,
+                narration: `Project Sales Income: [${code}] ${clientName} - ${descDetail} (${pb.method}${pb.note ? `: ${pb.note}` : ''})`,
                 source: 'PROJECT_SALES',
                 createdBy: activeStaff?.name || 'Managing Director',
             });
@@ -5076,7 +5099,7 @@ export const AppProvider: React.FC<{
                     paymentAccount: pb.method,
                     refNo: refNo,
                     customerOrSupplier: clientName,
-                    description: `Project Income: [${code}] ${projName} - ${sales.description || 'Billing'} (${pb.method})`,
+                    description: `Project Income: [${code}] ${clientName} - ${descDetail} (${pb.method})`,
                     amount: pbAmount,
                 });
             }
@@ -5474,6 +5497,7 @@ export const AppProvider: React.FC<{
         // 2. Accounting Double-Entry (Journal Entries)
         const creditAcc = resolvePaymentAssetAccount('Due');
         const newJournals: JournalEntry[] = [];
+        const descRef = targetSale.invoiceNo ? `Invoice #${targetSale.invoiceNo}` : `Ref #${ref}`;
 
         // Cash/Bank/MFS journal if safeCash > 0
         let debitAcc = resolvePaymentAssetAccount(paymentMethod);
@@ -5488,7 +5512,7 @@ export const AppProvider: React.FC<{
                 creditAccountId: creditAcc.id,
                 creditAccountName: creditAcc.name,
                 amount: safeCash,
-                narration: `Project Due Collection: [${targetProj.code}] ${targetProj.name} - Collected via ${paymentMethod} (Inv: ${targetSale.invoiceNo || 'N/A'})${note ? ` - ${note}` : ''}`,
+                narration: `Project Due Collection: [${targetProj.code}] ${targetProj.clientName} - Collected via ${paymentMethod} (${descRef})${note ? ` - ${note}` : ''}`,
                 source: 'PROJECT_SALES',
                 createdBy: activeStaff?.name || 'Managing Director',
             });
@@ -5515,7 +5539,7 @@ export const AppProvider: React.FC<{
                 creditAccountId: creditAcc.id,
                 creditAccountName: creditAcc.name,
                 amount: safeAdvance,
-                narration: `Project Due Advance Adjustment: [${targetProj.code}] ${targetProj.name} - Adjusted from Customer Advance (Inv: ${targetSale.invoiceNo || 'N/A'})${note ? ` - ${note}` : ''}`,
+                narration: `Project Due Advance Adjustment: [${targetProj.code}] ${targetProj.clientName} - Adjusted from Customer Advance (${descRef})${note ? ` - ${note}` : ''}`,
                 source: 'PROJECT_SALES',
                 createdBy: activeStaff?.name || 'Managing Director',
             });
@@ -5545,7 +5569,7 @@ export const AppProvider: React.FC<{
                 paymentAccount: debitAcc.name,
                 refNo: ref,
                 customerOrSupplier: targetProj.clientName,
-                description: note || `Project Due Collected: [${targetProj.code}] ${targetProj.name}${targetSale.description ? ` - ${targetSale.description}` : ''} (${debitAcc.name})`,
+                description: note || `Project Due Collected: [${targetProj.code}] ${targetProj.clientName} - ${descRef} (${debitAcc.name})`,
                 amount: safeCash,
             });
         }
@@ -5561,7 +5585,7 @@ export const AppProvider: React.FC<{
                 paymentAccount: 'Customer Advance',
                 refNo: ref,
                 customerOrSupplier: targetProj.clientName,
-                description: `Project Advance Adjusted: [${targetProj.code}] ${targetProj.name} - Adjusted Tk ${safeAdvance.toLocaleString()} from Customer Advance`,
+                description: `Project Advance Adjusted: [${targetProj.code}] ${targetProj.clientName} - Adjusted Tk ${safeAdvance.toLocaleString()} from Customer Advance (${descRef})`,
                 amount: safeAdvance,
             });
         }

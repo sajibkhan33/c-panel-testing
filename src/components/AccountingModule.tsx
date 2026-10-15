@@ -1087,9 +1087,9 @@ export const AccountingModule: React.FC = () => {
               {filteredTransactions.map((tx, idx) => (<tr key={`${tx.id || 'tx'}-${idx}`} className="hover:bg-slate-50/70 transition-colors">
                   <td className="py-3 px-4 text-slate-500 font-mono text-[11px]">{tx.date}</td>
                   <td className="py-3 px-4 font-mono text-slate-600 font-semibold">{tx.refNo}</td>
-                  <td className="py-3 px-4">
+                  <td className="py-3 px-4 max-w-md">
                     <div className="font-bold text-slate-900 flex items-center gap-1.5 flex-wrap">
-                      <span>{tx.description}</span>
+                      <span className="line-clamp-2" title={tx.description}>{tx.description}</span>
                       {(tx.projectId || tx.projectCode) && (
                         <span className="inline-flex items-center gap-1 font-mono text-[9px] font-bold text-amber-800 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded">
                           <Briefcase className="w-2.5 h-2.5 text-amber-600" />

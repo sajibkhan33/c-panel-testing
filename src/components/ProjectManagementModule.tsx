@@ -1177,9 +1177,9 @@ export const ProjectManagementModule: React.FC<ProjectManagementModuleProps> = (
                                         })();
 
                                     return (<tr key={sales.id} className="hover:bg-slate-50">
-                                      <td className="py-2">
+                                      <td className="py-2 max-w-sm">
                                         <div className="font-semibold text-slate-800 flex items-center gap-1.5 flex-wrap">
-                                          <span>{sales.description}</span>
+                                          <span className="line-clamp-2" title={sales.description}>{sales.description}</span>
                                           {itemDue > 0 ? (
                                             <span className="inline-flex items-center text-[9px] font-bold bg-amber-50 text-amber-800 px-1.5 py-0.5 rounded border border-amber-200">
                                               Due Remaining: {profile.currencySymbol}{itemDue.toLocaleString()}
