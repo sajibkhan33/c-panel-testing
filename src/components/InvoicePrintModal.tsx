@@ -303,8 +303,8 @@ export const InvoicePrintModal: React.FC<InvoicePrintModalProps> = ({ invoiceId,
             isCancelled = true;
         };
     }, [invoiceId, realInvoice, quote, fetchedInvoice]);
-    // Adapt quotation into an invoice-like schema for rendering
-    const invoice: SalesInvoice | null = realInvoice || (quote ? {
+    // Adapt quotation or raw invoice into a robust normalized invoice schema for rendering
+    const rawResolvedInvoice: SalesInvoice | null = realInvoice || (quote ? {
         id: quote.id,
         invoiceNo: quote.quoteNo,
         referenceNo: quote.referenceNo,
@@ -340,6 +340,63 @@ export const InvoicePrintModal: React.FC<InvoicePrintModalProps> = ({ invoiceId,
         showRegionColumn: quote.showRegionColumn,
         showTypeColumn: quote.showTypeColumn,
     } : null) || fetchedInvoice;
+
+    const invoice: SalesInvoice | null = React.useMemo(() => {
+        if (!rawResolvedInvoice) return null;
+        const grand = Number(rawResolvedInvoice.grandTotal ?? rawResolvedInvoice.subtotal ?? (rawResolvedInvoice as any).subTotal ?? 0) || 0;
+        const sub = Number(rawResolvedInvoice.subtotal ?? (rawResolvedInvoice as any).subTotal ?? grand) || 0;
+        const paid = Number(rawResolvedInvoice.paidAmount ?? 0) || 0;
+        const due = Number(rawResolvedInvoice.dueAmount ?? Math.max(0, grand - paid)) || 0;
+        const disc = Number(rawResolvedInvoice.discount ?? (rawResolvedInvoice as any).discountValue ?? 0) || 0;
+        const vatAmt = Number(rawResolvedInvoice.vatAmount ?? (rawResolvedInvoice as any).vatValue ?? 0) || 0;
+        const vatR = Number(rawResolvedInvoice.vatRate ?? 0) || 0;
+
+        let split = rawResolvedInvoice.splitPayments;
+        if (split && typeof split === 'object') {
+            const normalizedSplit: Record<string, number> = { ...split };
+            Object.entries(split).forEach(([k, v]) => {
+                const num = Number(v) || 0;
+                const lk = k.toLowerCase().replace(/[\s_-]/g, '');
+                if (lk === 'cash' || lk === 'cashinhand') {
+                    normalizedSplit.cash = (normalizedSplit.cash || 0) || num;
+                } else if (lk === 'card' || lk === 'bank' || lk.includes('bank')) {
+                    normalizedSplit.card = (normalizedSplit.card || 0) || num;
+                } else if (lk === 'bkash') {
+                    normalizedSplit.bkash = (normalizedSplit.bkash || 0) || num;
+                } else if (lk === 'nagad') {
+                    normalizedSplit.nagad = (normalizedSplit.nagad || 0) || num;
+                }
+            });
+            split = normalizedSplit;
+        }
+
+        const safeItems = Array.isArray(rawResolvedInvoice.items) ? rawResolvedInvoice.items.map((it: any) => {
+            const uPrice = Number(it.unitPrice ?? it.price ?? it.rate ?? 0) || 0;
+            const q = Number(it.qty ?? it.quantity ?? 1) || 1;
+            const tPrice = Number(it.totalPrice ?? it.total ?? (uPrice * q)) || 0;
+            return {
+                ...it,
+                name: it.name || 'Service / Item',
+                unit: it.unit || 'job',
+                unitPrice: uPrice,
+                qty: q,
+                totalPrice: tPrice,
+            };
+        }) : [];
+
+        return {
+            ...rawResolvedInvoice,
+            subtotal: sub,
+            grandTotal: grand,
+            paidAmount: paid,
+            dueAmount: due,
+            discount: disc,
+            vatAmount: vatAmt,
+            vatRate: vatR,
+            items: safeItems,
+            splitPayments: split,
+        };
+    }, [rawResolvedInvoice]);
 
     useEffect(() => {
         if (invoice) {
@@ -1583,16 +1640,16 @@ export const InvoicePrintModal: React.FC<InvoicePrintModalProps> = ({ invoiceId,
                                   </td>
                                 )}
                                 <td className="py-2.5 px-3 text-center font-bold text-black border-r border-black">
-                                  {item.unit}
+                                  {item.unit || 'job'}
                                 </td>
                                 <td className="py-2.5 px-3 text-center font-black text-black border-r border-black">
-                                  {item.totalSqft ? item.totalSqft : item.qty}
+                                  {item.totalSqft ? item.totalSqft : (item.qty || 1)}
                                 </td>
                                 <td className="py-2.5 px-3 text-right font-black text-black border-r border-black">
-                                  {Number(item.unitPrice).toLocaleString()}
+                                  {(Number(item.unitPrice) || 0).toLocaleString()}
                                 </td>
                                 <td className="py-2.5 px-3 text-right font-black text-black">
-                                  {Number(item.totalPrice).toLocaleString()}
+                                  {(Number(item.totalPrice ?? (item as any).total ?? ((Number(item.unitPrice) || 0) * (Number(item.qty) || 1))) || 0).toLocaleString()}
                                 </td>
                               </tr>
                             );
@@ -1628,26 +1685,26 @@ export const InvoicePrintModal: React.FC<InvoicePrintModalProps> = ({ invoiceId,
                             <span>Subtotal:</span>
                             <span className="font-bold text-black">
                               {profile.currencySymbol}
-                              {invoice.subtotal.toLocaleString()}
+                              {(Number(invoice.subtotal ?? (invoice as any).subTotal) || 0).toLocaleString()}
                             </span>
                           </div>
 
-                          {invoice.discount > 0 && (
+                          {(Number(invoice.discount) || 0) > 0 && (
                             <div className="flex justify-between text-black font-bold pb-1">
                               <span>Discount:</span>
                               <span className="font-bold text-black">
                                 -{profile.currencySymbol}
-                                {invoice.discount.toLocaleString()}
+                                {(Number(invoice.discount) || 0).toLocaleString()}
                               </span>
                             </div>
                           )}
 
-                          {invoice.vatAmount > 0 && (
+                          {(Number(invoice.vatAmount) || 0) > 0 && (
                             <div className="flex justify-between text-black font-bold pb-1">
-                              <span>VAT ({invoice.vatRate}%):</span>
+                              <span>VAT ({Number(invoice.vatRate) || 0}%):</span>
                               <span className="font-bold text-black">
                                 +{profile.currencySymbol}
-                                {invoice.vatAmount.toLocaleString()}
+                                {(Number(invoice.vatAmount) || 0).toLocaleString()}
                               </span>
                             </div>
                           )}
@@ -1656,60 +1713,46 @@ export const InvoicePrintModal: React.FC<InvoicePrintModalProps> = ({ invoiceId,
                             <span>Grand Total:</span>
                             <span className="text-black font-black text-base">
                               {profile.currencySymbol}
-                              {invoice.grandTotal.toLocaleString()}
+                              {(Number(invoice.grandTotal) || 0).toLocaleString()}
                             </span>
                           </div>
 
                           {!(invoice as any).isQuote && (
                             <>
-                              {invoice.splitPayments ? (
+                              {invoice.splitPayments && Object.keys(invoice.splitPayments).length > 0 ? (
                                 <div className="space-y-1 text-[11px] pt-1 border-t-2 border-double border-black text-black">
-                                  {(invoice.splitPayments.cash ?? 0) > 0 && (
-                                    <div className="flex justify-between text-black">
-                                      <span>Paid Cash:</span>
-                                      <span className="font-bold text-black">
-                                        {profile.currencySymbol}{(invoice.splitPayments.cash ?? 0).toLocaleString()}
-                                      </span>
-                                    </div>
-                                  )}
-                                  {(invoice.splitPayments.card ?? 0) > 0 && (
-                                    <div className="flex justify-between text-black">
-                                      <span>Paid Card / Bank:</span>
-                                      <span className="font-bold text-black">
-                                        {profile.currencySymbol}{(invoice.splitPayments.card ?? 0).toLocaleString()}
-                                      </span>
-                                    </div>
-                                  )}
-                                  {(invoice.splitPayments.bkash ?? 0) > 0 && (
-                                    <div className="flex justify-between text-black">
-                                      <span>Paid bKash:</span>
-                                      <span className="font-bold text-black">
-                                        {profile.currencySymbol}{(invoice.splitPayments.bkash ?? 0).toLocaleString()}
-                                      </span>
-                                    </div>
-                                  )}
-                                  {(invoice.splitPayments.nagad ?? 0) > 0 && (
-                                    <div className="flex justify-between text-black">
-                                      <span>Paid Nagad:</span>
-                                      <span className="font-bold text-black">
-                                        {profile.currencySymbol}{(invoice.splitPayments.nagad ?? 0).toLocaleString()}
-                                      </span>
-                                    </div>
-                                  )}
+                                  {Object.entries(invoice.splitPayments)
+                                    .filter(([channel, amt]) => channel.toLowerCase() !== 'due' && (Number(amt) || 0) > 0)
+                                    .map(([channel, amt]) => {
+                                      const cl = channel.toLowerCase().replace(/[\s_-]/g, '');
+                                      const label = cl === 'cash' || cl === 'cashinhand' ? 'Paid Cash:'
+                                        : cl === 'card' || cl === 'bank' || cl.includes('bank') ? 'Paid Card / Bank:'
+                                        : cl === 'bkash' ? 'Paid bKash:'
+                                        : cl === 'nagad' ? 'Paid Nagad:'
+                                        : `Paid (${channel}):`;
+                                      return (
+                                        <div key={channel} className="flex justify-between text-black">
+                                          <span>{label}</span>
+                                          <span className="font-bold text-black">
+                                            {profile.currencySymbol}{(Number(amt) || 0).toLocaleString()}
+                                          </span>
+                                        </div>
+                                      );
+                                    })}
                                   <div className="flex justify-between text-xs py-1 border-t border-black text-black">
                                     <span className="font-bold text-black">Total Paid:</span>
                                     <span className="font-bold text-black">
                                       {profile.currencySymbol}
-                                      {invoice.paidAmount.toLocaleString()}
+                                      {(Number(invoice.paidAmount) || 0).toLocaleString()}
                                     </span>
                                   </div>
                                 </div>
                               ) : (
                                 <div className="flex justify-between text-xs py-1 border-t-2 border-double border-black text-black">
-                                  <span className="font-bold text-black">Total Paid:</span>
+                                  <span className="font-bold text-black">Total Paid ({invoice.paymentMethod || 'Cash'}):</span>
                                   <span className="font-bold text-black">
                                     {profile.currencySymbol}
-                                    {invoice.paidAmount.toLocaleString()}
+                                    {(Number(invoice.paidAmount) || 0).toLocaleString()}
                                   </span>
                                 </div>
                               )}
@@ -1718,7 +1761,7 @@ export const InvoicePrintModal: React.FC<InvoicePrintModalProps> = ({ invoiceId,
                                 <span>Balance Due:</span>
                                 <span className="font-black text-black">
                                   {profile.currencySymbol}
-                                  {invoice.dueAmount.toLocaleString()}
+                                  {(Number(invoice.dueAmount) || 0).toLocaleString()}
                                 </span>
                               </div>
                             </>

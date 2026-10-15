@@ -254,6 +254,73 @@ export const sanitizeUserRoles = (list: UserRole[]): UserRole[] => {
 
     return [canonicalSuperAdmin, ...nonSuperRoles];
 };
+
+export const sanitizeSalesInvoice = (inv: any): SalesInvoice => {
+    if (!inv || typeof inv !== 'object') return inv;
+    const grand = Number(inv.grandTotal ?? inv.subtotal ?? inv.subTotal ?? 0) || 0;
+    const sub = Number(inv.subtotal ?? inv.subTotal ?? grand) || 0;
+    const paid = Number(inv.paidAmount ?? 0) || 0;
+    const due = Number(inv.dueAmount ?? Math.max(0, grand - paid)) || 0;
+    const disc = Number(inv.discount ?? inv.discountValue ?? 0) || 0;
+    const vatAmt = Number(inv.vatAmount ?? inv.vatValue ?? 0) || 0;
+    const vatR = Number(inv.vatRate ?? 0) || 0;
+
+    let split = inv.splitPayments;
+    if (split && typeof split === 'object') {
+        const normalizedSplit: Record<string, number> = { ...split };
+        Object.entries(split).forEach(([k, v]) => {
+            const num = Number(v) || 0;
+            const lk = k.toLowerCase().replace(/[\s_-]/g, '');
+            if (lk === 'cash' || lk === 'cashinhand') {
+                normalizedSplit.cash = (normalizedSplit.cash || 0) || num;
+            } else if (lk === 'card' || lk === 'bank' || lk.includes('bank')) {
+                normalizedSplit.card = (normalizedSplit.card || 0) || num;
+            } else if (lk === 'bkash') {
+                normalizedSplit.bkash = (normalizedSplit.bkash || 0) || num;
+            } else if (lk === 'nagad') {
+                normalizedSplit.nagad = (normalizedSplit.nagad || 0) || num;
+            }
+        });
+        split = normalizedSplit;
+    }
+
+    const safeItems = Array.isArray(inv.items) ? inv.items.map((it: any) => {
+        const uPrice = Number(it.unitPrice ?? it.price ?? it.rate ?? 0) || 0;
+        const q = Number(it.qty ?? it.quantity ?? 1) || 1;
+        const tPrice = Number(it.totalPrice ?? it.total ?? (uPrice * q)) || 0;
+        return {
+            ...it,
+            name: it.name || 'Service / Item',
+            unit: it.unit || 'job',
+            unitPrice: uPrice,
+            qty: q,
+            totalPrice: tPrice,
+        };
+    }) : [];
+
+    return {
+        ...inv,
+        subtotal: sub,
+        subTotal: sub,
+        grandTotal: grand,
+        paidAmount: paid,
+        dueAmount: due,
+        discount: disc,
+        vatAmount: vatAmt,
+        vatRate: vatR,
+        productionStatus: inv.productionStatus || 'Queued',
+        paymentStatus: inv.paymentStatus || (due <= 0 ? 'Paid' : (paid <= 0 ? 'Due' : 'Partial')),
+        warehouseLocation: inv.warehouseLocation || 'Office',
+        items: safeItems,
+        splitPayments: split,
+    };
+};
+
+export const sanitizeSalesInvoices = (list: any[]): SalesInvoice[] => {
+    if (!Array.isArray(list)) return [];
+    return list.map(sanitizeSalesInvoice);
+};
+
 export const AppProvider: React.FC<{
     children: React.ReactNode;
 }> = ({ children }) => {
@@ -346,22 +413,7 @@ export const AppProvider: React.FC<{
     });
     const [invoices, setInvoices] = useState<SalesInvoice[]>(() => {
         const raw = safeGetLocalStorage<SalesInvoice[]>(`${STORAGE_KEY}_INVOICES`, INITIAL_INVOICES);
-        return (raw || []).map((inv: any) => ({
-            ...inv,
-            subtotal: Number(inv.subtotal ?? inv.grandTotal ?? 0) || 0,
-            grandTotal: Number(inv.grandTotal ?? inv.subtotal ?? 0) || 0,
-            paidAmount: Number(inv.paidAmount ?? 0) || 0,
-            dueAmount: Number(inv.dueAmount ?? Math.max(0, (Number(inv.grandTotal) || 0) - (Number(inv.paidAmount) || 0))) || 0,
-            productionStatus: inv.productionStatus || 'Queued',
-            paymentStatus: inv.paymentStatus || 'Due',
-            warehouseLocation: inv.warehouseLocation || 'Office',
-            items: Array.isArray(inv.items) ? inv.items.map((it: any) => ({
-                ...it,
-                totalPrice: Number(it.totalPrice ?? it.total ?? ((Number(it.unitPrice) || 0) * (Number(it.qty) || 1))) || 0,
-                unitPrice: Number(it.unitPrice) || 0,
-                qty: Number(it.qty) || 1,
-            })) : [],
-        }));
+        return sanitizeSalesInvoices(raw || []);
     });
     const [quotations, setQuotations] = useState<Quotation[]>(() => {
         return safeGetLocalStorage<Quotation[]>(`${STORAGE_KEY}_QUOTATIONS`, INITIAL_QUOTATIONS);
@@ -555,7 +607,7 @@ export const AppProvider: React.FC<{
         try {
             isImportingRef.current = true;
             const rawInvs = localStorage.getItem(`${STORAGE_KEY}_INVOICES`);
-            if (rawInvs) setInvoices(JSON.parse(rawInvs));
+            if (rawInvs) setInvoices(sanitizeSalesInvoices(JSON.parse(rawInvs)));
 
             const rawTxs = localStorage.getItem(`${STORAGE_KEY}_TRANSACTIONS`);
             if (rawTxs) setTransactions(JSON.parse(rawTxs));
@@ -1808,24 +1860,11 @@ export const AppProvider: React.FC<{
     const addInvoice = (data: Omit<SalesInvoice, 'id' | 'invoiceNo'>): SalesInvoice => {
         const id = `inv-${Date.now()}`;
         const invoiceNo = `DCC-INV-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`;
-        const newInvoice: SalesInvoice = {
+        const newInvoice: SalesInvoice = sanitizeSalesInvoice({
             ...data,
             id,
             invoiceNo,
-            subtotal: Number(data.subtotal ?? data.grandTotal ?? 0) || 0,
-            grandTotal: Number(data.grandTotal ?? data.subtotal ?? 0) || 0,
-            paidAmount: Number(data.paidAmount ?? 0) || 0,
-            dueAmount: Number(data.dueAmount ?? Math.max(0, (Number(data.grandTotal) || 0) - (Number(data.paidAmount) || 0))) || 0,
-            productionStatus: data.productionStatus || 'Queued',
-            paymentStatus: data.paymentStatus || 'Due',
-            warehouseLocation: data.warehouseLocation || 'Office',
-            items: (data.items || []).map((it: any) => ({
-                ...it,
-                totalPrice: Number(it.totalPrice ?? it.total ?? ((Number(it.unitPrice) || 0) * (Number(it.qty) || 1))) || 0,
-                unitPrice: Number(it.unitPrice) || 0,
-                qty: Number(it.qty) || 1,
-            })),
-        };
+        });
         setInvoices((prev) => [newInvoice, ...prev]);
         const advanceApplied = Number(data.splitPayments?.['Customer Advance']) || 0;
         // Update Customer safely
@@ -1970,12 +2009,24 @@ export const AppProvider: React.FC<{
         catch (e) {
             console.warn('Audit log write skipped:', e);
         }
+        if (latestStateRef.current) {
+            latestStateRef.current = {
+                ...latestStateRef.current,
+                invoices: [newInvoice, ...(latestStateRef.current.invoices || invoices)],
+            };
+        }
         return newInvoice;
     };
     const updateInvoice = (id: string, updates: Partial<SalesInvoice>) => {
         const currentInvoices = latestStateRef.current.invoices || invoices;
-        const nextInvoices = currentInvoices.map((inv) => (inv.id === id ? { ...inv, ...updates } : inv));
+        const nextInvoices = currentInvoices.map((inv) => (inv.id === id ? sanitizeSalesInvoice({ ...inv, ...updates }) : inv));
         setInvoices(nextInvoices);
+        if (latestStateRef.current) {
+            latestStateRef.current = {
+                ...latestStateRef.current,
+                invoices: nextInvoices,
+            };
+        }
         try {
             localStorage.setItem(`${STORAGE_KEY}_INVOICES`, JSON.stringify(nextInvoices));
         } catch {}
@@ -6236,8 +6287,10 @@ export const AppProvider: React.FC<{
                 try { localStorage.setItem(`${STORAGE_KEY}_SUPPLIERS`, JSON.stringify(cleanedSuppliers)); } catch {}
             }
             if (data.invoices && Array.isArray(data.invoices)) {
-                setInvoices(data.invoices);
-                try { localStorage.setItem(`${STORAGE_KEY}_INVOICES`, JSON.stringify(data.invoices)); } catch {}
+                const cleanedInvoices = sanitizeSalesInvoices(data.invoices);
+                setInvoices(cleanedInvoices);
+                try { localStorage.setItem(`${STORAGE_KEY}_INVOICES`, JSON.stringify(cleanedInvoices)); } catch {}
+                data.invoices = cleanedInvoices;
             }
             if (data.quotations && Array.isArray(data.quotations)) {
                 setQuotations(data.quotations);
