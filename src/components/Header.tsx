@@ -10,14 +10,26 @@ interface HeaderProps {
 }
 export const Header: React.FC<HeaderProps> = ({ activeTab, setActiveTab }) => {
     const { profile, products, invoices, transactions, language, setLanguage, activeLocation, setActiveLocation, exportDatabase, importDatabase, resetToDefaultData, activeStaff, logout, cloudSyncStatus, isCloudConnected, lastSyncedAt, syncWithCloud, updateStaffMember, checkPermission, } = useApp();
-    const canAccessSettings = (activeStaff?.role || '').toLowerCase().includes('admin') ||
-        (activeStaff?.role || '').toLowerCase().includes('director') ||
-        Boolean(checkPermission &&
+    const isSuperAdmin = (activeStaff?.role || '').toLowerCase() === 'super admin' ||
+        (activeStaff?.name || '').toLowerCase().includes('super admin');
+
+    const canAccessSettings = isSuperAdmin || Boolean(
+        checkPermission &&
             (checkPermission('settings.view') ||
                 checkPermission('settings.manage_users') ||
-                checkPermission('SETTINGS_MANAGE_USERS') ||
-                checkPermission('settings.manage_payments') ||
-                checkPermission('settings.manage_roles')));
+                checkPermission('settings.manage_roles') ||
+                checkPermission('settings.clean_data') ||
+                checkPermission('settings.backup_restore') ||
+                checkPermission('settings.manage_payments'))
+    );
+
+    const canAccessPOS = isSuperAdmin || Boolean(checkPermission && checkPermission('pos.view'));
+    const canAccessSales = isSuperAdmin || Boolean(checkPermission && checkPermission('sales.view'));
+    const canAccessInventory = isSuperAdmin || Boolean(checkPermission && checkPermission('inventory.view'));
+    const canAccessSupply = isSuperAdmin || Boolean(checkPermission && checkPermission('supply.view'));
+    const canAccessProjects = isSuperAdmin || Boolean(checkPermission && (checkPermission('sales.view') || checkPermission('pos.view')));
+    const canAccessAccounting = isSuperAdmin || Boolean(checkPermission && checkPermission('accounting.view'));
+    const canAccessReports = isSuperAdmin || Boolean(checkPermission && (checkPermission('accounting.export_reports') || checkPermission('accounting.view') || checkPermission('sales.view')));
     const [showBackupModal, setShowBackupModal] = useState(false);
     const [showInfoModal, setShowInfoModal] = useState(false);
     const [showPrinterModal, setShowPrinterModal] = useState(false);
@@ -206,13 +218,13 @@ export const Header: React.FC<HeaderProps> = ({ activeTab, setActiveTab }) => {
         <div className="bg-slate-50 border-t border-slate-200 overflow-x-auto scrollbar-none">
           <div className="max-w-7xl mx-auto px-2 sm:px-6 lg:px-8 flex gap-1 sm:gap-1.5 py-2">
             {[
-            { id: 'pos', labelEn: 'POS Counter', labelBn: "" },
-            { id: 'sales', labelEn: 'Sales & Orders', labelBn: "Order" },
-            { id: 'inventory', labelEn: 'Inventory', labelBn: "" },
-            { id: 'supply', labelEn: 'Supply & Purchase', labelBn: "" },
-            { id: 'projects', labelEn: 'Projects', labelBn: "" },
-            { id: 'accounting', labelEn: 'Accounting', labelBn: "" },
-            { id: 'reports', labelEn: 'Reports', labelBn: "Report" },
+            ...(canAccessPOS ? [{ id: 'pos', labelEn: 'POS Counter', labelBn: "" }] : []),
+            ...(canAccessSales ? [{ id: 'sales', labelEn: 'Sales & Orders', labelBn: "Order" }] : []),
+            ...(canAccessInventory ? [{ id: 'inventory', labelEn: 'Inventory', labelBn: "" }] : []),
+            ...(canAccessSupply ? [{ id: 'supply', labelEn: 'Supply & Purchase', labelBn: "" }] : []),
+            ...(canAccessProjects ? [{ id: 'projects', labelEn: 'Projects', labelBn: "" }] : []),
+            ...(canAccessAccounting ? [{ id: 'accounting', labelEn: 'Accounting', labelBn: "" }] : []),
+            ...(canAccessReports ? [{ id: 'reports', labelEn: 'Reports', labelBn: "Report" }] : []),
             ...(canAccessSettings
                 ? [{ id: 'settings', labelEn: 'Settings & Admin', labelBn: "" }]
                 : []),

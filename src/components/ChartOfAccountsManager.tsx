@@ -25,7 +25,7 @@ export const ChartOfAccountsManager: React.FC = () => {
         openingBalance: 0,
         description: '',
     });
-    const canManageCOA = checkPermission('accounting.chart_of_accounts') || checkPermission('ACCOUNTING_MANAGE_COA') || true;
+    const canManageCOA = checkPermission('accounting.chart_of_accounts') || checkPermission('ACCOUNTING_MANAGE_COA');
 
     // Real-time dynamic Chart of Accounts synced with Ledger Transactions, Projects & Balances
     const liveAccounts = useMemo(() => {

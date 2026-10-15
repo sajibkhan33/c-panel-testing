@@ -450,6 +450,7 @@ export const AppProvider: React.FC<{
             phone: '01730-581687',
             avatarColor: 'bg-purple-600',
             password: '240777',
+            customRoleId: 'role-md',
             isActive: true,
         };
     });

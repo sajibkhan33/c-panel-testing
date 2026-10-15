@@ -37,21 +37,15 @@ export const SettingsModule: React.FC = () => {
     // Data cleanup modal state
     const [cleanConfirmModule, setCleanConfirmModule] = useState<string | null>(null);
     const [cleanFeedback, setCleanFeedback] = useState<string | null>(null);
-    const isSuperUser = (activeStaff?.role || '').toLowerCase().includes('admin') ||
-        (activeStaff?.role || '').toLowerCase().includes('director') ||
+    const isSuperUser = (activeStaff?.role || '').toLowerCase() === 'super admin' ||
         (activeStaff?.name || '').toLowerCase().includes('super admin');
-    const canManageUsers = checkPermission('settings.manage_users') ||
-        checkPermission('SETTINGS_MANAGE_USERS') ||
-        isSuperUser;
-    const canManageRoles = checkPermission('settings.manage_roles') ||
-        checkPermission('SETTINGS_MANAGE_ROLES') ||
-        isSuperUser;
-    const canCleanData = checkPermission('settings.clean_data') ||
-        checkPermission('SETTINGS_CLEAN_DATA') ||
-        isSuperUser;
-    const canManagePayments = checkPermission('settings.manage_payments') ||
-        checkPermission('settings.view') ||
-        isSuperUser;
+    const canManageUsers = isSuperUser || checkPermission('settings.manage_users') ||
+        checkPermission('SETTINGS_MANAGE_USERS');
+    const canManageRoles = isSuperUser || checkPermission('settings.manage_roles') ||
+        checkPermission('SETTINGS_MANAGE_ROLES');
+    const canCleanData = isSuperUser || checkPermission('settings.clean_data') ||
+        checkPermission('SETTINGS_CLEAN_DATA');
+    const canManagePayments = isSuperUser || checkPermission('settings.manage_payments');
     const [paymentFormData, setPaymentFormData] = useState({
         bankName: profile.bankName || '',
         bankAccount: profile.bankAccount || '',
@@ -580,12 +574,12 @@ export const SettingsModule: React.FC = () => {
             </span>
           </button>)}
 
-        <button type="button" id="tab-settings-dataclean" onClick={() => setActiveTab('data-clean')} className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-bold text-xs sm:text-sm transition-all ${activeTab === 'data-clean'
+        {canCleanData && (<button type="button" id="tab-settings-dataclean" onClick={() => setActiveTab('data-clean')} className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-bold text-xs sm:text-sm transition-all ${activeTab === 'data-clean'
             ? 'bg-rose-700 text-white shadow-xs'
             : 'bg-white text-slate-600 hover:bg-slate-100 hover:text-rose-700 border border-slate-200'}`}>
           <Trash2 className="w-4 h-4"/>
           <span>{'Module Data Clean'}</span>
-        </button>
+        </button>)}
 
         <button type="button" id="tab-settings-system" onClick={() => setActiveTab('system')} className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-bold text-xs sm:text-sm transition-all ${activeTab === 'system'
             ? 'bg-gradient-to-r from-blue-700 to-indigo-700 text-white shadow-xs'
@@ -1658,7 +1652,7 @@ export const SettingsModule: React.FC = () => {
         </div>)}
 
       {/* TAB 3: MODULE DATA CLEAN & PURGE */}
-      {activeTab === 'data-clean' && (<div className="space-y-4">
+      {activeTab === 'data-clean' && canCleanData && (<div className="space-y-4">
           <div className="bg-rose-50 border border-rose-200 p-4 rounded-2xl flex items-start gap-3">
             <AlertOctagon className="w-5 h-5 text-rose-600 shrink-0 mt-0.5"/>
             <div>
