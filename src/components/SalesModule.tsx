@@ -373,9 +373,9 @@ export const SalesModule: React.FC<SalesModuleProps> = ({ onOpenInvoiceModal, on
             (c.company && c.company.toLowerCase().includes(q)));
     }, [customers, quoteCustomerSearch]);
     // Financial stats (for filtered or overall)
-    const totalSales = filteredInvoices.reduce((acc, i) => acc + i.grandTotal, 0);
-    const totalCollected = filteredInvoices.reduce((acc, i) => acc + i.paidAmount, 0);
-    const totalDue = filteredInvoices.reduce((acc, i) => acc + i.dueAmount, 0);
+    const totalSales = filteredInvoices.reduce((acc, i) => acc + (Number(i.grandTotal) || 0), 0);
+    const totalCollected = filteredInvoices.reduce((acc, i) => acc + (Number(i.paidAmount) || 0), 0);
+    const totalDue = filteredInvoices.reduce((acc, i) => acc + (Number(i.dueAmount) || 0), 0);
     const handleCollectSubmit = (e: React.FormEvent) => {
         e.preventDefault();
         if (!paymentModalInvoice)
@@ -514,7 +514,7 @@ export const SalesModule: React.FC<SalesModuleProps> = ({ onOpenInvoiceModal, on
           </span>
           <div className="text-xl sm:text-2xl font-black text-slate-900">
             {profile.currencySymbol}
-            {totalSales.toLocaleString()}
+            {(Number(totalSales) || 0).toLocaleString()}
           </div>
           <span className="text-[11px] text-slate-400 mt-1 block">
             {invoices.length} {'invoices recorded'}
@@ -527,7 +527,7 @@ export const SalesModule: React.FC<SalesModuleProps> = ({ onOpenInvoiceModal, on
           </span>
           <div className="text-xl sm:text-2xl font-black text-emerald-700">
             {profile.currencySymbol}
-            {totalCollected.toLocaleString()}
+            {(Number(totalCollected) || 0).toLocaleString()}
           </div>
           <span className="text-[11px] text-emerald-600/80 mt-1 block font-medium">
             {'via Cash, Bank & Mobile Banking'}
@@ -540,10 +540,10 @@ export const SalesModule: React.FC<SalesModuleProps> = ({ onOpenInvoiceModal, on
           </span>
           <div className="text-xl sm:text-2xl font-black text-rose-600">
             {profile.currencySymbol}
-            {totalDue.toLocaleString()}
+            {(Number(totalDue) || 0).toLocaleString()}
           </div>
           <span className="text-[11px] text-rose-500 mt-1 block font-medium">
-            {invoices.filter((i) => i.dueAmount > 0).length}{' '}
+            {invoices.filter((i) => (Number(i.dueAmount) || 0) > 0).length}{' '}
             {'invoices with due'}
           </span>
         </div>
@@ -726,8 +726,8 @@ export const SalesModule: React.FC<SalesModuleProps> = ({ onOpenInvoiceModal, on
                     </td>
 
                     <td className="py-2.5 px-3 max-w-[200px]">
-                      <div className="font-medium text-slate-800 truncate text-xs sm:text-[12.5px]" title={`${inv.items.map((i) => `${i.name} (x${i.qty})`).join(', ')}${inv.jobSpecs ? ` • ${inv.jobSpecs}` : ''}`}>
-                        <span>{inv.items.map((i) => `${i.name} (x${i.qty})`).join(', ')}</span>
+                      <div className="font-medium text-slate-800 truncate text-xs sm:text-[12.5px]" title={`${(inv.items || []).map((i) => `${i?.name || 'Item'} (x${i?.qty || 1})`).join(', ')}${inv.jobSpecs ? ` • ${inv.jobSpecs}` : ''}`}>
+                        <span>{(inv.items || []).map((i) => `${i?.name || 'Item'} (x${i?.qty || 1})`).join(', ')}</span>
                         {inv.jobSpecs && (<span className="text-[11px] text-amber-700 italic ml-1 font-normal">
                             • {inv.jobSpecs}
                           </span>)}
@@ -737,10 +737,10 @@ export const SalesModule: React.FC<SalesModuleProps> = ({ onOpenInvoiceModal, on
                     <td className="py-2.5 px-3 text-right whitespace-nowrap">
                       <div className="font-black text-slate-900 text-xs sm:text-sm">
                         {profile.currencySymbol}
-                        {inv.grandTotal.toLocaleString()}
+                        {(Number(inv.grandTotal) || 0).toLocaleString()}
                       </div>
-                      {inv.dueAmount > 0 && (<div className="text-[11px] font-bold text-rose-600 mt-0.5">
-                          Due: {profile.currencySymbol}{inv.dueAmount.toLocaleString()}
+                      {(Number(inv.dueAmount) || 0) > 0 && (<div className="text-[11px] font-bold text-rose-600 mt-0.5">
+                          Due: {profile.currencySymbol}{(Number(inv.dueAmount) || 0).toLocaleString()}
                         </div>)}
                     </td>
 
@@ -764,7 +764,7 @@ export const SalesModule: React.FC<SalesModuleProps> = ({ onOpenInvoiceModal, on
                                 type="button"
                                 onClick={() => setViewingPaymentDetailsInvoice(inv)}
                                 className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 text-indigo-700 text-[10px] font-extrabold cursor-pointer transition-colors shadow-2xs"
-                                title={invPayments.map(p => `${p.channel}: ${profile.currencySymbol}${p.amount.toLocaleString()}`).join(' • ')}
+                                title={invPayments.map(p => `${p.channel}: ${profile.currencySymbol}${(Number(p.amount) || 0).toLocaleString()}`).join(' • ')}
                               >
                                 <span>{invPayments.length} Channels</span>
                                 <span className="text-[9px]">▾</span>
@@ -1001,10 +1001,10 @@ export const SalesModule: React.FC<SalesModuleProps> = ({ onOpenInvoiceModal, on
                     <td className="py-2.5 px-3 text-right whitespace-nowrap">
                       <div className="font-black text-slate-900 text-xs sm:text-sm">
                         {profile.currencySymbol}
-                        {q.grandTotal.toLocaleString()}
+                        {(Number(q.grandTotal) || 0).toLocaleString()}
                       </div>
                       {q.discountValue || q.discount ? (<div className="text-[11px] text-slate-500 mt-0.5">
-                          Disc: {profile.currencySymbol}{(q.discountValue || q.discount || 0).toLocaleString()}
+                          Disc: {profile.currencySymbol}{(Number(q.discountValue || q.discount) || 0).toLocaleString()}
                         </div>) : null}
                     </td>
 
@@ -1370,19 +1370,19 @@ export const SalesModule: React.FC<SalesModuleProps> = ({ onOpenInvoiceModal, on
                     <div className="bg-white p-2 rounded-lg border border-slate-200/60">
                       <div className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Total Invoice</div>
                       <div className="text-xs sm:text-sm font-black text-slate-900 mt-0.5">
-                        {profile.currencySymbol}{paymentModalInvoice.grandTotal.toLocaleString()}
+                        {profile.currencySymbol}{(Number(paymentModalInvoice.grandTotal) || 0).toLocaleString()}
                       </div>
                     </div>
                     <div className="bg-white p-2 rounded-lg border border-slate-200/60">
                       <div className="text-[10px] text-emerald-600 font-bold uppercase tracking-wider">Total Paid</div>
                       <div className="text-xs sm:text-sm font-black text-emerald-700 mt-0.5">
-                        {profile.currencySymbol}{paymentModalInvoice.paidAmount.toLocaleString()}
+                        {profile.currencySymbol}{(Number(paymentModalInvoice.paidAmount) || 0).toLocaleString()}
                       </div>
                     </div>
                     <div className="bg-white p-2 rounded-lg border border-rose-200/70 bg-rose-50/30">
                       <div className="text-[10px] text-rose-600 font-bold uppercase tracking-wider">Current Due</div>
                       <div className="text-xs sm:text-sm font-black text-rose-600 mt-0.5">
-                        {profile.currencySymbol}{paymentModalInvoice.dueAmount.toLocaleString()}
+                        {profile.currencySymbol}{(Number(paymentModalInvoice.dueAmount) || 0).toLocaleString()}
                       </div>
                     </div>
                   </div>
@@ -1396,7 +1396,7 @@ export const SalesModule: React.FC<SalesModuleProps> = ({ onOpenInvoiceModal, on
                       <span>Payment History ({modalPaymentHistory.length} receipts)</span>
                     </div>
                     <span className="text-[10.5px] font-semibold text-slate-500">
-                      Paid: {profile.currencySymbol}{paymentModalInvoice.paidAmount.toLocaleString()}
+                      Paid: {profile.currencySymbol}{(Number(paymentModalInvoice.paidAmount) || 0).toLocaleString()}
                     </span>
                   </div>
 
@@ -1430,7 +1430,7 @@ export const SalesModule: React.FC<SalesModuleProps> = ({ onOpenInvoiceModal, on
                             </div>
                           </div>
                           <div className="font-black text-emerald-700 text-xs whitespace-nowrap">
-                            +{profile.currencySymbol}{item.amount.toLocaleString()}
+                            +{profile.currencySymbol}{(Number(item.amount) || 0).toLocaleString()}
                           </div>
                         </div>
                       ))}
@@ -1524,8 +1524,8 @@ export const SalesModule: React.FC<SalesModuleProps> = ({ onOpenInvoiceModal, on
                       className="text-[10.5px] font-extrabold text-amber-700 hover:text-amber-800 underline cursor-pointer"
                     >
                       {adjustAdvanceAmount > 0
-                        ? `Collect Remaining (${profile.currencySymbol}${remainingDueForChannel.toLocaleString()})`
-                        : `Collect Full Due (${profile.currencySymbol}${paymentModalInvoice.dueAmount.toLocaleString()})`}
+                        ? `Collect Remaining (${profile.currencySymbol}${(Number(remainingDueForChannel) || 0).toLocaleString()})`
+                        : `Collect Full Due (${profile.currencySymbol}${(Number(paymentModalInvoice.dueAmount) || 0).toLocaleString()})`}
                     </button>
                   </div>
 
@@ -1601,8 +1601,8 @@ export const SalesModule: React.FC<SalesModuleProps> = ({ onOpenInvoiceModal, on
                     </div>
                     <div className="flex justify-between text-slate-500 font-semibold text-[11px]">
                       <span>Remaining Due After Settlement:</span>
-                      <span className={paymentModalInvoice.dueAmount - totalSettling > 0 ? 'text-rose-600 font-bold' : 'text-emerald-600 font-bold'}>
-                        {profile.currencySymbol}{Math.max(0, paymentModalInvoice.dueAmount - totalSettling).toLocaleString()}
+                      <span className={(Number(paymentModalInvoice.dueAmount) || 0) - totalSettling > 0 ? 'text-rose-600 font-bold' : 'text-emerald-600 font-bold'}>
+                        {profile.currencySymbol}{Math.max(0, (Number(paymentModalInvoice.dueAmount) || 0) - totalSettling).toLocaleString()}
                       </span>
                     </div>
                   </div>
@@ -1919,7 +1919,7 @@ export const SalesModule: React.FC<SalesModuleProps> = ({ onOpenInvoiceModal, on
                                 <input type="number" step="any" min="0" value={item.unitPrice} onChange={(e) => handleUpdateEditInvoiceItemRow(idx, 'unitPrice', Math.max(0, Number(e.target.value)))} className="w-20 px-1.5 py-1 text-right font-bold text-slate-800 bg-white border border-slate-300 rounded-md text-xs focus:ring-1 focus:ring-slate-900"/>
                               </div>
                             </td>
-                            <td className="p-2 text-right font-bold text-slate-900">Tk{item.totalPrice.toLocaleString()}</td>
+                            <td className="p-2 text-right font-bold text-slate-900">Tk{(Number(item.totalPrice) || 0).toLocaleString()}</td>
                             <td className="p-2 text-center">
                               <button type="button" onClick={() => {
                         setEditInvoiceItems(editInvoiceItems.filter((_, i) => i !== idx));
@@ -2428,7 +2428,7 @@ export const SalesModule: React.FC<SalesModuleProps> = ({ onOpenInvoiceModal, on
                                 <input type="number" step="any" min="0" value={item.unitPrice} onChange={(e) => handleUpdateQuoteItemRow(idx, 'unitPrice', Math.max(0, Number(e.target.value)))} className="w-20 px-1.5 py-1 text-right font-bold text-slate-800 bg-white border border-slate-300 rounded-md text-xs focus:ring-1 focus:ring-slate-900"/>
                               </div>
                             </td>
-                            <td className="p-2 text-right font-bold text-slate-900">Tk{item.totalPrice.toLocaleString()}</td>
+                            <td className="p-2 text-right font-bold text-slate-900">Tk{(Number(item.totalPrice) || 0).toLocaleString()}</td>
                             <td className="p-2 text-center">
                               <button type="button" onClick={() => {
                         setAddedQuoteItems(addedQuoteItems.filter((_, i) => i !== idx));
@@ -2713,16 +2713,16 @@ export const SalesModule: React.FC<SalesModuleProps> = ({ onOpenInvoiceModal, on
                 <div className="text-right">
                   <span className="text-slate-500 text-[11px]">Invoice Total:</span>
                   <div className="font-black text-slate-900 text-sm">
-                    {profile.currencySymbol}{projectModalInvoice.grandTotal.toLocaleString()}
+                    {profile.currencySymbol}{(Number(projectModalInvoice.grandTotal) || 0).toLocaleString()}
                   </div>
                 </div>
               </div>
               <div className="flex items-center justify-between text-[11px] text-slate-600 pt-1 border-t border-amber-200/60">
                 <span className="truncate max-w-[280px]">
-                  <strong>Items:</strong> {(projectModalInvoice.items || []).map(i => `${i.name} (x${i.qty})`).join(', ')}
+                  <strong>Items:</strong> {(projectModalInvoice.items || []).map(i => `${i?.name || 'Item'} (x${i?.qty || 1})`).join(', ')}
                 </span>
-                <span className={projectModalInvoice.dueAmount > 0 ? "text-rose-600 font-bold" : "text-emerald-700 font-bold"}>
-                  {projectModalInvoice.dueAmount > 0 ? `Due: ${profile.currencySymbol}${projectModalInvoice.dueAmount.toLocaleString()}` : 'Fully Paid'}
+                <span className={(Number(projectModalInvoice.dueAmount) || 0) > 0 ? "text-rose-600 font-bold" : "text-emerald-700 font-bold"}>
+                  {(Number(projectModalInvoice.dueAmount) || 0) > 0 ? `Due: ${profile.currencySymbol}${(Number(projectModalInvoice.dueAmount) || 0).toLocaleString()}` : 'Fully Paid'}
                 </span>
               </div>
             </div>
@@ -2837,7 +2837,7 @@ export const SalesModule: React.FC<SalesModuleProps> = ({ onOpenInvoiceModal, on
                 />
                 <div className="text-xs">
                   <span className="font-bold text-slate-800 block">
-                    ইনভয়েসের মূল্য ({profile.currencySymbol}{projectModalInvoice.grandTotal.toLocaleString()}) প্রজেক্ট সেলস ইনকাম হিসেবে যোগ করুন
+                    ইনভয়েসের মূল্য ({profile.currencySymbol}{(Number(projectModalInvoice.grandTotal) || 0).toLocaleString()}) প্রজেক্ট সেলস ইনকাম হিসেবে যোগ করুন
                   </span>
                   <span className="text-[11px] text-slate-500">
                     প্রজেক্টের প্রফিটেবিলিটি স্টেটমেন্টে এই ইনভয়েসের সেলস ও পেমেন্ট হিস্ট্রি সরাসরি যুক্ত হবে।
@@ -3021,19 +3021,19 @@ export const SalesModule: React.FC<SalesModuleProps> = ({ onOpenInvoiceModal, on
                 <div>
                   <div className="text-[10px] text-slate-500 font-bold uppercase">Total Invoiced</div>
                   <div className="text-xs sm:text-sm font-black text-slate-900 mt-0.5">
-                    {profile.currencySymbol}{viewingPaymentDetailsInvoice.grandTotal.toLocaleString()}
+                    {profile.currencySymbol}{(Number(viewingPaymentDetailsInvoice.grandTotal) || 0).toLocaleString()}
                   </div>
                 </div>
                 <div className="border-x border-slate-200">
                   <div className="text-[10px] text-emerald-600 font-bold uppercase">Total Paid</div>
                   <div className="text-xs sm:text-sm font-black text-emerald-700 mt-0.5">
-                    {profile.currencySymbol}{viewingPaymentDetailsInvoice.paidAmount.toLocaleString()}
+                    {profile.currencySymbol}{(Number(viewingPaymentDetailsInvoice.paidAmount) || 0).toLocaleString()}
                   </div>
                 </div>
                 <div>
                   <div className="text-[10px] text-rose-600 font-bold uppercase">Due Remaining</div>
                   <div className="text-xs sm:text-sm font-black text-rose-600 mt-0.5">
-                    {profile.currencySymbol}{viewingPaymentDetailsInvoice.dueAmount.toLocaleString()}
+                    {profile.currencySymbol}{(Number(viewingPaymentDetailsInvoice.dueAmount) || 0).toLocaleString()}
                   </div>
                 </div>
               </div>
@@ -3071,7 +3071,7 @@ export const SalesModule: React.FC<SalesModuleProps> = ({ onOpenInvoiceModal, on
                           </div>
                         </div>
                         <div className="font-black text-emerald-700 text-sm whitespace-nowrap">
-                          +{profile.currencySymbol}{p.amount.toLocaleString()}
+                          +{profile.currencySymbol}{(Number(p.amount) || 0).toLocaleString()}
                         </div>
                       </div>
                     ))}
@@ -3241,13 +3241,13 @@ export const SalesModule: React.FC<SalesModuleProps> = ({ onOpenInvoiceModal, on
                               </td>
                               <td className="py-2 px-3 text-slate-500">{inv.date}</td>
                               <td className="py-2 px-3 text-right font-black text-slate-900">
-                                {profile.currencySymbol}{inv.grandTotal.toLocaleString()}
+                                {profile.currencySymbol}{(Number(inv.grandTotal) || 0).toLocaleString()}
                               </td>
                               <td className="py-2 px-3 text-right font-black text-emerald-700">
-                                {profile.currencySymbol}{inv.paidAmount.toLocaleString()}
+                                {profile.currencySymbol}{(Number(inv.paidAmount) || 0).toLocaleString()}
                               </td>
                               <td className="py-2 px-3 text-right font-black text-rose-600">
-                                {inv.dueAmount > 0 ? `${profile.currencySymbol}${inv.dueAmount.toLocaleString()}` : '—'}
+                                {(Number(inv.dueAmount) || 0) > 0 ? `${profile.currencySymbol}${(Number(inv.dueAmount) || 0).toLocaleString()}` : '—'}
                               </td>
                               <td className="py-2 px-3 text-center">
                                 <span className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-extrabold ${

@@ -345,7 +345,23 @@ export const AppProvider: React.FC<{
         }));
     });
     const [invoices, setInvoices] = useState<SalesInvoice[]>(() => {
-        return safeGetLocalStorage<SalesInvoice[]>(`${STORAGE_KEY}_INVOICES`, INITIAL_INVOICES);
+        const raw = safeGetLocalStorage<SalesInvoice[]>(`${STORAGE_KEY}_INVOICES`, INITIAL_INVOICES);
+        return (raw || []).map((inv: any) => ({
+            ...inv,
+            subtotal: Number(inv.subtotal ?? inv.grandTotal ?? 0) || 0,
+            grandTotal: Number(inv.grandTotal ?? inv.subtotal ?? 0) || 0,
+            paidAmount: Number(inv.paidAmount ?? 0) || 0,
+            dueAmount: Number(inv.dueAmount ?? Math.max(0, (Number(inv.grandTotal) || 0) - (Number(inv.paidAmount) || 0))) || 0,
+            productionStatus: inv.productionStatus || 'Queued',
+            paymentStatus: inv.paymentStatus || 'Due',
+            warehouseLocation: inv.warehouseLocation || 'Office',
+            items: Array.isArray(inv.items) ? inv.items.map((it: any) => ({
+                ...it,
+                totalPrice: Number(it.totalPrice ?? it.total ?? ((Number(it.unitPrice) || 0) * (Number(it.qty) || 1))) || 0,
+                unitPrice: Number(it.unitPrice) || 0,
+                qty: Number(it.qty) || 1,
+            })) : [],
+        }));
     });
     const [quotations, setQuotations] = useState<Quotation[]>(() => {
         return safeGetLocalStorage<Quotation[]>(`${STORAGE_KEY}_QUOTATIONS`, INITIAL_QUOTATIONS);
@@ -1796,6 +1812,19 @@ export const AppProvider: React.FC<{
             ...data,
             id,
             invoiceNo,
+            subtotal: Number(data.subtotal ?? data.grandTotal ?? 0) || 0,
+            grandTotal: Number(data.grandTotal ?? data.subtotal ?? 0) || 0,
+            paidAmount: Number(data.paidAmount ?? 0) || 0,
+            dueAmount: Number(data.dueAmount ?? Math.max(0, (Number(data.grandTotal) || 0) - (Number(data.paidAmount) || 0))) || 0,
+            productionStatus: data.productionStatus || 'Queued',
+            paymentStatus: data.paymentStatus || 'Due',
+            warehouseLocation: data.warehouseLocation || 'Office',
+            items: (data.items || []).map((it: any) => ({
+                ...it,
+                totalPrice: Number(it.totalPrice ?? it.total ?? ((Number(it.unitPrice) || 0) * (Number(it.qty) || 1))) || 0,
+                unitPrice: Number(it.unitPrice) || 0,
+                qty: Number(it.qty) || 1,
+            })),
         };
         setInvoices((prev) => [newInvoice, ...prev]);
         const advanceApplied = Number(data.splitPayments?.['Customer Advance']) || 0;
@@ -4659,11 +4688,13 @@ export const AppProvider: React.FC<{
             skipLedgerTransaction?: boolean;
         }
     ): SalesInvoice | null => {
-        const targetProj = projects.find(p => p.id === projectId);
+        const currentProjects = latestStateRef.current?.projects || projects;
+        const targetProj = currentProjects.find(p => p.id === projectId);
         if (!targetProj) return null;
 
         if (targetProj.invoiceId) {
-            const existing = invoices.find(i => i.id === targetProj.invoiceId || i.invoiceNo === targetProj.invoiceNo);
+            const currentInvoices = latestStateRef.current?.invoices || invoices;
+            const existing = currentInvoices.find(i => i.id === targetProj.invoiceId || i.invoiceNo === targetProj.invoiceNo);
             if (existing) return existing;
         }
 
@@ -4680,19 +4711,25 @@ export const AppProvider: React.FC<{
         let invoiceItems: InvoiceItem[] = [];
         if (targetProj.salesItems && targetProj.salesItems.length > 0) {
             invoiceItems = targetProj.salesItems.map((si, idx) => ({
-                id: `item-prj-${Date.now()}-${idx}`,
+                productId: `prod-prj-${si.id || idx}`,
                 name: si.description || `${targetProj.name} - Billing Milestone`,
-                qty: 1,
+                category: 'Project Services',
+                unit: 'job' as any,
                 unitPrice: Number(si.amount) || 0,
-                total: Number(si.amount) || 0,
+                costPrice: 0,
+                qty: 1,
+                totalPrice: Number(si.amount) || 0,
             }));
         } else {
             invoiceItems = [{
-                id: `item-prj-${Date.now()}-1`,
+                productId: `prod-prj-${targetProj.id}`,
                 name: `${targetProj.name} (${targetProj.code})`,
-                qty: 1,
+                category: 'Project Services',
+                unit: 'job' as any,
                 unitPrice: grandTotal,
-                total: grandTotal,
+                costPrice: 0,
+                qty: 1,
+                totalPrice: grandTotal,
             }];
         }
 
@@ -4706,7 +4743,8 @@ export const AppProvider: React.FC<{
         }
 
         let custId: string | undefined = undefined;
-        const matchedCust = customers.find(c =>
+        const currentCusts = latestStateRef.current?.customers || customers;
+        const matchedCust = currentCusts.find(c =>
             (targetProj.clientPhone && c.phone && c.phone.trim() === targetProj.clientPhone.trim()) ||
             (c.name && c.name.toLowerCase() === targetProj.clientName.toLowerCase()) ||
             (c.company && c.company.toLowerCase() === targetProj.clientName.toLowerCase())
@@ -4729,22 +4767,27 @@ export const AppProvider: React.FC<{
             : (targetProj.salesItems && targetProj.salesItems.length > 0 && paidAmount > 0);
 
         const invDate = options?.date || targetProj.startDate || new Date().toISOString().slice(0, 10);
+
         const createdInv = addInvoice({
             date: invDate,
             customerId: custId,
             customerName: targetProj.clientName,
             customerPhone: targetProj.clientPhone || '',
             items: invoiceItems,
+            subtotal: grandTotal,
             subTotal: grandTotal,
             discount: 0,
             discountType: 'flat',
             taxRate: 0,
             taxAmount: 0,
+            vatRate: 0,
+            vatAmount: 0,
             grandTotal,
             paidAmount,
             dueAmount,
             paymentMethod: primaryMethod,
             paymentStatus: dueAmount <= 0 ? 'Paid' : (paidAmount <= 0 ? 'Due' : 'Partial'),
+            productionStatus: 'Queued',
             splitPayments: Object.keys(splitPayments).length > 0 ? splitPayments : undefined,
             projectId: targetProj.id,
             projectCode: targetProj.code,
@@ -4754,7 +4797,7 @@ export const AppProvider: React.FC<{
             skipLedgerTransaction: shouldSkipLedger,
         });
 
-        const updatedSales = targetProj.salesItems.map(si => ({
+        const updatedSales = (targetProj.salesItems || []).map(si => ({
             ...si,
             invoiceNo: si.invoiceNo || createdInv.invoiceNo,
         }));
@@ -4762,7 +4805,7 @@ export const AppProvider: React.FC<{
         updateProject(targetProj.id, {
             invoiceId: createdInv.id,
             invoiceNo: createdInv.invoiceNo,
-            budget: targetProj.budget > 0 ? targetProj.budget : grandTotal,
+            budget: Number(targetProj.budget) > 0 ? targetProj.budget : grandTotal,
             salesItems: updatedSales,
         });
 
