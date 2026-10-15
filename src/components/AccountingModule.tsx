@@ -9,7 +9,7 @@ import { ExpenseHeadManager } from './ExpenseHeadManager';
 import { JournalEntriesManager } from './JournalEntriesManager';
 import { getBankAccountsBreakdown, getMfsAccountsBreakdown, getPaymentMethodLiveBalance, calculateSingleAccountBalance, isAdvanceAdjustmentTransaction, isDueReceivableTransaction } from '../utils/accountUtils';
 export const AccountingModule: React.FC = () => {
-    const { accountBalances: rawBalances, transactions, chartOfAccounts, expenseHeads, journalEntries, profile, language, invoices = [], paymentMethods = [], customers = [], updateCustomer, addTransaction, updateTransaction, deleteTransaction, projects = [], addProjectExpense, addProject, addProjectSales, collectProjectDue } = useApp();
+    const { accountBalances: rawBalances, transactions, chartOfAccounts, expenseHeads, journalEntries, profile, language, invoices = [], paymentMethods = [], customers = [], updateCustomer, addTransaction, updateTransaction, deleteTransaction, projects = [], addProjectExpense, addProject, addProjectSales, collectProjectDue, generateInvoiceForProject } = useApp();
     const accountBalances = {
         cash: rawBalances?.cash ?? 0,
         bank: rawBalances?.bank ?? 0,
@@ -679,7 +679,7 @@ export const AccountingModule: React.FC = () => {
             const paidVal = numAmount;
             const dueVal = Math.max(0, budgetVal - paidVal);
 
-            addProject({
+            const createdProj = addProject({
                 name: projTitle,
                 clientName: cName,
                 clientPhone: newProjClientPhone.trim() || undefined,
@@ -702,6 +702,15 @@ export const AccountingModule: React.FC = () => {
                 }],
                 expenseItems: [],
             });
+
+            // Auto-generate official Sales Invoice in Sales & Orders tab
+            if (createdProj && createdProj.id) {
+                generateInvoiceForProject(createdProj.id, {
+                    title: `${projTitle} - Sales Contract`,
+                    date: today,
+                    skipLedgerTransaction: true,
+                });
+            }
         } else {
             if (!incomeTitle) return;
             addTransaction({
@@ -1755,6 +1764,12 @@ export const AccountingModule: React.FC = () => {
                             প্রজেক্টের অবশিষ্ট বকেয়া: {profile.currencySymbol}{Math.max(0, (Number(newProjBudget) || 0) - (Number(incomeAmount) || 0)).toLocaleString()}
                           </span>
                         </div>
+                      </div>
+
+                      {/* Auto-generate Sales Invoice Notice */}
+                      <div className="flex items-center gap-2 p-2 bg-indigo-50/80 rounded-lg border border-indigo-200 text-[11px] text-indigo-900 font-medium">
+                        <Receipt className="w-4 h-4 text-indigo-600 shrink-0" />
+                        <span>সেভ করার সাথে সাথে <strong>Sales & Orders</strong> ট্যাবে এই প্রজেক্টের নামে স্বয়ংক্রিয়ভাবে অফিসিয়াল বিক্রয় চালান (Sales Invoice) তৈরি হবে।</span>
                       </div>
                     </div>
                   )}

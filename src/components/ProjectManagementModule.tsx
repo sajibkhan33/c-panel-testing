@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { useApp } from '../context/AppContext';
 import { Project, ProjectExpenseItem, ProjectSalesItem } from '../types';
-import { FolderKanban, Plus, Search, Filter, TrendingUp, TrendingDown, DollarSign, Receipt, CheckCircle2, Clock, Briefcase, Layers, Edit2, Trash2, ChevronDown, ChevronUp, FileSpreadsheet, Printer, Calendar, User, Phone, BookOpen, PieChart, Tag, CreditCard, Wallet, Landmark, Banknote, Smartphone, History, } from 'lucide-react';
+import { FolderKanban, Plus, Search, Filter, TrendingUp, TrendingDown, DollarSign, Receipt, CheckCircle2, Clock, Briefcase, Layers, Edit2, Trash2, ChevronDown, ChevronUp, FileSpreadsheet, Printer, Calendar, User, Phone, BookOpen, PieChart, Tag, CreditCard, Wallet, Landmark, Banknote, Smartphone, History, FileText, X } from 'lucide-react';
 import { getPaymentMethodLiveBalance, isInvoiceMatchingCustomer } from '../utils/accountUtils';
 export interface SalesPaymentRow {
     id: string;
@@ -19,8 +19,11 @@ export interface ExpenseBreakdownRow {
     linkedAccountId?: string;
     paymentMethod?: string;
 }
-export const ProjectManagementModule: React.FC = () => {
-    const { projects, addProject, updateProject, deleteProject, addProjectSales, collectProjectDue, addProjectExpense, addProjectExpenses, deleteProjectSales, deleteProjectExpense, syncProjectsWithAccounting, journalEntries = [], chartOfAccounts = [], expenseHeads = [], language, profile, paymentMethods = [], invoices = [], linkInvoiceToProject, unlinkInvoiceFromProject, createProjectFromInvoice, customers = [], transactions = [], accountBalances, } = useApp();
+export interface ProjectManagementModuleProps {
+    onOpenInvoiceModal?: (id: string, mode?: 'invoice' | 'challan' | 'pos', options?: { autoPrint?: boolean; isPadMode?: boolean }) => void;
+}
+export const ProjectManagementModule: React.FC<ProjectManagementModuleProps> = ({ onOpenInvoiceModal }) => {
+    const { projects, addProject, updateProject, deleteProject, addProjectSales, collectProjectDue, addProjectExpense, addProjectExpenses, deleteProjectSales, deleteProjectExpense, syncProjectsWithAccounting, journalEntries = [], chartOfAccounts = [], expenseHeads = [], language, profile, paymentMethods = [], invoices = [], linkInvoiceToProject, unlinkInvoiceFromProject, createProjectFromInvoice, generateInvoiceForProject, customers = [], transactions = [], accountBalances, } = useApp();
     const isBn = language === 'bn';
     const [searchTerm, setSearchType] = useState(() => {
         try {
@@ -84,6 +87,7 @@ export const ProjectManagementModule: React.FC = () => {
         invoiceId: '',
         chartOfAccountId: 'coa-4051',
         includeSalesItem: true,
+        autoGenerateInvoice: true,
     });
     // Dynamic Payment method options for sales breakdown
     const activePaymentMethods = useMemo(() => {
@@ -346,7 +350,7 @@ export const ProjectManagementModule: React.FC = () => {
             setTimeout(() => setSyncNotice(null), 1500);
         }
         else {
-            addProject({
+            const created = addProject({
                 name: newProject.name,
                 nameBn: newProject.nameBn,
                 clientName: newProject.clientName,
@@ -360,6 +364,14 @@ export const ProjectManagementModule: React.FC = () => {
                 salesItems: [],
                 expenseItems: [],
             });
+
+            if (newProject.autoGenerateInvoice && created && created.id) {
+                const inv = generateInvoiceForProject(created.id);
+                if (inv) {
+                    setSyncNotice(`Project created & Sales Invoice #${inv.invoiceNo} generated.`);
+                    setTimeout(() => setSyncNotice(null), 2500);
+                }
+            }
         }
         setShowCreateModal(false);
         setNewProject({
@@ -375,6 +387,7 @@ export const ProjectManagementModule: React.FC = () => {
             invoiceId: '',
             chartOfAccountId: 'coa-4051',
             includeSalesItem: true,
+            autoGenerateInvoice: true,
         });
     };
 
@@ -910,36 +923,70 @@ export const ProjectManagementModule: React.FC = () => {
                     {/* Action buttons */}
                     <div className="flex items-center gap-1.5 shrink-0" onClick={(e) => e.stopPropagation()}>
                       {!project.invoiceId ? (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setLinkingProject(project);
-                            setLinkInvoiceForm({
-                              invoiceId: '',
-                              chartOfAccountId: project.chartOfAccountId || 'coa-4051',
-                              syncSalesItem: project.totalSales === 0,
-                            });
-                          }}
-                          className="px-2 py-1 text-[11px] font-bold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 rounded-lg border border-indigo-200 transition-colors cursor-pointer flex items-center gap-1"
-                          title="Link this project to a Sales Invoice & unify COA"
-                        >
-                          <Receipt className="w-3 h-3 text-indigo-600" />
-                          <span>+ Link Invoice</span>
-                        </button>
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const inv = generateInvoiceForProject(project.id);
+                              if (inv) {
+                                setSyncNotice(`Generated Sales Invoice #${inv.invoiceNo} for project [${project.code}]`);
+                                setTimeout(() => setSyncNotice(null), 2500);
+                              }
+                            }}
+                            className="px-2 py-1 text-[11px] font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 rounded-lg border border-emerald-300 transition-colors cursor-pointer flex items-center gap-1 shadow-2xs"
+                            title="Generate an official Sales Invoice (DCC-INV) in Sales & Orders"
+                          >
+                            <FileText className="w-3 h-3 text-emerald-600" />
+                            <span>+ Generate Invoice</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setLinkingProject(project);
+                              setLinkInvoiceForm({
+                                invoiceId: '',
+                                chartOfAccountId: project.chartOfAccountId || 'coa-4051',
+                                syncSalesItem: project.totalSales === 0,
+                              });
+                            }}
+                            className="px-2 py-1 text-[11px] font-bold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 rounded-lg border border-indigo-200 transition-colors cursor-pointer flex items-center gap-1"
+                            title="Link this project to an existing Sales Invoice & unify COA"
+                          >
+                            <Receipt className="w-3 h-3 text-indigo-600" />
+                            <span>+ Link Invoice</span>
+                          </button>
+                        </>
                       ) : (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            if (window.confirm(`Unlink Sales Invoice #${project.invoiceNo} from this project?`)) {
-                              unlinkInvoiceFromProject(project.id);
-                            }
-                          }}
-                          className="px-2 py-1 text-[10px] font-bold text-indigo-800 bg-indigo-50 hover:bg-indigo-100 rounded-lg border border-indigo-200 transition-colors cursor-pointer flex items-center gap-1"
-                          title={`Linked to Sales Invoice #${project.invoiceNo} (Click to unlink)`}
-                        >
-                          <Receipt className="w-3 h-3 text-indigo-600" />
-                          <span>#{project.invoiceNo}</span>
-                        </button>
+                        <div className="flex items-center gap-1">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (onOpenInvoiceModal && project.invoiceId) {
+                                onOpenInvoiceModal(project.invoiceId, 'invoice', { autoPrint: false });
+                              } else {
+                                window.dispatchEvent(new CustomEvent('switch-tab', { detail: 'sales' }));
+                              }
+                            }}
+                            className="px-2 py-1 text-[10px] font-bold text-indigo-800 bg-indigo-50 hover:bg-indigo-100 rounded-lg border border-indigo-200 transition-colors cursor-pointer flex items-center gap-1"
+                            title={`Linked to Sales Invoice #${project.invoiceNo} (Click to View / Print Invoice)`}
+                          >
+                            <Printer className="w-3 h-3 text-indigo-600" />
+                            <span>#{project.invoiceNo}</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (window.confirm(`Unlink Sales Invoice #${project.invoiceNo} from this project?`)) {
+                                unlinkInvoiceFromProject(project.id);
+                              }
+                            }}
+                            className="p-1 text-slate-400 hover:text-rose-600 rounded hover:bg-rose-50 transition-colors cursor-pointer"
+                            title="Unlink Sales Invoice"
+                          >
+                            <X className="w-3 h-3" />
+                          </button>
+                        </div>
                       )}
 
                       <button type="button" onClick={() => {
@@ -1352,6 +1399,26 @@ export const ProjectManagementModule: React.FC = () => {
                       </div>
                     );
                   })()}
+                  {!newProject.invoiceId && (
+                    <div className="pt-2 border-t border-indigo-200/60">
+                      <label className="flex items-start gap-2.5 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={newProject.autoGenerateInvoice}
+                          onChange={(e) => setNewProject(prev => ({ ...prev, autoGenerateInvoice: e.target.checked }))}
+                          className="mt-0.5 rounded border-indigo-300 text-indigo-600 focus:ring-indigo-500 w-4 h-4 cursor-pointer"
+                        />
+                        <div className="text-xs">
+                          <span className="font-bold text-indigo-950 block">
+                            Auto-generate Official Sales Invoice in Sales & Orders / বিক্রয় চালানের তালিকাভুক্ত করুন
+                          </span>
+                          <span className="text-[11px] text-indigo-700">
+                            প্রজেক্ট সেভ করার সাথে সাথে Sales & Orders ট্যাবে অফিসিয়াল চালান (DCC-INV) তৈরি হয়ে লিঙ্ক হয়ে যাবে।
+                          </span>
+                        </div>
+                      </label>
+                    </div>
+                  )}
                 </div>
               )}
 

@@ -160,6 +160,7 @@ interface AppContextType {
     }) => Project | null;
     linkInvoiceToProject: (projectId: string, invoiceId: string, chartOfAccountId?: string, syncSalesItem?: boolean) => boolean;
     unlinkInvoiceFromProject: (projectId: string) => boolean;
+    generateInvoiceForProject: (projectId: string, options?: { title?: string; date?: string; skipLedgerTransaction?: boolean }) => SalesInvoice | null;
     // Utilities & Module Data Cleanup
     cleanModuleData: (moduleKey: 'SALES' | 'QUOTATIONS' | 'PURCHASES' | 'INVENTORY_STOCK' | 'CUSTOM_PRODUCTS' | 'TRANSACTIONS' | 'JOURNALS' | 'AUDIT_LOGS' | 'PROJECTS' | 'ALL' | 'WIPE_ALL_EXCEPT_PRODUCTS' | 'RESET_ALL_TRANSACTIONS') => void;
     resetSalesData: () => void;
@@ -1817,81 +1818,83 @@ export const AppProvider: React.FC<{
             }
             return c;
         }));
-        // If paid amount > 0, record accounting entry
-        if (data.splitPayments) {
-            const txs: AccountingTransaction[] = [];
-            const cashAcct = data.warehouseLocation === 'Factory' ? 'Factory Cash' : 'Office Cash';
+        // If paid amount > 0, record accounting entry (unless skipLedgerTransaction is set)
+        if (!data.skipLedgerTransaction) {
+            if (data.splitPayments) {
+                const txs: AccountingTransaction[] = [];
+                const cashAcct = data.warehouseLocation === 'Factory' ? 'Factory Cash' : 'Office Cash';
 
-            // Iterate over all payment methods in splitPayments
-            Object.entries(data.splitPayments).forEach(([key, val]) => {
-                const amt = Number(val) || 0;
-                if (amt <= 0 || key.toLowerCase() === 'due') return;
+                // Iterate over all payment methods in splitPayments
+                Object.entries(data.splitPayments).forEach(([key, val]) => {
+                    const amt = Number(val) || 0;
+                    if (amt <= 0 || key.toLowerCase() === 'due') return;
 
-                if (key === 'Customer Advance' || key.toLowerCase().includes('advance')) {
+                    if (key === 'Customer Advance' || key.toLowerCase().includes('advance')) {
+                        txs.push({
+                            id: generateUniqueId('tx'),
+                            date: data.date,
+                            type: 'INCOME',
+                            category: 'Customer Advance Adjustment',
+                            amount: amt,
+                            paymentAccount: 'Customer Advance',
+                            accountHead: 'Customer Advance',
+                            refNo: invoiceNo,
+                            customerOrSupplier: data.customerName,
+                            description: `Adjusted Tk ${amt.toLocaleString()} from Customer Advance for invoice ${invoiceNo} (${data.customerName})`,
+                        });
+                        return;
+                    }
+
+                    const matchedCoa = matchChannelToAccount(key, chartOfAccounts, paymentMethods);
+                    const matchedPm = paymentMethods.find((p) => p.id === key || p.name.toLowerCase() === key.toLowerCase());
+
+                    let acctName = matchedCoa ? matchedCoa.name : (matchedPm?.name || key);
+                    if (key.toLowerCase() === 'cash' || key.toLowerCase() === 'pm-cash') {
+                        acctName = matchedCoa ? matchedCoa.name : cashAcct;
+                    }
+
                     txs.push({
                         id: generateUniqueId('tx'),
                         date: data.date,
                         type: 'INCOME',
-                        category: 'Customer Advance Adjustment',
+                        category: 'Sales Revenue',
                         amount: amt,
-                        paymentAccount: 'Customer Advance',
-                        accountHead: 'Customer Advance',
+                        paymentAccount: acctName,
+                        accountHead: acctName,
                         refNo: invoiceNo,
                         customerOrSupplier: data.customerName,
-                        description: `Adjusted Tk ${amt.toLocaleString()} from Customer Advance for invoice ${invoiceNo} (${data.customerName})`,
+                        description: `POS Payment: ${acctName} (${data.paymentStatus}) - ${(data.items || []).map((i) => i.name).join(', ')}`,
                     });
-                    return;
+                });
+
+                if (txs.length > 0) {
+                    setTransactions((prev) => ensureUniqueTransactions([...txs, ...prev]));
+                }
+            }
+            else if (data.paidAmount > 0) {
+                const matchedCoa = matchChannelToAccount(data.paymentMethod || 'Cash', chartOfAccounts, paymentMethods);
+                const pmObj = paymentMethods.find((p) => p.name.toLowerCase() === (data.paymentMethod || '').toLowerCase() || p.id === data.paymentMethod);
+                const cashAcct = data.warehouseLocation === 'Factory' ? 'Factory Cash' : 'Office Cash';
+
+                let resolvedAcct = matchedCoa ? matchedCoa.name : (pmObj?.name || data.paymentMethod || cashAcct);
+                if ((data.paymentMethod || '').toLowerCase().includes('cash')) {
+                    resolvedAcct = matchedCoa ? matchedCoa.name : cashAcct;
                 }
 
-                const matchedCoa = matchChannelToAccount(key, chartOfAccounts, paymentMethods);
-                const matchedPm = paymentMethods.find((p) => p.id === key || p.name.toLowerCase() === key.toLowerCase());
-
-                let acctName = matchedCoa ? matchedCoa.name : (matchedPm?.name || key);
-                if (key.toLowerCase() === 'cash' || key.toLowerCase() === 'pm-cash') {
-                    acctName = matchedCoa ? matchedCoa.name : cashAcct;
-                }
-
-                txs.push({
+                const newTx: AccountingTransaction = {
                     id: generateUniqueId('tx'),
                     date: data.date,
                     type: 'INCOME',
                     category: 'Sales Revenue',
-                    amount: amt,
-                    paymentAccount: acctName,
-                    accountHead: acctName,
+                    amount: data.paidAmount,
+                    paymentAccount: resolvedAcct,
+                    accountHead: resolvedAcct,
                     refNo: invoiceNo,
                     customerOrSupplier: data.customerName,
-                    description: `POS Payment: ${acctName} (${data.paymentStatus}) - ${(data.items || []).map((i) => i.name).join(', ')}`,
-                });
-            });
-
-            if (txs.length > 0) {
-                setTransactions((prev) => ensureUniqueTransactions([...txs, ...prev]));
+                    description: `Sales Invoice payment: ${resolvedAcct} (${data.paymentStatus}) - ${(data.items || []).map((i) => i.name).join(', ')}`,
+                };
+                setTransactions((prev) => ensureUniqueTransactions([newTx, ...prev]));
             }
-        }
-        else if (data.paidAmount > 0) {
-            const matchedCoa = matchChannelToAccount(data.paymentMethod || 'Cash', chartOfAccounts, paymentMethods);
-            const pmObj = paymentMethods.find((p) => p.name.toLowerCase() === (data.paymentMethod || '').toLowerCase() || p.id === data.paymentMethod);
-            const cashAcct = data.warehouseLocation === 'Factory' ? 'Factory Cash' : 'Office Cash';
-
-            let resolvedAcct = matchedCoa ? matchedCoa.name : (pmObj?.name || data.paymentMethod || cashAcct);
-            if ((data.paymentMethod || '').toLowerCase().includes('cash')) {
-                resolvedAcct = matchedCoa ? matchedCoa.name : cashAcct;
-            }
-
-            const newTx: AccountingTransaction = {
-                id: generateUniqueId('tx'),
-                date: data.date,
-                type: 'INCOME',
-                category: 'Sales Revenue',
-                amount: data.paidAmount,
-                paymentAccount: resolvedAcct,
-                accountHead: resolvedAcct,
-                refNo: invoiceNo,
-                customerOrSupplier: data.customerName,
-                description: `Sales Invoice payment: ${resolvedAcct} (${data.paymentStatus}) - ${(data.items || []).map((i) => i.name).join(', ')}`,
-            };
-            setTransactions((prev) => ensureUniqueTransactions([newTx, ...prev]));
         }
         // Decrement stock for physical items
         if (data.items && data.items.length > 0) {
@@ -4648,6 +4651,138 @@ export const AppProvider: React.FC<{
         return true;
     };
 
+    const generateInvoiceForProject = (
+        projectId: string,
+        options?: {
+            title?: string;
+            date?: string;
+            skipLedgerTransaction?: boolean;
+        }
+    ): SalesInvoice | null => {
+        const targetProj = projects.find(p => p.id === projectId);
+        if (!targetProj) return null;
+
+        if (targetProj.invoiceId) {
+            const existing = invoices.find(i => i.id === targetProj.invoiceId || i.invoiceNo === targetProj.invoiceNo);
+            if (existing) return existing;
+        }
+
+        const revAcc = resolveProjectRevenueAccount(targetProj.chartOfAccountId);
+        const unifiedCoaId = targetProj.chartOfAccountId || revAcc.id || 'coa-4051';
+
+        const grandTotal = Number(targetProj.budget) > 0
+            ? Number(targetProj.budget)
+            : (Number(targetProj.totalSales) > 0 ? Number(targetProj.totalSales) : 0);
+
+        const paidAmount = Number(targetProj.totalCollected) || 0;
+        const dueAmount = Math.max(0, grandTotal - paidAmount);
+
+        let invoiceItems: InvoiceItem[] = [];
+        if (targetProj.salesItems && targetProj.salesItems.length > 0) {
+            invoiceItems = targetProj.salesItems.map((si, idx) => ({
+                id: `item-prj-${Date.now()}-${idx}`,
+                name: si.description || `${targetProj.name} - Billing Milestone`,
+                qty: 1,
+                unitPrice: Number(si.amount) || 0,
+                total: Number(si.amount) || 0,
+            }));
+        } else {
+            invoiceItems = [{
+                id: `item-prj-${Date.now()}-1`,
+                name: `${targetProj.name} (${targetProj.code})`,
+                qty: 1,
+                unitPrice: grandTotal,
+                total: grandTotal,
+            }];
+        }
+
+        const splitPayments: Record<string, number> = {};
+        const primaryMethod = targetProj.salesItems?.[0]?.paymentMethod || 'Cash in Hand';
+        if (paidAmount > 0) {
+            splitPayments[primaryMethod] = paidAmount;
+        }
+        if (dueAmount > 0) {
+            splitPayments['due'] = dueAmount;
+        }
+
+        let custId: string | undefined = undefined;
+        const matchedCust = customers.find(c =>
+            (targetProj.clientPhone && c.phone && c.phone.trim() === targetProj.clientPhone.trim()) ||
+            (c.name && c.name.toLowerCase() === targetProj.clientName.toLowerCase()) ||
+            (c.company && c.company.toLowerCase() === targetProj.clientName.toLowerCase())
+        );
+        if (matchedCust) {
+            custId = matchedCust.id;
+        } else if (targetProj.clientName) {
+            const newCust = addCustomer({
+                name: targetProj.clientName,
+                company: targetProj.clientName,
+                phone: targetProj.clientPhone || '',
+                address: '',
+                type: 'Corporate',
+            });
+            custId = newCust.id;
+        }
+
+        const shouldSkipLedger = options?.skipLedgerTransaction !== undefined
+            ? options.skipLedgerTransaction
+            : (targetProj.salesItems && targetProj.salesItems.length > 0 && paidAmount > 0);
+
+        const invDate = options?.date || targetProj.startDate || new Date().toISOString().slice(0, 10);
+        const createdInv = addInvoice({
+            date: invDate,
+            customerId: custId,
+            customerName: targetProj.clientName,
+            customerPhone: targetProj.clientPhone || '',
+            items: invoiceItems,
+            subTotal: grandTotal,
+            discount: 0,
+            discountType: 'flat',
+            taxRate: 0,
+            taxAmount: 0,
+            grandTotal,
+            paidAmount,
+            dueAmount,
+            paymentMethod: primaryMethod,
+            paymentStatus: dueAmount <= 0 ? 'Paid' : (paidAmount <= 0 ? 'Due' : 'Partial'),
+            splitPayments: Object.keys(splitPayments).length > 0 ? splitPayments : undefined,
+            projectId: targetProj.id,
+            projectCode: targetProj.code,
+            chartOfAccountId: unifiedCoaId,
+            warehouseLocation: 'Office',
+            notes: targetProj.notes || `Generated from Project [${targetProj.code}] ${targetProj.name}`,
+            skipLedgerTransaction: shouldSkipLedger,
+        });
+
+        const updatedSales = targetProj.salesItems.map(si => ({
+            ...si,
+            invoiceNo: si.invoiceNo || createdInv.invoiceNo,
+        }));
+
+        updateProject(targetProj.id, {
+            invoiceId: createdInv.id,
+            invoiceNo: createdInv.invoiceNo,
+            budget: targetProj.budget > 0 ? targetProj.budget : grandTotal,
+            salesItems: updatedSales,
+        });
+
+        addAuditLog({
+            staffId: activeStaff?.id || 'staff-admin',
+            staffName: activeStaff?.name || 'Staff',
+            staffRole: activeStaff?.role || 'Managing Director',
+            location: 'Office',
+            actionType: 'PROJECT_UPDATED',
+            entityType: 'Projects',
+            refNo: targetProj.code,
+            details: `Generated Sales Invoice #${createdInv.invoiceNo} for Project [${targetProj.code}] ${targetProj.name}`,
+            amount: grandTotal,
+            severity: 'info',
+        });
+
+        triggerImmediatePush();
+        return createdInv;
+    };
+
     const addProjectSales = (projectId: string, sales: Omit<ProjectSalesItem, 'id'>) => {
         const newItemId = `ps-${Date.now()}`;
         const targetProj = projects.find(p => p.id === projectId);
@@ -6571,6 +6706,7 @@ export const AppProvider: React.FC<{
             createProjectFromInvoice,
             linkInvoiceToProject,
             unlinkInvoiceFromProject,
+            generateInvoiceForProject,
             cleanModuleData,
             resetSalesData,
             resetAllTransactionalData,

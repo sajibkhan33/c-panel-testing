@@ -215,7 +215,7 @@ const MainLayout: React.FC = () => {
         {activeTab === 'sales' && canAccessSales && (<SalesModule onOpenInvoiceModal={handleOpenInvoice} onOpenChallanModal={handleOpenChallan}/>)}
         {activeTab === 'inventory' && canAccessInventory && <InventoryModule />}
         {activeTab === 'supply' && canAccessSupply && <SupplyChainModule />}
-        {activeTab === 'projects' && canAccessProjects && <ProjectManagementModule />}
+        {activeTab === 'projects' && canAccessProjects && <ProjectManagementModule onOpenInvoiceModal={handleOpenInvoice} />}
         {activeTab === 'accounting' && canAccessAccounting && <AccountingModule />}
         {activeTab === 'reports' && canAccessReports && <ReportModule />}
         {activeTab === 'settings' && canAccessSettings && <SettingsModule onNavigateTab={setActiveTab} />}
