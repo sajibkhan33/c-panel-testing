@@ -26,19 +26,21 @@ interface InvoicePageData {
     isLastPage: boolean;
 }
 
-const estimateInvoiceItemHeight = (item: any): number => {
+const estimateInvoiceItemHeight = (item: any, hasExtraCols: boolean = false): number => {
     // Base row height with py-2 (16px vertical padding) + text-xs line-height (16px) + 1px border = 33-37px
     let h = 36;
     const nameLen = (item.name || '').length;
-    if (nameLen > 35) {
-        h += Math.min(32, Math.ceil((nameLen - 35) / 28) * 16);
+    // When Type/Region columns are visible, description column width is ~275px instead of ~370px
+    const charThreshold = hasExtraCols ? 26 : 35;
+    if (nameLen > charThreshold) {
+        h += Math.min(48, Math.ceil((nameLen - charThreshold) / (charThreshold - 2)) * 16);
     }
     if (Boolean(item.totalSqft && item.width && item.height)) {
         h += 18;
     }
     if (item.notes && item.notes.trim()) {
         const noteLen = item.notes.trim().length;
-        h += noteLen > 35 ? 30 : 16;
+        h += noteLen > charThreshold ? 30 : 16;
     }
     return h;
 };
@@ -54,18 +56,19 @@ const getPageCapacities = (invoice?: any, isPadMode?: boolean, padTopMarginMm?: 
     const p1CustomerBoxHeight = 135;
     const p1TopOverhead = p1HeaderHeight + 10 + p1CustomerBoxHeight + 18;
 
-    // Subsequent Pages Header: Logo + Title Badge (~92px) + Reference strip (~28px) + Gap (16px)
+    // Subsequent Pages Header: Logo + Title Badge (~92px) + Gap (16px) (Customer strip removed per user request)
     const subPageHeaderHeight = isPadMode
         ? Math.round((padTopMarginMm || 42) * 3.78) + 26
         : 92;
-    const subPageTopOverhead = subPageHeaderHeight + 28 + 16;
+    const subPageTopOverhead = subPageHeaderHeight + 16;
 
     // Table Header row (thead tr py-2 + borders)
     const tableHeaderHeight = 40;
 
     // Footer on EVERY page:
-    // Signatures (45px) + System generated notice (16px) + Address/Phone/Email (42px) + padding/border (22px)
-    const pageFooterHeight = isPadMode ? 75 : 125;
+    // Signatures (45px) + System generated notice (16px) + Address/Phone/Email (42px) + padding/border (15px)
+    // (Continued on Page X... bar removed, saving vertical height)
+    const pageFooterHeight = isPadMode ? 65 : 115;
 
     // Financial Totals and Remarks (on last page)
     let totalsBoxHeight = 90;
@@ -78,7 +81,7 @@ const getPageCapacities = (invoice?: any, isPadMode?: boolean, padTopMarginMm?: 
     totalsBoxHeight = Math.max(totalsBoxHeight, remarksHeight) + 12;
 
     // Safety buffer to ensure 100% no element or text clipping
-    const safetyBuffer = 25;
+    const safetyBuffer = 30;
 
     const maxSinglePageTableHeight = Math.max(180, totalUsableHeight - (p1TopOverhead + tableHeaderHeight + totalsBoxHeight + pageFooterHeight + safetyBuffer));
     const maxMultiP1TableHeight = Math.max(280, totalUsableHeight - (p1TopOverhead + tableHeaderHeight + pageFooterHeight + safetyBuffer));
@@ -92,7 +95,8 @@ const getInvoicePages = (
     items: any[],
     invoice?: any,
     isPadMode?: boolean,
-    padTopMarginMm?: number
+    padTopMarginMm?: number,
+    hasExtraCols: boolean = false
 ): InvoicePageData[] => {
     const safeItems = items || [];
     if (safeItems.length === 0) {
@@ -109,7 +113,7 @@ const getInvoicePages = (
     const { maxSinglePageTableHeight, maxMultiP1TableHeight, maxMiddleTableHeight, maxLastPageTableHeight } =
         getPageCapacities(invoice, isPadMode, padTopMarginMm);
 
-    const totalAllHeight = safeItems.reduce((acc, it) => acc + estimateInvoiceItemHeight(it), 0);
+    const totalAllHeight = safeItems.reduce((acc, it) => acc + estimateInvoiceItemHeight(it, hasExtraCols), 0);
     if (totalAllHeight <= maxSinglePageTableHeight) {
         return [{
             pageNumber: 1,
@@ -128,7 +132,7 @@ const getInvoicePages = (
     while (currentIndex < safeItems.length) {
         const isP1 = pages.length === 0;
         const remainingItems = safeItems.slice(currentIndex);
-        const remainingTotalHeight = remainingItems.reduce((acc, it) => acc + estimateInvoiceItemHeight(it), 0);
+        const remainingTotalHeight = remainingItems.reduce((acc, it) => acc + estimateInvoiceItemHeight(it, hasExtraCols), 0);
 
         if (!isP1 && remainingTotalHeight <= maxLastPageTableHeight) {
             pages.push({ items: remainingItems, startIndex: currentIndex });
@@ -140,7 +144,7 @@ const getInvoicePages = (
         let accumulatedHeight = 0;
 
         for (let i = 0; i < remainingItems.length; i++) {
-            const itemH = estimateInvoiceItemHeight(remainingItems[i]);
+            const itemH = estimateInvoiceItemHeight(remainingItems[i], hasExtraCols);
             if (accumulatedHeight + itemH <= pageMaxHeight) {
                 accumulatedHeight += itemH;
                 takeCount++;
@@ -1140,8 +1144,8 @@ export const InvoicePrintModal: React.FC<InvoicePrintModalProps> = ({ invoiceId,
             </>)}
         </div>
       </div>);
-    }
-    const invoicePages = getInvoicePages(invoice.items, invoice, isPadMode, padTopMarginMm);
+    const hasExtraCols = Boolean(showType || showRegion);
+    const invoicePages = getInvoicePages(invoice.items, invoice, isPadMode, padTopMarginMm, hasExtraCols);
 
     return (<>
       {autoPrint && (<div className="fixed bottom-6 right-6 z-50 bg-slate-900/95 backdrop-blur-md text-white px-4 py-3 rounded-2xl shadow-2xl flex items-center gap-3 border border-slate-700 animate-in fade-in slide-in-from-bottom-3 pointer-events-none">
@@ -1604,7 +1608,7 @@ export const InvoicePrintModal: React.FC<InvoicePrintModalProps> = ({ invoiceId,
                       </div>
                     ) : (
                       /* Subsequent Pages: Top-Right Company Logo with BILL/Invoice Pill Badge (matching Page 1 exactly) */
-                      <div className="space-y-2">
+                      <div>
                         <DocumentHeader
                           badgeStyle={true}
                           documentTitle={(invoice as any).isQuote ? 'PRICE/Quotation' : 'BILL/Invoice'}
@@ -1615,20 +1619,6 @@ export const InvoicePrintModal: React.FC<InvoicePrintModalProps> = ({ invoiceId,
                           isPadMode={isPadMode}
                           padTopMarginMm={padTopMarginMm}
                         />
-
-                        {/* Subsequent Page Reference Strip */}
-                        <div className="flex items-center justify-between bg-slate-50 px-3 py-1.5 rounded-lg border-2 border-black text-xs text-black">
-                          <div>
-                            <span className="font-bold">Customer: </span>
-                            <span className="font-black text-sm">{invoice.customerName}</span>
-                            {invoice.customerCompany && <span className="font-semibold text-slate-700"> ({invoice.customerCompany})</span>}
-                          </div>
-                          <div className="flex items-center gap-3 font-mono font-bold text-xs">
-                            <span>Invoice #: #{invoice.invoiceNo}</span>
-                            <span>•</span>
-                            <span>Date: {invoice.date}</span>
-                          </div>
-                        </div>
                       </div>
                     )}
 
@@ -1637,18 +1627,18 @@ export const InvoicePrintModal: React.FC<InvoicePrintModalProps> = ({ invoiceId,
                       <table className="w-full text-left border-collapse">
                         <thead>
                           <tr className="bg-black text-white text-[11px] font-black uppercase tracking-wider border-b-2 border-black">
-                            <th className="py-2 px-3 text-center border-r border-black font-black w-12 text-white">SL</th>
+                            <th className={`py-2 text-center border-r border-black font-black text-white ${hasExtraCols ? 'w-10 px-1' : 'w-12 px-3'}`}>SL</th>
                             <th className="py-2 px-3 text-left border-r border-black font-black text-white">SERVICE / ITEM DESCRIPTION</th>
                             {showType && (
-                              <th className="py-2 px-3 text-center border-r border-black font-black text-white w-28">TYPE</th>
+                              <th className="py-2 px-2 text-center border-r border-black font-black text-white w-20 text-[10.5px]">TYPE</th>
                             )}
                             {showRegion && (
-                              <th className="py-2 px-3 text-center border-r border-black font-black text-white w-28">REGION</th>
+                              <th className="py-2 px-2 text-center border-r border-black font-black text-white w-20 text-[10.5px]">REGION</th>
                             )}
-                            <th className="py-2 px-3 text-center border-r border-black font-black w-16 text-white">UNIT</th>
-                            <th className="py-2 px-3 text-center border-r border-black font-black w-24 text-white">QTY / SQFT</th>
-                            <th className="py-2 px-3 text-right border-r border-black font-black w-24 text-white">RATETk</th>
-                            <th className="py-2 px-3 text-right font-black w-28 text-white">TOTALTk</th>
+                            <th className={`py-2 text-center border-r border-black font-black text-white ${hasExtraCols ? 'w-12 px-1 text-[10.5px]' : 'w-16 px-3'}`}>UNIT</th>
+                            <th className={`py-2 text-center border-r border-black font-black text-white ${hasExtraCols ? 'w-16 px-1 text-[10.5px]' : 'w-24 px-3'}`}>QTY / SQFT</th>
+                            <th className={`py-2 text-right border-r border-black font-black text-white ${hasExtraCols ? 'w-16 px-2 text-[10.5px]' : 'w-24 px-3'}`}>RATETk</th>
+                            <th className={`py-2 text-right font-black text-white ${hasExtraCols ? 'w-20 px-2 text-[10.5px]' : 'w-28 px-3'}`}>TOTALTk</th>
                           </tr>
                         </thead>
                         <tbody className="text-xs bg-white text-black">
@@ -1656,11 +1646,11 @@ export const InvoicePrintModal: React.FC<InvoicePrintModalProps> = ({ invoiceId,
                             const globalIdx = page.startIndex + itemIdx;
                             return (
                               <tr key={itemIdx} className={`border-b border-black last:border-b-0 hover:bg-slate-50/60 ${itemIdx % 2 === 1 ? 'bg-slate-50/40' : 'bg-white'}`}>
-                                <td className="py-2 px-3 font-bold text-black border-r border-black text-center">
+                                <td className={`py-2 font-bold text-black border-r border-black text-center ${hasExtraCols ? 'px-1' : 'px-3'}`}>
                                   {globalIdx + 1}
                                 </td>
                                 <td className="py-2 px-3 border-r border-black">
-                                  <div className="font-black text-black text-xs">{item.name}</div>
+                                  <div className="font-black text-black text-xs leading-snug">{item.name}</div>
                                   {Boolean(item.totalSqft && item.width && item.height) && (
                                     <div className="text-[11px] text-black font-bold mt-0.5">
                                       Dimensions: {item.width}' × {item.height}' = {item.totalSqft} SqFt
@@ -1669,25 +1659,25 @@ export const InvoicePrintModal: React.FC<InvoicePrintModalProps> = ({ invoiceId,
                                   {item.notes && (<div className="text-[10px] text-black italic font-medium mt-0.5">{item.notes}</div>)}
                                 </td>
                                 {showType && (
-                                  <td className="py-2 px-3 text-center font-bold text-black border-r border-black">
+                                  <td className="py-2 px-2 text-center font-bold text-black border-r border-black text-[11px] leading-tight">
                                     {item.type || item.itemType || '-'}
                                   </td>
                                 )}
                                 {showRegion && (
-                                  <td className="py-2 px-3 text-center font-bold text-black border-r border-black">
+                                  <td className="py-2 px-2 text-center font-bold text-black border-r border-black text-[11px] leading-tight">
                                     {item.region || '-'}
                                   </td>
                                 )}
-                                <td className="py-2 px-3 text-center font-bold text-black border-r border-black">
+                                <td className={`py-2 text-center font-bold text-black border-r border-black ${hasExtraCols ? 'px-1 text-[11px]' : 'px-3'}`}>
                                   {item.unit || 'job'}
                                 </td>
-                                <td className="py-2 px-3 text-center font-black text-black border-r border-black">
+                                <td className={`py-2 text-center font-black text-black border-r border-black ${hasExtraCols ? 'px-1' : 'px-3'}`}>
                                   {item.totalSqft ? item.totalSqft : (item.qty || 1)}
                                 </td>
-                                <td className="py-2 px-3 text-right font-black text-black border-r border-black">
+                                <td className={`py-2 text-right font-black text-black border-r border-black ${hasExtraCols ? 'px-2' : 'px-3'}`}>
                                   {(Number(item.unitPrice) || 0).toLocaleString()}
                                 </td>
-                                <td className="py-2 px-3 text-right font-black text-black">
+                                <td className={`py-2 text-right font-black text-black ${hasExtraCols ? 'px-2' : 'px-3'}`}>
                                   {(Number(item.totalPrice ?? (item as any).total ?? ((Number(item.unitPrice) || 0) * (Number(item.qty) || 1))) || 0).toLocaleString()}
                                 </td>
                               </tr>
@@ -1812,16 +1802,6 @@ export const InvoicePrintModal: React.FC<InvoicePrintModalProps> = ({ invoiceId,
 
                   {/* Footer on EVERY page (Both 1st page, intermediate pages, and last page) */}
                   <div className="a4-page-footer mt-auto pt-3 space-y-2 print:break-inside-avoid shrink-0">
-                    {/* Non-last page continuation notice */}
-                    {!page.isLastPage && (
-                      <div className="flex items-center justify-between text-[11px] text-black font-bold italic pb-1 border-b border-dashed border-slate-300">
-                        <span>Continued on Page {page.pageNumber + 1}...</span>
-                        <span className="not-italic font-mono bg-black text-white px-2 py-0.5 rounded text-[10px]">
-                          Page {page.pageNumber} of {page.totalPages}
-                        </span>
-                      </div>
-                    )}
-
                     {/* Signatures */}
                     <div className="flex justify-between items-end text-center text-xs text-black px-2 pt-0.5">
                       <div>
