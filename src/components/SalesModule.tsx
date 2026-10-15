@@ -887,7 +887,7 @@ export const SalesModule: React.FC<SalesModuleProps> = ({ onOpenInvoiceModal, on
                                 setProjectFormData({
                                   name: defaultProjectName,
                                   nameBn: '',
-                                  budget: inv.grandTotal,
+                                  budget: Math.round((Number(inv.grandTotal) || 0) * 100) / 100,
                                   status: 'In Progress',
                                   startDate: inv.date || new Date().toISOString().split('T')[0],
                                   endDate: '',
@@ -897,7 +897,7 @@ export const SalesModule: React.FC<SalesModuleProps> = ({ onOpenInvoiceModal, on
                                 });
                               }}
                               className="w-6.5 h-6.5 p-1 flex items-center justify-center text-amber-700 hover:text-amber-900 bg-amber-50 hover:bg-amber-100 rounded-md border border-amber-300 transition-colors cursor-pointer shadow-2xs"
-                              title="Create Project Against Invoice (Unified COA) / প্রজেক্ট তৈরি করুন"
+                              title="Create Project Against Invoice (Unified COA)"
                             >
                               <FolderKanban className="w-3 h-3" />
                             </button>
@@ -2690,7 +2690,7 @@ export const SalesModule: React.FC<SalesModuleProps> = ({ onOpenInvoiceModal, on
                     {'Create Project Against Invoice'}
                   </h3>
                   <div className="text-[11px] font-medium text-slate-500">
-                    ইনভয়েস <span className="font-bold text-amber-700 font-mono">#{projectModalInvoice.invoiceNo}</span> এর সাথে একীভূত (Unified COA) প্রজেক্ট
+                    Project linked with Invoice <span className="font-bold text-amber-700 font-mono">#{projectModalInvoice.invoiceNo}</span> (Unified COA)
                   </div>
                 </div>
               </div>
@@ -2766,10 +2766,10 @@ export const SalesModule: React.FC<SalesModuleProps> = ({ onOpenInvoiceModal, on
                     onChange={(e) => setProjectFormData({ ...projectFormData, status: e.target.value as any })}
                     className="w-full px-3 py-2 border border-slate-200 rounded-xl font-bold text-slate-700 bg-white"
                   >
-                    <option value="In Progress">In Progress (চলমান)</option>
-                    <option value="Planning">Planning (পরিকল্পনা)</option>
-                    <option value="Completed">Completed (সম্পন্ন)</option>
-                    <option value="On Hold">On Hold (স্থগিত)</option>
+                    <option value="In Progress">In Progress</option>
+                    <option value="Planning">Planning</option>
+                    <option value="Completed">Completed</option>
+                    <option value="On Hold">On Hold</option>
                   </select>
                 </div>
               </div>
@@ -2805,10 +2805,10 @@ export const SalesModule: React.FC<SalesModuleProps> = ({ onOpenInvoiceModal, on
                 <div className="flex items-center gap-2">
                   <Landmark className="w-4 h-4 text-indigo-700 shrink-0" />
                   <label className="font-extrabold text-indigo-950 text-xs">
-                    Unified Chart of Accounts Head (একীভূত COA) *
+                    Unified Chart of Accounts Head (Unified COA) *
                   </label>
                   <span className="text-[10px] font-bold px-1.5 py-0.2 bg-indigo-100 text-indigo-800 rounded">
-                    COA হবে একটাই
+                    Single Unified COA
                   </span>
                 </div>
                 <select
@@ -2818,12 +2818,12 @@ export const SalesModule: React.FC<SalesModuleProps> = ({ onOpenInvoiceModal, on
                 >
                   {availableRevenueCOAs.map(coa => (
                     <option key={coa.id} value={coa.id}>
-                      {coa.code} - {coa.name} {coa.nameBn ? `(${coa.nameBn})` : ''}
+                      {coa.code} - {coa.name}
                     </option>
                   ))}
                 </select>
                 <p className="text-[11px] text-indigo-900/80 leading-relaxed">
-                  ✓ এই প্রজেক্ট এবং সেলস ইনভয়েস <strong>একই চার্ট অব অ্যাকাউন্টস (COA)</strong> হেডে যুক্ত থাকবে। কোনো আলাদা বা ডাবল এন্ট্রি হবে না।
+                  ✓ This project and sales invoice will share the <strong>same Chart of Accounts (COA)</strong> head. No duplicate entries will be recorded.
                 </p>
               </div>
 
@@ -2837,10 +2837,10 @@ export const SalesModule: React.FC<SalesModuleProps> = ({ onOpenInvoiceModal, on
                 />
                 <div className="text-xs">
                   <span className="font-bold text-slate-800 block">
-                    ইনভয়েসের মূল্য ({profile.currencySymbol}{(Number(projectModalInvoice.grandTotal) || 0).toLocaleString()}) প্রজেক্ট সেলস ইনকাম হিসেবে যোগ করুন
+                    Add invoice amount ({profile.currencySymbol}{(Number(projectModalInvoice.grandTotal) || 0).toLocaleString()}) as project sales income
                   </span>
                   <span className="text-[11px] text-slate-500">
-                    প্রজেক্টের প্রফিটেবিলিটি স্টেটমেন্টে এই ইনভয়েসের সেলস ও পেমেন্ট হিস্ট্রি সরাসরি যুক্ত হবে।
+                    The sales and payment history of this invoice will be directly added to the project profitability statement.
                   </span>
                 </div>
               </label>
@@ -2897,7 +2897,7 @@ export const SalesModule: React.FC<SalesModuleProps> = ({ onOpenInvoiceModal, on
                 {projectCreatedSuccess.projectName}
               </p>
               <div className="mt-2 p-2 bg-emerald-50 rounded-lg border border-emerald-200 text-[11px] text-emerald-800 font-semibold">
-                ✓ চার্ট অব অ্যাকাউন্টস (COA) একীভূতভাবে সিঙ্ক সম্পন্ন হয়েছে।
+                ✓ Chart of Accounts (COA) unified sync complete.
               </div>
             </div>
             <div className="flex justify-center gap-2 pt-2">
