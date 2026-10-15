@@ -568,6 +568,11 @@ export const AccountingModule: React.FC = () => {
         if (!expenseTitle || expenseAmount <= 0)
             return;
         const selectedAccount = expenseAccount || availablePaymentAccounts[0]?.name || 'Cash';
+        const targetAccObj = availablePaymentAccounts.find((a) => a.name === selectedAccount || a.id === selectedAccount);
+        if (targetAccObj && Number(expenseAmount) > Number(targetAccObj.balance || 0)) {
+            alert(`Insufficient funds in ${targetAccObj.name}! Available balance is ${profile.currencySymbol}${targetAccObj.balance.toLocaleString()}. You cannot record an expense exceeding available funds.`);
+            return;
+        }
 
         if (selectedProjectId) {
             const matchedExpCoa = chartOfAccounts.find(a => 
@@ -1324,16 +1329,42 @@ export const AccountingModule: React.FC = () => {
               </div>
             </div>
 
-            <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
-              <button type="button" onClick={() => setShowExpenseModal(false)} className="px-4 py-2 border border-slate-200 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-50">
-                {'Cancel'}
-              </button>
-              <button type="submit" className="px-5 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold shadow-2xs">
-                {selectedProjectId
-                  ? `Confirm & Link to Project (${profile.currencySymbol}${(Number(expenseAmount) || 0).toLocaleString()})`
-                  : 'Confirm Expense'}
-              </button>
-            </div>
+            {(() => {
+              const selectedAcc = availablePaymentAccounts.find((a) => a.name === expenseAccount || a.id === expenseAccount) || availablePaymentAccounts[0];
+              const isOverdraft = Boolean(selectedAcc && Number(expenseAmount) > Number(selectedAcc.balance || 0));
+              return (
+                <>
+                  {isOverdraft && selectedAcc && (
+                    <div className="p-2.5 bg-rose-50 border border-rose-200 rounded-xl text-[11px] text-rose-800 font-semibold flex items-center gap-2">
+                      <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+                      <span>
+                        {`Expense amount exceeds available balance in ${selectedAcc.name} (${profile.currencySymbol}${selectedAcc.balance.toLocaleString()}). Cannot proceed with negative balance.`}
+                      </span>
+                    </div>
+                  )}
+                  <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
+                    <button type="button" onClick={() => setShowExpenseModal(false)} className="px-4 py-2 border border-slate-200 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-50 cursor-pointer">
+                      {'Cancel'}
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={expenseAmount <= 0 || isOverdraft}
+                      className={`px-5 py-2 text-white rounded-xl text-xs font-bold shadow-2xs transition-all ${
+                        isOverdraft
+                          ? 'bg-slate-400 cursor-not-allowed opacity-60'
+                          : 'bg-rose-600 hover:bg-rose-700 cursor-pointer'
+                      }`}
+                    >
+                      {isOverdraft
+                        ? 'Insufficient Account Balance'
+                        : selectedProjectId
+                        ? `Confirm & Link to Project (${profile.currencySymbol}${(Number(expenseAmount) || 0).toLocaleString()})`
+                        : 'Confirm Expense'}
+                    </button>
+                  </div>
+                </>
+              );
+            })()}
           </form>
         </div>)}
 
