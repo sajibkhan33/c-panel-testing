@@ -377,13 +377,26 @@ app.get('/api/download/printer-installer-bat', (_req, res) => {
   return res.status(404).json({ success: false, error: 'Installer script not found' });
 });
 
+// Support /erp prefix for API calls and static routing
+app.use((req, _res, next) => {
+  if (req.url.startsWith('/erp/api/')) {
+    req.url = req.url.replace('/erp', '');
+  }
+  next();
+});
+
 // Serve frontend in production or if dist exists
 const distPath = path.join(__dirname, 'dist');
 app.use(express.static(distPath));
+app.use('/erp', express.static(distPath));
+app.use('/assets', express.static(path.join(distPath, 'assets')));
+app.use('/erp/assets', express.static(path.join(distPath, 'assets')));
+
 app.use('/downloads', express.static(path.join(__dirname, 'public', 'downloads')));
+app.use('/erp/downloads', express.static(path.join(__dirname, 'public', 'downloads')));
 
 app.get('*', (req, res, next) => {
-  if (req.path.startsWith('/api')) return next();
+  if (req.path.startsWith('/api') || req.path.startsWith('/erp/api')) return next();
   res.sendFile(path.join(distPath, 'index.html'), (err) => {
     if (err) res.status(404).send('Not Found');
   });
